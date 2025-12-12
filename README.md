@@ -1,16 +1,57 @@
-# React + Vite
+# 🧭 Travel Planner｜旅遊行程規劃系統
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+一個結合 AI 行程產生與 Google Maps 視覺化的旅遊規劃 Web 應用，  
+使用者可透過自然語言描述旅遊需求，即時產生多日行程，並在地圖上查看路線與景點。
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🔧 技術架構
 
-## React Compiler
+### Frontend
+- React (Vite)
+- @react-google-maps/api
+- JavaScript / CSS
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Backend
+- Node.js
+- Express
+- OpenAI API
+- Google Places API
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## ✨ 功能介紹
+
+- 💬 AI 旅遊行程產生（JSON 結構化）
+- 🗺 多日行程地圖顯示（Marker + 路線）
+- 🎨 每一天不同顏色標記與順序編號
+- 🔄 行程列表與地圖雙向互動
+- 🔍 Google Places 真實座標與照片
+
+---
+
+## 📂 專案結構
+
+```text
+travel-planner/
+├─ backend/
+│  ├─ server.js
+│  ├─ package.json
+│  └─ .env (ignored)
+├─ frontend/
+│  ├─ src/
+│  ├─ package.json
+│  └─ vite.config.js
+└─ README.md
+
+
+🚀 啟動方式
+Backend
+cd backend
+npm install
+npm run dev
+
+Frontend
+cd frontend
+npm install
+npm run dev
