@@ -1,0 +1,312 @@
+:root {
+  --primary: #2563eb;      /* 深藍（地圖 / 主按鈕） */
+  --secondary: #10b981;    /* 旅遊綠 */
+  --bg-soft: #f8fafc;     /* 很淡的灰藍 */
+  --card-bg: #ffffff;
+  --border-soft: #e5e7eb;
+  --text-main: #111827;
+  --text-sub: #6b7280;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-soft);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+}
+
+/* 外層：置中一個大白卡 */
+.app-root {
+  width: 100vw;
+  height: 100vh;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+
+/* 主卡片：白底 + 圓角 + 陰影 */
+.app-shell {
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+
+/* 標題列 */
+.app-header-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-header-title span.logo-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #3b82f6, #22c55e);
+}
+
+.app-header-subtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+/* 上半部：左聊右展示的 layout */
+.main-layout {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+}
+
+/* 左邊聊天區 */
+.chat-panel {
+  flex: 0 0 32%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: #f9fafb;
+  overflow: hidden;
+}
+
+/* 聊天訊息捲動區 */
+.chat-messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 單一訊息外框（用來左右對齊） */
+.chat-row {
+  display: flex;
+}
+
+/* 使用者在右邊，assistant/system 在左邊 */
+.chat-row.user {
+  justify-content: flex-end;
+}
+.chat-row.assistant,
+.chat-row.system {
+  justify-content: flex-start;
+}
+
+/* 泡泡本體 */
+.bubble {
+  max-width: 75%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* 使用者泡泡：藍色右邊 */
+.bubble-user {
+  background: linear-gradient(135deg, var(--primary), #60a5fa);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+/* 助理泡泡：綠色左邊 */
+.bubble-assistant {
+  background: linear-gradient(135deg, var(--secondary), #34d399);
+  color: #ffffff;
+  border-bottom-left-radius: 4px;
+}
+
+/* system 提示：灰色左邊 */
+.bubble-system {
+  background: #e5e7eb;
+  color: #111827;
+  border-bottom-left-radius: 4px;
+}
+
+/* 下方輸入區 */
+.chat-input-area {
+  padding: 8px;
+  border-top: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  display: flex;
+  gap: 8px;
+}
+
+.chat-textarea {
+  flex: 1;
+  resize: none;
+  border-radius: 8px;
+  border: 1px solid #284776;
+  padding: 8px;
+  font-size: 14px;
+  outline: none;
+}
+
+.chat-textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+/* 送出按鈕 */
+.send-button {
+  padding: 0 16px;
+  border-radius: 8px;
+  border: none;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.send-button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* 右邊地圖 + 行程 */
+.side-panel {
+  flex: 0.9;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 共用卡片樣式（地圖卡 + 行程卡） */
+.card {
+  background: var(--card-bg);
+  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  padding: 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 卡片標題 */
+.card-header {
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-header span.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+}
+
+/* 地圖卡高度固定，行程卡可以捲動 */
+.map-card {
+  flex: 0 0 36%;
+  display: flex;
+  flex-direction: column;
+}
+
+
+.plan-card {
+  flex: 0 0 32%;
+  overflow-y: auto;
+  background: #1f5895;
+}
+
+
+/* 行程內容樣式 */
+.plan-summary {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.plan-summary strong {
+  font-weight: 600;
+}
+
+.plan-day-block {
+  border-radius: 10px;
+  padding: 8px;
+  background: #3174b7;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 6px;
+}
+
+.plan-day-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.plan-item-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.plan-item {
+  margin-bottom: 4px;
+}
+
+.plan-item-main {
+  font-size: 13px;
+}
+
+.plan-item-type {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.plan-item-note {
+  font-size: 12px;
+  color: #4b5563;
+}
+
+/* 「尚未產生行程」提示 */
+.plan-empty-text {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+/* 小螢幕時：上下堆疊顯示（可選） */
+@media (max-width: 900px) {
+  .app-shell {
+    height: auto;
+    min-height: 90vh;
+  }
+  .main-layout {
+    flex-direction: column;
+  }
+  .side-panel {
+    flex: 1;
+  }
+}
+
+.plan-item-active {
+  background: #eff6ff;
+  border-left: 3px solid #3b82f6;
+}
+
+
