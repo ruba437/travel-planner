@@ -1,7 +1,7 @@
 :root {
-  --primary: #2563eb;      /* 深藍（地圖 / 主按鈕） */
-  --secondary: #10b981;    /* 旅遊綠 */
-  --bg-soft: #f8fafc;     /* 很淡的灰藍 */
+  --primary: #2563eb;      /* 主按鈕 */
+  --secondary: #10b981;    
+  --bg-soft: #f8fafc;     
   --card-bg: #ffffff;
   --border-soft: #e5e7eb;
   --text-main: #111827;
@@ -108,7 +108,7 @@ body,
   justify-content: flex-start;
 }
 
-/* 泡泡本體 */
+
 .bubble {
   max-width: 75%;
   padding: 8px 12px;
@@ -118,21 +118,21 @@ body,
   white-space: pre-wrap;
 }
 
-/* 使用者泡泡：藍色右邊 */
+
 .bubble-user {
   background: linear-gradient(135deg, var(--primary), #60a5fa);
   color: #ffffff;
   border-bottom-right-radius: 4px;
 }
 
-/* 助理泡泡：綠色左邊 */
+
 .bubble-assistant {
   background: linear-gradient(135deg, var(--secondary), #34d399);
   color: #ffffff;
   border-bottom-left-radius: 4px;
 }
 
-/* system 提示：灰色左邊 */
+/* system 提示 */
 .bubble-system {
   background: #e5e7eb;
   color: #111827;

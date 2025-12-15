@@ -41,31 +41,31 @@ app.post('/api/chat', async (req, res) => {
         {
           role: 'user',
           content: `
-請根據下面使用者的需求，產生一個旅遊行程 JSON。格式必須完全符合：
+            請根據下面使用者的需求，產生一個旅遊行程 JSON。格式必須完全符合：
 
-{
-  "summary": "簡短中文概要，說明這次行程，例如：台中兩天一夜美食＋夜景行程",
-  "city": "主要旅遊城市，例如：台中",
-  "days": [
-    {
-      "day": 1,
-      "title": "第一天主題，例如：市區景點＋夜市美食",
-      "items": [
-        {
-          "time": "morning | noon | afternoon | evening | night 其中一個",
-          "name": "景點或餐廳名稱（短）",
-          "type": "sight | food | shopping | activity 其中一個",
-          "note": "1~2 句中文說明，包含為什麼推薦、大概停留多久等"
-        }
-      ]
-    }
-  ]
-}
+            {
+              "summary": "簡短中文概要，說明這次行程，例如：台中兩天一夜美食＋夜景行程",
+              "city": "主要旅遊城市，例如：台中",
+              "days": [
+                {
+                  "day": 1,
+                  "title": "第一天主題，例如：市區景點＋夜市美食",
+                  "items": [
+                    {
+                      "time": "morning | noon | afternoon | evening | night 其中一個",
+                      "name": "景點或餐廳名稱（短）",
+                      "type": "sight | food | shopping | activity 其中一個",
+                      "note": "1~2 句中文說明，包含為什麼推薦、大概停留多久等"
+                    }
+                  ]
+                }
+              ]
+            }
 
-要求：
-1. 一定要是有效的 JSON（用雙引號、不能有註解）。
-2. 不可以有任何 JSON 以外的文字說明。
-3. "days" 至少要有 2 天，如果使用者沒說天數，就幫忙猜 2~3 天。
+            要求：
+            1. 一定要是有效的 JSON（用雙引號、不能有註解）。
+            2. 不可以有任何 JSON 以外的文字說明。
+            3. "days" 至少要有 2 天，如果使用者沒說天數，就幫忙猜 2~3 天。
 
 使用者需求如下：
 ${userMessage}
@@ -97,7 +97,7 @@ ${userMessage}
 
     res.json({
       reply: replyText,
-      plan, // 這就是我們要給前端用來畫行程表的 JSON
+      plan, // 給前端用來畫行程表的 JSON
     });
   } catch (err) {
     console.error('Error calling OpenAI:', err);
@@ -112,64 +112,53 @@ ${userMessage}
 // body: { query: '景點名稱', city: '台中' }
 app.post('/api/places/search', async (req, res) => {
   const { query, city } = req.body || {};
-  if (!query) {
-    return res.status(400).json({ error: 'query is required' });
-  }
+  if (!query) return res.status(400).json({ error: 'query is required' });
 
   try {
     const fullQuery = city ? `${city} ${query}` : query;
 
-    const url = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
+    const response = await axios.get(
+      'https://maps.googleapis.com/maps/api/place/textsearch/json',
+      {
+        params: {
+          query: fullQuery,
+          key: process.env.GOOGLE_PLACES_API_KEY,
+          language: 'zh-TW',
+          region: 'tw',
+        },
+      },
+    );
 
-const response = await axios.get(url, {
-  params: {
-    query: fullQuery,
-    key: process.env.GOOGLE_PLACES_API_KEY,
-    language: 'zh-TW',
-    region: 'tw',
-  },
-});
+    const data = response.data;
 
-const data = response.data;
-console.log('🔍 Raw Places response:', JSON.stringify(data, null, 2));
+    if (data.status !== 'OK') {
+      return res.status(400).json({
+        error: 'Google Places status not OK',
+        status: data.status,
+        error_message: data.error_message,
+        places: [],
+      });
+    }
 
-if (data.status !== 'OK') {
-  // 這裡就可以看到真正的錯誤，例如 REQUEST_DENIED
-  return res.status(400).json({
-    error: 'Google Places status not OK',
-    status: data.status,
-    error_message: data.error_message,
-    places: [],
-  });
-}
+    const places = (data.results || []).slice(0, 3).map((r) => ({
+      name: r.name,
+      address: r.formatted_address,
+      lat: r.geometry?.location?.lat,
+      lng: r.geometry?.location?.lng,
+      placeId: r.place_id,
+      rating: r.rating,
+      userRatingsTotal: r.user_ratings_total,
+      photoReference: r.photos?.[0]?.photo_reference || null,
+    }));
 
-const results = data.results || [];
-
-const places = results.slice(0, 3).map((r) => ({
-  name: r.name,
-  address: r.formatted_address,
-  lat: r.geometry?.location?.lat,
-  lng: r.geometry?.location?.lng,
-  placeId: r.place_id,
-  rating: r.rating,
-  userRatingsTotal: r.user_ratings_total,
-  photoReference:
-    r.photos && r.photos[0] ? r.photos[0].photo_reference : null,
-}));
-
-
-
-    res.json({ places });
-    } catch (err) {
+    return res.json({ places });
+  } catch (err) {
     const details = err.response?.data || err.message || err;
     console.error('Error calling Google Places API:', details);
-
-    res.status(500).json({
-      error: 'Failed to fetch places',
-      details,
-    });
+    return res.status(500).json({ error: 'Failed to fetch places' });
   }
 });
+
 
 // ------------------ Google Places Photo 代理 ------------------
 // GET /api/places/photo?ref=PHOTO_REFERENCE&maxwidth=400
@@ -189,7 +178,7 @@ app.get('/api/places/photo', async (req, res) => {
         maxwidth: maxwidth || 400,
         key: process.env.GOOGLE_PLACES_API_KEY,  // 後端那把 key
       },
-      responseType: 'arraybuffer', // 重要：拿到的是圖片 binary
+      responseType: 'arraybuffer', // 拿到的是圖片 binary
     });
 
     const contentType = response.headers['content-type'] || 'image/jpeg';
@@ -201,7 +190,13 @@ app.get('/api/places/photo', async (req, res) => {
   }
 });
 
-
+const required = ['OPENAI_API_KEY', 'GOOGLE_PLACES_API_KEY'];
+const missing = required.filter((k) => !process.env[k]);
+if (missing.length) {
+  console.error('❌ Missing env:', missing.join(', '));
+  console.error('請建立 backend/.env（參考 .env.example）');
+  process.exit(1);
+}
 
 // 啟動 server
 const PORT = 3000;

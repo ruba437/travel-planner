@@ -55,3 +55,5 @@ Frontend
 cd frontend
 npm install
 npm run dev
+
+(example.env要改成.env並改裡面的Key)

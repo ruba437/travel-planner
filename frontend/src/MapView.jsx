@@ -12,17 +12,15 @@ const dayColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
 
 const getDayColor = (day) => {
   if (!day) return '#6366f1';
-  // day 從 1 開始，所以要 -1
   return dayColors[(day - 1) % dayColors.length];
 };
 
 const getMarkerIcon = (day) => {
-  // 還沒載入 Google Maps SDK 的時候先回傳 undefined
   if (!window.google || !window.google.maps) return undefined;
 
   return {
-    path: window.google.maps.SymbolPath.CIRCLE, // 用圓形符號
-    scale: 10, // 圓點大小
+    path: window.google.maps.SymbolPath.CIRCLE, 
+    scale: 10, 
     fillColor: getDayColor(day), // 依照 day 給顏色
     fillOpacity: 1,
     strokeColor: '#ffffff',
@@ -84,7 +82,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     );
   }, [plan]);
 
-  // 🔹 根據 markers 算出「每一天」的路線
+  
   // 根據 markers 算出「每一天」的路線 path
   const dayPaths = useMemo(() => {
     if (!markers.length) return {};
@@ -164,7 +162,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
 
 
-  // 🔹 當 plan 改變時，去後端查每個景點的真實座標
+  // 當 plan 改變時，去後端查每個景點的真實座標
   useEffect(() => {
     if (!plan || !plan.days || plan.days.length === 0) {
       setMarkers([]);
@@ -219,7 +217,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
                   userRatingsTotal: place.userRatingsTotal,
                   photoReference: place.photoReference || null,
 
-                  day: dayNumber,   // ✅ number
+                  day: dayNumber,   
                   order: orderInDay, // 當天順序
                 });
 
@@ -294,7 +292,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         </div>
       )}
 
-      {/* 🔸 天數切換按鈕 */}
+      {/* 天數切換按鈕 */}
       {plan?.days && plan.days.length > 0 && (
         <div
           style={{
@@ -368,10 +366,10 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         }}
       >
       
-        {/* ✅ 只有「選某一天」時才畫線，選全部不畫任何路線 */}
+        {/* 只有「選某一天」時才畫線，選全部不畫任何路線 */}
         {!showAll && dayPaths[String(selectedDay)] && (
           <Polyline
-            key={selectedDay} // 保留沒關係
+            key={selectedDay} 
             path={dayPaths[String(selectedDay)]}
             options={{
               strokeColor: getDayColor(selectedDay),
@@ -383,7 +381,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
 
 
-        {/* 🔸 Marker：全部模式顯示所有天；選某一天只顯示該天 */}
+        {/*  Marker：全部模式顯示所有天；選某一天只顯示該天 */}
         {markers
           .filter((m) => selectedDay === null || m.day === selectedDay)
           .map((m, idx) => {
@@ -395,7 +393,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
             if (window.google && window.google.maps && window.google.maps.SymbolPath) {
               icon = {
                 path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 10, // 圓點大小
+                scale: 10, 
                 fillColor: getDayColor(m.day),
                 fillOpacity: 1,
                 strokeColor: '#ffffff',
@@ -414,9 +412,9 @@ function MapView({ plan, activeLocation, onLocationChange }) {
                 }}
                 // 🟢 每一天不同顏色的小圓點
                 icon={getMarkerIcon(m.day)}
-                // 🔢 圓點中間的編號（同一天內 1,2,3...）
+                // 圓點中間的編號（同一天內 1,2,3...）
                 label={{
-                  text: String((m.order || 0) + 1), // m.order 是你在程式裡算好的順序
+                  text: String((m.order || 0) + 1), // m.order 算好的順序
                   color: '#ffffff',
                   fontSize: '12px',
                   fontWeight: 'bold',
@@ -429,7 +427,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
 
 
-        {/* 🔸 InfoWindow：帶圖片 + 名稱 + 地址 + 連到 Google Maps */}
+        {/* InfoWindow：帶圖片 + 名稱 + 地址 + 連到 Google Maps */}
         {selectedMarker && (
           <InfoWindow
             position={{

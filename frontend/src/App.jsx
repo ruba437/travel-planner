@@ -98,7 +98,6 @@ function App() {
   return (
     <div className="app-root">
       <div className="app-shell">
-        {/* Header */}
         <div className="app-header">
           <div className="app-header-title">
             <span className="logo-dot" />
@@ -109,9 +108,8 @@ function App() {
           </div>
         </div>
 
-        {/* 左聊右展示 */}
+        
         <div className="main-layout">
-          {/* 左邊：聊天區 */}
           <div className="chat-panel">
             <div className="chat-messages">
               {messages.map((m, idx) => (
