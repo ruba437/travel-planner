@@ -198,6 +198,76 @@ if (missing.length) {
   process.exit(1);
 }
 
+// ------------------ Google Directions 路線查詢 ------------------
+// POST /api/directions
+// body: {
+//   origin: { lat: number, lng: number },
+//   destination: { lat: number, lng: number },
+//   mode: 'DRIVING' | 'TRANSIT' | 'WALKING' | 'BICYCLING'
+// }
+app.post('/api/directions', async (req, res) => {
+  const { origin, destination, mode } = req.body || {};
+
+  if (!origin || !destination) {
+    return res.status(400).json({ error: 'origin 和 destination 都是必填' });
+  }
+
+  try {
+    const url = 'https://maps.googleapis.com/maps/api/directions/json';
+
+    const modeParam = (mode || 'TRANSIT').toLowerCase();
+
+    const response = await axios.get(url, {
+      params: {
+        origin: `${origin.lat},${origin.lng}`,
+        destination: `${destination.lat},${destination.lng}`,
+        mode: modeParam, 
+        language: 'zh-TW',
+        region: 'tw',
+        departure_time: Math.floor(Date.now() / 1000),
+        key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+      },
+    });
+
+
+    const data = response.data;
+
+    if (data.status !== 'OK') {
+      return res.status(400).json({
+        error: 'Google Directions status not OK',
+        status: data.status,
+        error_message: data.error_message,
+      });
+    }
+
+    // 只取第一條 route
+    const route = data.routes[0];
+    const leg = route.legs[0];
+
+    const summary = {
+      distanceText: leg.distance?.text,
+      durationText: leg.duration?.text,
+      startAddress: leg.start_address,
+      endAddress: leg.end_address,
+      steps: (leg.steps || []).map((s) => ({
+        // HTML 說明文字
+        instructionHtml: s.html_instructions,
+        distanceText: s.distance?.text,
+        durationText: s.duration?.text,
+        travelMode: s.travel_mode,
+      })),
+    };
+
+    res.json({ summary });
+  } catch (err) {
+    console.error('Error calling Google Directions API:', err.response?.data || err.message || err);
+    res.status(500).json({
+      error: 'Failed to fetch directions',
+    });
+  }
+});
+
+
 // 啟動 server
 const PORT = 3000;
 app.listen(PORT, () => {
