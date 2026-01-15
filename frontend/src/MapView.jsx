@@ -1,5 +1,7 @@
 // frontend/src/MapView.jsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+
+
 import {
   GoogleMap,
   Marker,
@@ -8,12 +10,13 @@ import {
   useJsApiLoader,
 } from '@react-google-maps/api';
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 const dayColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
 
 const GOOGLE_LIBRARIES = ['places', 'geometry'];
+
+
 
 
 const getDayColor = (day) => {
@@ -70,6 +73,14 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [selectedSegmentInfo, setSelectedSegmentInfo] = useState(null);
   const [loadingDirections, setLoadingDirections] = useState(false);
   const [routePath, setRoutePath] = useState(null); // Array<{lat,lng}> | null
+  const [hideRoute, setHideRoute] = useState(false);
+  const [routeToken, setRouteToken] = useState(0);
+  const activePolylineRef = useRef(null);
+
+
+
+  const directionsAbortRef = useRef(null);
+  const directionsReqIdRef = useRef(0);
 
 
   // 交通模式：DRIVING / TRANSIT / WALKING
@@ -77,12 +88,19 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [selectedSegment, setSelectedSegment] = useState(null);
 
   const changeMode = (mode) => {
-  setTravelMode(mode);
-
-    // ✅切換交通方式時，清掉上一個 mode 的線與結果
-    setRoutePath(null);
+    clearOldRoute(); // 🔥 先手動殺掉舊線
     setSelectedSegmentInfo(null);
-    setLoadingDirections(false);
+    
+    // 稍微延遲一下再設狀態，確保上一行執行完畢
+    setTimeout(() => {
+      setRouteToken((t) => t + 1);
+      setTravelMode(mode);
+    }, 0);
+  };
+
+  // 強制清除地圖上的路線物件
+  const clearOldRoute = () => {
+    setRoutePath(null);
   };
 
 
@@ -284,10 +302,59 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   }, [plan, isLoaded]);
 
   useEffect(() => {
-    // 只有在「已經點過某段線」時，切換模式才自動重查
     if (!selectedSegment) return;
-    handleSegmentClick(selectedSegment);
-  }, [travelMode]);
+
+    if (directionsAbortRef.current) directionsAbortRef.current.abort();
+    setRoutePath(null);
+    setSelectedSegmentInfo(null);
+    setLoadingDirections(true);
+
+    const t = setTimeout(() => {
+      handleSegmentClick(selectedSegment);
+    }, 200); // ✅ 保證肉眼可見的消失
+
+    return () => clearTimeout(t);
+  }, [travelMode, selectedSegment]);
+
+  // 🔥 新增：使用原生 API 繪製路線，確保舊線一定會消失
+  useEffect(() => {
+    // 1. 如果地圖還沒載入，什麼都不做
+    if (!mapRef || !window.google) return;
+
+    // 定義清除函式：不管現在是什麼狀況，先把舊的線殺掉
+    const removeLine = () => {
+      if (activePolylineRef.current) {
+        activePolylineRef.current.setMap(null); // 從地圖上移除
+        activePolylineRef.current = null;       // 清空 Ref
+      }
+    };
+
+    // 2. 執行清除 (無論是路徑更新還是要清空，先移除舊的再說)
+    removeLine();
+
+    // 3. 如果有新的路徑資料，就畫新的線
+    if (routePath && routePath.length > 0) {
+      const line = new window.google.maps.Polyline({
+        path: routePath,
+        strokeColor: '#2563eb',
+        strokeOpacity: 0.95,
+        strokeWeight: 6,
+        zIndex: 1000,
+        map: mapRef, // 直接綁定到地圖上
+      });
+      
+      // 存入 Ref 以便下次清除
+      activePolylineRef.current = line;
+    }
+
+    // 4. Cleanup function: 當元件卸載或 routePath 改變前，確保清除
+    return () => {
+      removeLine();
+    };
+  }, [routePath, mapRef]); // 只要 routePath 變了，就觸發重畫
+
+
+
 
 
   // -------- loading / 無行程 顯示 --------
@@ -471,38 +538,44 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   };
 
   async function handleSegmentClick(segment) {
+    clearOldRoute();
+
     setSelectedSegment(segment);
     setSelectedSegmentInfo(null);
     setLoadingDirections(true);
+    setRoutePath(null); // 先把舊線清掉（立即消失）
+
+    // ✅ 取消上一個還在飛的請求
+    if (directionsAbortRef.current) {
+      directionsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    directionsAbortRef.current = controller;
+
+    // ✅ 產生這次請求的 id（用來忽略舊回應）
+    const reqId = ++directionsReqIdRef.current;
+
     try {
       const res = await fetch(`${API_BASE}/api/directions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           origin: { lat: segment.from.lat, lng: segment.from.lng },
           destination: { lat: segment.to.lat, lng: segment.to.lng },
           mode: travelMode,
         }),
       });
+
       const data = await res.json();
-      // console.log('directions response keys:', Object.keys(data), data);
 
+      // ✅ 如果這不是最新的一次請求回來，就直接丟掉，不更新畫面
+      if (reqId !== directionsReqIdRef.current) return;
 
-      if (
-        data.encodedPolyline &&
-        window.google?.maps?.geometry?.encoding
-      ) {
-        const decoded =
-          window.google.maps.geometry.encoding.decodePath(
-            data.encodedPolyline
-          );
-
-        setRoutePath(
-          decoded.map((p) => ({
-            lat: p.lat(),
-            lng: p.lng(),
-          }))
-        );
+      if (data.encodedPolyline && window.google?.maps?.geometry?.encoding) {
+        const decoded = window.google.maps.geometry.encoding.decodePath(data.encodedPolyline);
+        setRoutePath(decoded.map((p) => ({ lat: p.lat(), lng: p.lng() })));
+        setHideRoute(false);
       } else {
         setRoutePath(null);
       }
@@ -513,12 +586,19 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         setSelectedSegmentInfo({ segment, summary: data.summary });
       }
     } catch (err) {
+      // ✅ abort 不算錯誤，不用顯示「失敗」
+      if (err?.name === 'AbortError') return;
+
       console.error(err);
       setSelectedSegmentInfo({ segment, error: '取得交通方式失敗，請稍後再試。' });
     } finally {
-      setLoadingDirections(false);
+      // ✅ 只有最新請求才能把 loading 關掉
+      if (reqId === directionsReqIdRef.current) {
+        setLoadingDirections(false);
+      }
     }
-}
+  }
+
 
 
   // -------- 地圖 --------
@@ -623,7 +703,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
       >
       
         {/*  只有選某一天時才畫出「該天的每一段 segment」 */}
-        {!showAll && !selectedSegment && !loadingDirections && !routePath &&
+        {!showAll && 
           daySegments
             .filter((seg) => seg.day === selectedDay)
             .map((seg) => (
@@ -644,17 +724,29 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         ))}
 
         {/* 真實路線（點 segment 後顯示） */}
-        {routePath && (
+        {/* {Array.isArray(routePath) && routePath.length > 0 && (
           <Polyline
+            key={`route-${routeToken}`} // 這裡 key 可以簡單一點了
             path={routePath}
             options={{
+              strokeColor: '#2563eb',
               strokeOpacity: 0.95,
               strokeWeight: 6,
-              zIndex: 999, // 讓它在上面
-              clickable: false,
+              zIndex: 1000,
+            }}
+            // 🔥 關鍵：當線畫出來時，把實例存起來
+            onLoad={(polyline) => {
+              activePolylineRef.current = polyline;
+            }}
+            // 當元件被 React 移除時，也確保清空 Ref
+            onUnmount={() => {
+              activePolylineRef.current = null;
             }}
           />
-        )}
+        )} */}
+
+
+
 
 
 
