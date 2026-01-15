@@ -11,8 +11,10 @@ import {
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
-
 const dayColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
+
+const GOOGLE_LIBRARIES = ['places', 'geometry'];
+
 
 const getDayColor = (day) => {
   if (!day) return '#6366f1';
@@ -67,10 +69,22 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [mapRef, setMapRef] = useState(null);
   const [selectedSegmentInfo, setSelectedSegmentInfo] = useState(null);
   const [loadingDirections, setLoadingDirections] = useState(false);
+  const [routePath, setRoutePath] = useState(null); // Array<{lat,lng}> | null
+
 
   // 交通模式：DRIVING / TRANSIT / WALKING
   const [travelMode, setTravelMode] = useState('DRIVING');
   const [selectedSegment, setSelectedSegment] = useState(null);
+
+  const changeMode = (mode) => {
+  setTravelMode(mode);
+
+    // ✅切換交通方式時，清掉上一個 mode 的線與結果
+    setRoutePath(null);
+    setSelectedSegmentInfo(null);
+    setLoadingDirections(false);
+  };
+
 
 
   // 切換天數時，把 InfoWindow 關掉
@@ -79,6 +93,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     setSelectedSegment(null);
     setSelectedSegmentInfo(null);
     setLoadingDirections(false);
+    setRoutePath(null);
   }, [selectedDay]);
 
   // 重新產生新行程後
@@ -88,12 +103,14 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     setSelectedSegment(null);
     setSelectedSegmentInfo(null);
     setLoadingDirections(false);
+    setRoutePath(null);
   }, [plan]);
 
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_LIBRARIES,
   });
 
   // 根據城市決定中心點
@@ -308,7 +325,8 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
   const renderRouteCard = () => {
     
-    if (!selectedSegmentInfo && !loadingDirections) return null;
+    if (!selectedSegment && !selectedSegmentInfo && !loadingDirections) return null;
+
 
     
     const seg = selectedSegmentInfo?.segment || selectedSegment;
@@ -345,6 +363,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
               setSelectedSegment(null);
               setSelectedSegmentInfo(null);
               setLoadingDirections(false);
+              setRoutePath(null); 
             }}
             style={{
               border: 'none',
@@ -364,7 +383,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         {seg && (
           <div style={{ display: 'flex', gap: 6, margin: '6px 0 8px 0' }}>
             <button
-              onClick={() => setTravelMode('DRIVING')}
+              onClick={() => changeMode('DRIVING')}
               style={{
                 border: 'none',
                 borderRadius: '999px',
@@ -380,7 +399,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
             </button>
 
             <button
-              onClick={() => setTravelMode('TRANSIT')}
+              onClick={() => changeMode('TRANSIT')}
               style={{
                 border: 'none',
                 borderRadius: '999px',
@@ -396,7 +415,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
             </button>
 
             <button
-              onClick={() => setTravelMode('WALKING')}
+              onClick={() => changeMode('WALKING')}
               style={{
                 border: 'none',
                 borderRadius: '999px',
@@ -466,6 +485,28 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         }),
       });
       const data = await res.json();
+      // console.log('directions response keys:', Object.keys(data), data);
+
+
+      if (
+        data.encodedPolyline &&
+        window.google?.maps?.geometry?.encoding
+      ) {
+        const decoded =
+          window.google.maps.geometry.encoding.decodePath(
+            data.encodedPolyline
+          );
+
+        setRoutePath(
+          decoded.map((p) => ({
+            lat: p.lat(),
+            lng: p.lng(),
+          }))
+        );
+      } else {
+        setRoutePath(null);
+      }
+
       if (data.error) {
         setSelectedSegmentInfo({ segment, error: data.error_message || data.error });
       } else {
@@ -582,7 +623,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
       >
       
         {/*  只有選某一天時才畫出「該天的每一段 segment」 */}
-        {!showAll &&
+        {!showAll && !selectedSegment && !loadingDirections && !routePath &&
           daySegments
             .filter((seg) => seg.day === selectedDay)
             .map((seg) => (
@@ -595,9 +636,26 @@ function MapView({ plan, activeLocation, onLocationChange }) {
                   strokeWeight: 5,
                   clickable: true,
                 }}
-                onClick={() => handleSegmentClick(seg)}
+                onClick={() => {
+                  // console.log('SEG CLICK', seg.id, seg.from?.name, '->', seg.to?.name);
+                  handleSegmentClick(seg)
+                }}
               />
-            ))}
+        ))}
+
+        {/* 真實路線（點 segment 後顯示） */}
+        {routePath && (
+          <Polyline
+            path={routePath}
+            options={{
+              strokeOpacity: 0.95,
+              strokeWeight: 6,
+              zIndex: 999, // 讓它在上面
+              clickable: false,
+            }}
+          />
+        )}
+
 
 
 

@@ -258,7 +258,10 @@ app.post('/api/directions', async (req, res) => {
       })),
     };
 
-    res.json({ summary });
+    const encodedPolyline = route.overview_polyline?.points || null;
+    const bounds = route.bounds || null;
+
+    res.json({ summary, encodedPolyline, bounds });
   } catch (err) {
     console.error('Error calling Google Directions API:', err.response?.data || err.message || err);
     res.status(500).json({
