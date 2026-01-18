@@ -1,12 +1,10 @@
 // frontend/src/MapView.jsx
 import { useEffect, useMemo, useState, useRef } from 'react';
 
-
 import {
   GoogleMap,
   Marker,
   InfoWindow,
-  Polyline,
   useJsApiLoader,
 } from '@react-google-maps/api';
 
@@ -16,9 +14,6 @@ const dayColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
 
 const GOOGLE_LIBRARIES = ['places', 'geometry'];
 
-
-
-
 const getDayColor = (day) => {
   if (!day) return '#6366f1';
   return dayColors[(day - 1) % dayColors.length];
@@ -26,41 +21,27 @@ const getDayColor = (day) => {
 
 const getMarkerIcon = (day) => {
   if (!window.google || !window.google.maps) return undefined;
-
   return {
     path: window.google.maps.SymbolPath.CIRCLE, 
     scale: 10, 
-    fillColor: getDayColor(day), // 依照 day 給顏色
+    fillColor: getDayColor(day), 
     fillOpacity: 1,
     strokeColor: '#ffffff',
     strokeWeight: 2,
   };
 };
 
-
-// 地圖容器樣式
-const containerStyle = {
-  width: '100%',
-  height: '620px',
-  borderRadius: '8px',
-};
-
-// 預設中心（台灣中間附近）
+const containerStyle = { width: '100%', height: '620px', borderRadius: '8px' };
 const defaultCenter = { lat: 23.7, lng: 121 };
-
-// 一些常見城市的大致中心點
 const cityCenters = {
   台中: { lat: 24.1477, lng: 120.6736 },
   台北: { lat: 25.033, lng: 121.5654 },
   高雄: { lat: 22.6273, lng: 120.3014 },
 };
 
-// 後端 proxy 過的照片網址
 const getPhotoUrl = (photoReference) => {
   if (!photoReference) return null;
-  return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(
-    photoReference,
-  )}&maxwidth=400`;
+  return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=400`;
 };
 
 function MapView({ plan, activeLocation, onLocationChange }) {
@@ -72,49 +53,40 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [mapRef, setMapRef] = useState(null);
   const [selectedSegmentInfo, setSelectedSegmentInfo] = useState(null);
   const [loadingDirections, setLoadingDirections] = useState(false);
-  const [routePath, setRoutePath] = useState(null); // Array<{lat,lng}> | null
-  const [hideRoute, setHideRoute] = useState(false);
-  const [routeToken, setRouteToken] = useState(0);
+  const [routePath, setRoutePath] = useState(null); 
+  
+  // 🔵 藍色路線的 Ref
   const activePolylineRef = useRef(null);
+  
+  // 🔴 綠色直線群組的 Ref
+  const segmentsRef = useRef([]); 
 
-
+  const [selectedSegmentId, setSelectedSegmentId] = useState(null);
 
   const directionsAbortRef = useRef(null);
   const directionsReqIdRef = useRef(0);
 
-
-  // 交通模式：DRIVING / TRANSIT / WALKING
   const [travelMode, setTravelMode] = useState('DRIVING');
   const [selectedSegment, setSelectedSegment] = useState(null);
 
   const changeMode = (mode) => {
-    clearOldRoute(); // 🔥 先手動殺掉舊線
+    setRoutePath(null);
     setSelectedSegmentInfo(null);
-    
-    // 稍微延遲一下再設狀態，確保上一行執行完畢
     setTimeout(() => {
-      setRouteToken((t) => t + 1);
       setTravelMode(mode);
     }, 0);
   };
 
-  // 強制清除地圖上的路線物件
-  const clearOldRoute = () => {
-    setRoutePath(null);
-  };
-
-
-
-  // 切換天數時，把 InfoWindow 關掉
+  // 重置狀態
   useEffect(() => {
     setSelectedMarker(null);
     setSelectedSegment(null);
+    setSelectedSegmentId(null); 
     setSelectedSegmentInfo(null);
     setLoadingDirections(false);
     setRoutePath(null);
   }, [selectedDay]);
 
-  // 重新產生新行程後
   useEffect(() => {
     setSelectedDay(null);
     setSelectedMarker(null);
@@ -122,8 +94,8 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     setSelectedSegmentInfo(null);
     setLoadingDirections(false);
     setRoutePath(null);
+    setSelectedSegmentId(null); 
   }, [plan]);
-
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -131,24 +103,14 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     libraries: GOOGLE_LIBRARIES,
   });
 
-  // 根據城市決定中心點
   const center = useMemo(() => {
     if (!plan || !plan.city) return defaultCenter;
-    return (
-      cityCenters[plan.city] ||
-      cityCenters[plan.city.replace('市', '')] ||
-      defaultCenter
-    );
+    return cityCenters[plan.city] || cityCenters[plan.city.replace('市', '')] || defaultCenter;
   }, [plan]);
 
-  
-  
-
-  // 把每一天拆成多段 segment
-  // day 1 有 3 個點，就會變成 2 個 segments
+  // 資料計算
   const daySegments = useMemo(() => {
     if (!markers.length) return [];
-
     const byDay = new Map();
     markers.forEach((m) => {
       if (!m.day) return;
@@ -163,69 +125,94 @@ function MapView({ plan, activeLocation, onLocationChange }) {
       for (let i = 0; i < sorted.length - 1; i++) {
         const from = sorted[i];
         const to = sorted[i + 1];
+        const stableId = `seg-${dayKey}-${i}`;
         segs.push({
-          id: `${dayKey}-${from.placeId || i}-${to.placeId || i + 1}`,
+          id: stableId, 
           day: dayKey,
           from,
           to,
-          path: [
-            { lat: from.lat, lng: from.lng },
-            { lat: to.lat, lng: to.lng },
-          ],
+          path: [{ lat: from.lat, lng: from.lng }, { lat: to.lat, lng: to.lng }],
         });
       }
     });
-
     return segs;
   }, [markers]);
 
+  // ----------------------------------------------------------------------
+  // 直線繪製邏輯
+  // ----------------------------------------------------------------------
   useEffect(() => {
-  if (!activeLocation || !mapRef || !markers.length) return;
-  if (!window.google || !window.google.maps) return;
+    if (!mapRef || !window.google) return;
 
-  const target = markers.find(
-    (m) =>
-      Number(m.day) === Number(activeLocation.day) &&
-      Number(m.order) === Number(activeLocation.order),
-  );
+    segmentsRef.current.forEach(line => line.setMap(null));
+    segmentsRef.current = [];
 
-  if (!target) return;
+    if (showAll) return; 
 
-  // 在地圖上開啟這個點的 InfoWindow
-  setSelectedMarker(target);
+    // 如果已經選了某條路，隱藏所有直線
+    if (selectedSegmentId) {
+      return; 
+    }
 
-  // 平移 + 放大到這個點
-  const center = new window.google.maps.LatLng(target.lat, target.lng);
-  mapRef.panTo(center);
-  mapRef.setZoom(15);
-}, [activeLocation, markers, mapRef]);
+    daySegments.forEach(seg => {
+      if (seg.day !== selectedDay) return;
+      
+      const line = new window.google.maps.Polyline({
+        path: seg.path,
+        strokeColor: getDayColor(seg.day),
+        strokeOpacity: 0.9,
+        strokeWeight: 5,
+        clickable: true,
+        zIndex: 1,
+        map: mapRef, 
+      });
 
+      line.addListener('click', () => {
+        setSelectedSegmentId(seg.id); 
+        setSelectedSegment(seg);
+        handleSegmentClick(seg);
+      });
+
+      segmentsRef.current.push(line);
+    });
+
+    return () => {
+      segmentsRef.current.forEach(line => line.setMap(null));
+      segmentsRef.current = [];
+    };
+
+  }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]); 
+
+  // ----------------------------------------------------------------------
 
   useEffect(() => {
-  // 沒有 map 或是沒有 marker 就不用動
-  if (!mapRef || !markers.length) return;
-  if (!window.google || !window.google.maps) return;
+    if (!activeLocation || !mapRef || !markers.length) return;
+    if (!window.google || !window.google.maps) return;
+    const target = markers.find(
+      (m) => Number(m.day) === Number(activeLocation.day) && Number(m.order) === Number(activeLocation.order),
+    );
+    if (!target) return;
+    setSelectedMarker(target);
+    const center = new window.google.maps.LatLng(target.lat, target.lng);
+    mapRef.panTo(center);
+    mapRef.setZoom(15);
+  }, [activeLocation, markers, mapRef]);
 
-  // 依照目前選到的天數決定哪些 marker 要顯示在畫面上
-  const visibleMarkers = markers.filter(
-    (m) => selectedDay === null || m.day === selectedDay,
-  );
+  // 自動縮放邏輯
+  useEffect(() => {
+    if (!mapRef || !markers.length) return;
+    if (!window.google || !window.google.maps) return;
 
-  if (!visibleMarkers.length) return;
+    // 如果正在看詳細路線，就不要強制縮放到全域
+    if (selectedSegmentId) return;
 
-  const bounds = new window.google.maps.LatLngBounds();
+    const visibleMarkers = markers.filter((m) => selectedDay === null || m.day === selectedDay);
+    if (!visibleMarkers.length) return;
+    const bounds = new window.google.maps.LatLngBounds();
+    visibleMarkers.forEach((m) => bounds.extend({ lat: m.lat, lng: m.lng }));
+    mapRef.fitBounds(bounds);
+  }, [mapRef, markers, selectedDay, selectedSegmentId]);
 
-  visibleMarkers.forEach((m) => {
-    bounds.extend({ lat: m.lat, lng: m.lng });
-  });
-
-  // 自動縮放到這些點
-  mapRef.fitBounds(bounds);
-  }, [mapRef, markers, selectedDay]);
-
-
-
-  // 當 plan 改變時，去後端查每個景點的真實座標
   useEffect(() => {
     if (!plan || !plan.days || plan.days.length === 0) {
       setMarkers([]);
@@ -238,72 +225,44 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         setLoadingPlaces(true);
         const newMarkers = [];
         const seenNames = new Set();
-
         for (const day of plan.days) {
-          const dayNumber = Number(day.day); // 確保是 number
+          const dayNumber = Number(day.day); 
           let orderInDay = 0;
-
           for (const item of day.items || []) {
             const itemName = item.name?.trim();
             const dedupeKey = `${dayNumber}-${itemName}`;
             if (!itemName || seenNames.has(dedupeKey)) continue;
             seenNames.add(dedupeKey);
-
             try {
-              const res = await fetch(
-                `${API_BASE}/api/places/search`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    query: itemName,
-                    city: plan.city,
-                  }),
-                },
-              );
-
+              const res = await fetch(`${API_BASE}/api/places/search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: itemName, city: plan.city }),
+              });
               const data = await res.json();
               const place = data.places && data.places[0];
-
               if (place && place.lat && place.lng) {
                 newMarkers.push({
-                  lat: place.lat,
-                  lng: place.lng,
-                  name: itemName || place.name,
-                  googleName: place.name,
-                  address:
-                    place.address && place.address !== place.name
-                      ? place.address
-                      : '',
-                  placeId: place.placeId,
-                  rating: place.rating,
+                  lat: place.lat, lng: place.lng, name: itemName || place.name,
+                  googleName: place.name, address: place.address || '',
+                  placeId: place.placeId, rating: place.rating,
                   userRatingsTotal: place.userRatingsTotal,
                   photoReference: place.photoReference || null,
-
-                  day: dayNumber,   
-                  order: orderInDay, // 當天順序
+                  day: dayNumber, order: orderInDay, 
                 });
-
                 orderInDay += 1;
               }
-            } catch (err) {
-              console.error('Error fetching place for', itemName, err);
-            }
+            } catch (err) { console.error(err); }
           }
         }
-
         setMarkers(newMarkers);
-      } finally {
-        setLoadingPlaces(false);
-      }
+      } finally { setLoadingPlaces(false); }
     };
-
     fetchMarkers();
   }, [plan, isLoaded]);
 
   useEffect(() => {
     if (!selectedSegment) return;
-
     if (directionsAbortRef.current) directionsAbortRef.current.abort();
     setRoutePath(null);
     setSelectedSegmentInfo(null);
@@ -311,248 +270,34 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
     const t = setTimeout(() => {
       handleSegmentClick(selectedSegment);
-    }, 200); // ✅ 保證肉眼可見的消失
-
+    }, 50); 
     return () => clearTimeout(t);
   }, [travelMode, selectedSegment]);
 
-  // 🔥 新增：使用原生 API 繪製路線，確保舊線一定會消失
+  // 繪製藍色路線
   useEffect(() => {
-    // 1. 如果地圖還沒載入，什麼都不做
     if (!mapRef || !window.google) return;
-
-    // 定義清除函式：不管現在是什麼狀況，先把舊的線殺掉
     const removeLine = () => {
       if (activePolylineRef.current) {
-        activePolylineRef.current.setMap(null); // 從地圖上移除
-        activePolylineRef.current = null;       // 清空 Ref
+        activePolylineRef.current.setMap(null); 
+        activePolylineRef.current = null;       
       }
     };
-
-    // 2. 執行清除 (無論是路徑更新還是要清空，先移除舊的再說)
     removeLine();
-
-    // 3. 如果有新的路徑資料，就畫新的線
     if (routePath && routePath.length > 0) {
       const line = new window.google.maps.Polyline({
-        path: routePath,
-        strokeColor: '#2563eb',
-        strokeOpacity: 0.95,
-        strokeWeight: 6,
-        zIndex: 1000,
-        map: mapRef, // 直接綁定到地圖上
+        path: routePath, strokeColor: '#2563eb', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 1000, map: mapRef, 
       });
-      
-      // 存入 Ref 以便下次清除
       activePolylineRef.current = line;
     }
-
-    // 4. Cleanup function: 當元件卸載或 routePath 改變前，確保清除
-    return () => {
-      removeLine();
-    };
-  }, [routePath, mapRef]); // 只要 routePath 變了，就觸發重畫
-
-
-
-
-
-  // -------- loading / 無行程 顯示 --------
-  if (!plan || !plan.days || plan.days.length === 0) {
-    return (
-      <div
-        style={{
-          fontSize: '12px',
-          color: '#9ca3af',
-          border: '1px dashed #e5e7eb',
-          borderRadius: '8px',
-          padding: '8px',
-        }}
-      >
-        尚未產生行程，暫不顯示地圖。
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div
-        style={{
-          fontSize: '12px',
-          color: '#9ca3af',
-          border: '1px dashed #e5e7eb',
-          borderRadius: '8px',
-          padding: '8px',
-        }}
-      >
-        地圖載入中…
-      </div>
-    );
-  }
-
-  const renderRouteCard = () => {
-    
-    if (!selectedSegment && !selectedSegmentInfo && !loadingDirections) return null;
-
-
-    
-    const seg = selectedSegmentInfo?.segment || selectedSegment;
-    const summary = selectedSegmentInfo?.summary;
-    const err = selectedSegmentInfo?.error;
-
-    
-    if (!seg && !loadingDirections) return null;
-
-    return (
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 8,
-          left: 8,
-          zIndex: 2,
-          background: 'rgba(15,23,42,0.96)',
-          color: '#f9fafb',
-          padding: '8px 10px',
-          borderRadius: '10px',
-          maxWidth: '320px',
-          fontSize: '12px',
-          boxShadow: '0 10px 25px rgba(15,23,42,0.3)',
-        }}
-      >
-        {/* 標題列：起點 → 終點 + 關閉 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ fontWeight: 'bold' }}>
-            {seg ? `${seg.from?.name || ''} → ${seg.to?.name || ''}` : '路線資訊'}
-          </div>
-
-          <button
-            onClick={() => {
-              setSelectedSegment(null);
-              setSelectedSegmentInfo(null);
-              setLoadingDirections(false);
-              setRoutePath(null); 
-            }}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: '#e5e7eb',
-              cursor: 'pointer',
-              fontSize: '14px',
-              lineHeight: 1,
-            }}
-            title="關閉"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* 交通方式按鈕：只有點到路線後顯示 */}
-        {seg && (
-          <div style={{ display: 'flex', gap: 6, margin: '6px 0 8px 0' }}>
-            <button
-              onClick={() => changeMode('DRIVING')}
-              style={{
-                border: 'none',
-                borderRadius: '999px',
-                padding: '2px 8px',
-                cursor: 'pointer',
-                background:
-                  travelMode === 'DRIVING' ? '#f9fafb' : 'rgba(255,255,255,0.12)',
-                color: travelMode === 'DRIVING' ? '#111827' : '#e5e7eb',
-                fontSize: 11,
-              }}
-            >
-              🚗 開車
-            </button>
-
-            <button
-              onClick={() => changeMode('TRANSIT')}
-              style={{
-                border: 'none',
-                borderRadius: '999px',
-                padding: '2px 8px',
-                cursor: 'pointer',
-                background:
-                  travelMode === 'TRANSIT' ? '#f9fafb' : 'rgba(255,255,255,0.12)',
-                color: travelMode === 'TRANSIT' ? '#111827' : '#e5e7eb',
-                fontSize: 11,
-              }}
-            >
-              🚇 大眾運輸
-            </button>
-
-            <button
-              onClick={() => changeMode('WALKING')}
-              style={{
-                border: 'none',
-                borderRadius: '999px',
-                padding: '2px 8px',
-                cursor: 'pointer',
-                background:
-                  travelMode === 'WALKING' ? '#f9fafb' : 'rgba(255,255,255,0.12)',
-                color: travelMode === 'WALKING' ? '#111827' : '#e5e7eb',
-                fontSize: 11,
-              }}
-            >
-              🚶 步行
-            </button>
-          </div>
-        )}
-
-        {/* 內容區：loading / error / summary */}
-        {loadingDirections ? (
-          <div>正在取得交通方式…</div>
-        ) : err ? (
-          <div>{err}</div>
-        ) : summary ? (
-          <>
-            <div style={{ marginBottom: 4 }}>
-              預估距離：{summary.distanceText} · 預估時間：{summary.durationText}
-            </div>
-
-            <div style={{ maxHeight: 120, overflowY: 'auto' }}>
-              {(summary.steps || []).map((s, i) => (
-                <div
-                  key={`${seg?.id || 'seg'}-${travelMode}-${i}`}
-                  style={{
-                    marginBottom: 4,
-                    paddingBottom: 4,
-                    borderBottom: '1px dashed rgba(148,163,184,0.4)',
-                  }}
-                >
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: s.instructionHtml,
-                    }}
-                  />
-                  <div style={{ fontSize: 11, color: '#9ca3af' }}>
-                    {s.distanceText} · {s.durationText} · {s.travelMode}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </div>
-    );
-  };
+    return () => removeLine();
+  }, [routePath, mapRef]);
 
   async function handleSegmentClick(segment) {
-    clearOldRoute();
-
-    setSelectedSegment(segment);
-    setSelectedSegmentInfo(null);
-    setLoadingDirections(true);
-    setRoutePath(null); // 先把舊線清掉（立即消失）
-
-    // ✅ 取消上一個還在飛的請求
-    if (directionsAbortRef.current) {
-      directionsAbortRef.current.abort();
-    }
+    setRoutePath(null);
+    if (directionsAbortRef.current) directionsAbortRef.current.abort();
     const controller = new AbortController();
     directionsAbortRef.current = controller;
-
-    // ✅ 產生這次請求的 id（用來忽略舊回應）
     const reqId = ++directionsReqIdRef.current;
 
     try {
@@ -566,126 +311,118 @@ function MapView({ plan, activeLocation, onLocationChange }) {
           mode: travelMode,
         }),
       });
-
       const data = await res.json();
-
-      // ✅ 如果這不是最新的一次請求回來，就直接丟掉，不更新畫面
       if (reqId !== directionsReqIdRef.current) return;
-
+      
       if (data.encodedPolyline && window.google?.maps?.geometry?.encoding) {
         const decoded = window.google.maps.geometry.encoding.decodePath(data.encodedPolyline);
         setRoutePath(decoded.map((p) => ({ lat: p.lat(), lng: p.lng() })));
-        setHideRoute(false);
       } else {
         setRoutePath(null);
       }
 
-      if (data.error) {
-        setSelectedSegmentInfo({ segment, error: data.error_message || data.error });
-      } else {
-        setSelectedSegmentInfo({ segment, summary: data.summary });
+      if (data.bounds && mapRef && window.google) {
+        const bounds = new window.google.maps.LatLngBounds();
+        bounds.extend(data.bounds.northeast);
+        bounds.extend(data.bounds.southwest);
+        mapRef.fitBounds(bounds);
       }
-    } catch (err) {
-      // ✅ abort 不算錯誤，不用顯示「失敗」
-      if (err?.name === 'AbortError') return;
 
+      if (data.error) setSelectedSegmentInfo({ segment, error: data.error_message || data.error });
+      else setSelectedSegmentInfo({ segment, summary: data.summary });
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
       console.error(err);
-      setSelectedSegmentInfo({ segment, error: '取得交通方式失敗，請稍後再試。' });
+      setSelectedSegmentInfo({ segment, error: '取得交通方式失敗' });
     } finally {
-      // ✅ 只有最新請求才能把 loading 關掉
-      if (reqId === directionsReqIdRef.current) {
-        setLoadingDirections(false);
-      }
+      if (reqId === directionsReqIdRef.current) setLoadingDirections(false);
     }
   }
 
+  // -----------------------------------------------------
 
+  if (!plan || !plan.days || plan.days.length === 0) {
+    return <div style={{ fontSize: '12px', padding: '8px', color: '#888' }}>尚未產生行程</div>;
+  }
+  if (!isLoaded) {
+    return <div style={{ fontSize: '12px', padding: '8px', color: '#888' }}>地圖載入中…</div>;
+  }
 
-  // -------- 地圖 --------
-  return (
-    <div style={{ position: 'relative' }}>
-      {loadingPlaces && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 8,
-            left: 8,
-            zIndex: 1,
-            background: 'rgba(255,255,255,0.9)',
-            padding: '4px 8px',
-            borderRadius: '8px',
-            fontSize: '11px',
-            color: '#4b5563',
-          }}
-        >
-          取得景點位置中…
-        </div>
-      )}
-      
-      
+  const renderRouteCard = () => {
+    const seg = selectedSegmentInfo?.segment || selectedSegment;
+    const summary = selectedSegmentInfo?.summary;
+    const err = selectedSegmentInfo?.error;
+    if (!seg && !loadingDirections) return null;
 
-      {/* 天數切換按鈕 */}
-      {plan?.days && plan.days.length > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            zIndex: 2,
-            display: 'flex',
-            gap: 4,
-            background: 'rgba(255,255,255,0.95)',
-            padding: '4px 6px',
-            borderRadius: '999px',
-            boxShadow: '0 4px 12px rgba(15,23,42,0.15)',
-            fontSize: '11px',
-          }}
-        >
+    return (
+      <div style={{
+        position: 'absolute', bottom: 8, left: 8, zIndex: 2, background: 'rgba(15,23,42,0.96)',
+        color: '#f9fafb', padding: '8px 10px', borderRadius: '10px', maxWidth: '320px', fontSize: '12px',
+        boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ fontWeight: 'bold' }}>
+            {seg ? `${seg.from?.name} → ${seg.to?.name}` : '路線資訊'}
+          </div>
           <button
             onClick={() => {
-              setSelectedDay(null);
-              onLocationChange?.(null); // 清掉目前選的
+              setSelectedSegment(null);
+              setSelectedSegmentInfo(null);
+              setLoadingDirections(false);
+              setRoutePath(null); 
+              setSelectedSegmentId(null); 
             }}
-            style={{
-              border: 'none',
-              borderRadius: '999px',
-              padding: '2px 8px',
-              cursor: 'pointer',
-              background: selectedDay === null ? '#111827' : 'transparent',
-              color: selectedDay === null ? '#f9fafb' : '#4b5563',
-            }}
-          >
-            全部
-          </button>
-          {plan.days.map((d) => {
-            const dayNumber = Number(d.day);
-            const active = selectedDay === dayNumber;
-            return (
-              <button
-                key={d.day}
-                onClick={() => {
-                  setSelectedDay(dayNumber);
-                  onLocationChange?.(null);
-                }}
+            style={{ border: 'none', background: 'transparent', color: '#e5e7eb', cursor: 'pointer', fontSize: '14px' }}
+          >✕</button>
+        </div>
+
+        {seg && (
+          <div style={{ display: 'flex', gap: 6, margin: '6px 0 8px 0' }}>
+            {['DRIVING', 'TRANSIT', 'WALKING'].map(mode => (
+              <button key={mode} onClick={() => changeMode(mode)}
                 style={{
-                  border: 'none',
-                  borderRadius: '999px',
-                  padding: '2px 8px',
-                  cursor: 'pointer',
-                  background: active ? getDayColor(dayNumber) : 'transparent',
-                  color: active ? '#f9fafb' : '#4b5563',
+                  border: 'none', borderRadius: '999px', padding: '2px 8px', cursor: 'pointer',
+                  background: travelMode === mode ? '#f9fafb' : 'rgba(255,255,255,0.12)',
+                  color: travelMode === mode ? '#111827' : '#e5e7eb', fontSize: 11,
                 }}
               >
-                第 {d.day} 天
+                {mode === 'DRIVING' ? '🚗 開車' : mode === 'TRANSIT' ? '🚇 大眾運輸' : '🚶 步行'}
               </button>
-            );
-          })}
+            ))}
+          </div>
+        )}
+        {loadingDirections ? <div>正在取得交通方式…</div> : err ? <div>{err}</div> : summary ? (
+          <div style={{ maxHeight: 120, overflowY: 'auto' }}>
+            <div style={{marginBottom:4}}>距離：{summary.distanceText} · 時間：{summary.durationText}</div>
+            {(summary.steps || []).map((s, i) => (
+              <div key={i} style={{ marginBottom: 4, paddingBottom: 4, borderBottom: '1px dashed #666' }}>
+                <div dangerouslySetInnerHTML={{ __html: s.instructionHtml }} />
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      
+      {loadingPlaces && <div style={{position:'absolute',top:8,left:8,zIndex:1,background:'white',padding:'4px'}}>取得位置中…</div>}
+      
+      {plan?.days?.length > 0 && (
+        <div style={{position:'absolute',top:8,right:8,zIndex:2,display:'flex',gap:4,background:'rgba(255,255,255,0.9)',padding:6,borderRadius:99}}>
+          <button onClick={() => {setSelectedDay(null);onLocationChange?.(null);}} style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>全部</button>
+          {plan.days.map(d => (
+            <button key={d.day} onClick={() => {setSelectedDay(Number(d.day));onLocationChange?.(null);}} 
+              style={{border:'none',background:selectedDay===Number(d.day)?getDayColor(d.day):'transparent',color:selectedDay===Number(d.day)?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
+              第 {d.day} 天
+            </button>
+          ))}
         </div>
       )}
 
       {renderRouteCard()}
-
-
 
       <GoogleMap
         key={showAll ? 'all' : `day-${selectedDay}`}
@@ -693,173 +430,49 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         center={center}
         zoom={12}
         onLoad={(map) => setMapRef(map)}
-        options={{
-          disableDefaultUI: false,
-          clickableIcons: false,
-          fullscreenControl: false,
-          streetViewControl: true,
-          mapTypeControl: false,
-        }}
+        options={{ disableDefaultUI: false, clickableIcons: false, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
       >
-      
-        {/*  只有選某一天時才畫出「該天的每一段 segment」 */}
-        {!showAll && 
-          daySegments
-            .filter((seg) => seg.day === selectedDay)
-            .map((seg) => (
-              <Polyline
-                key={seg.id}
-                path={seg.path}
-                options={{
-                  strokeColor: getDayColor(seg.day),
-                  strokeOpacity: 0.9,
-                  strokeWeight: 5,
-                  clickable: true,
-                }}
-                onClick={() => {
-                  // console.log('SEG CLICK', seg.id, seg.from?.name, '->', seg.to?.name);
-                  handleSegmentClick(seg)
-                }}
-              />
-        ))}
-
-        {/* 真實路線（點 segment 後顯示） */}
-        {/* {Array.isArray(routePath) && routePath.length > 0 && (
-          <Polyline
-            key={`route-${routeToken}`} // 這裡 key 可以簡單一點了
-            path={routePath}
-            options={{
-              strokeColor: '#2563eb',
-              strokeOpacity: 0.95,
-              strokeWeight: 6,
-              zIndex: 1000,
-            }}
-            // 🔥 關鍵：當線畫出來時，把實例存起來
-            onLoad={(polyline) => {
-              activePolylineRef.current = polyline;
-            }}
-            // 當元件被 React 移除時，也確保清空 Ref
-            onUnmount={() => {
-              activePolylineRef.current = null;
-            }}
-          />
-        )} */}
-
-
-
-
-
-
-
-        {/*  Marker：全部模式顯示所有天；選某一天只顯示該天 */}
+        {/* 直線由 useEffect 手動繪製 */}
+        
+        {/* Marker */}
         {markers
           .filter((m) => selectedDay === null || m.day === selectedDay)
-          .map((m, idx) => {
-            // 每一天內的編號（1, 2, 3...）
-            const labelText = String((m.order ?? 0) + 1);
+          // 專注模式：選中路線時只顯示頭尾
+          .filter((m) => {
+            if (selectedSegment) {
+               const from = selectedSegment.from;
+               const to = selectedSegment.to;
+               const isStart = m.day === from.day && m.order === from.order;
+               const isEnd = m.day === to.day && m.order === to.order;
+               return isStart || isEnd;
+            }
+            return true;
+          })
+          .map((m, idx) => (
+            <Marker
+              key={`${m.day}-${m.order}`}
+              position={{ lat: m.lat, lng: m.lng }}
+              onClick={() => {
+                setSelectedMarker(m);
+                onLocationChange?.({ day: m.day, order: m.order });
+              }}
+              icon={getMarkerIcon(m.day)}
+              label={{ text: String((m.order || 0) + 1), color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}
+            />
+          ))}
 
-            
-
-            return (
-              <Marker
-                key={`${m.day}-${m.order}-${m.placeId || idx}`}
-                position={{ lat: m.lat, lng: m.lng }}
-                title={m.name}
-                onClick={() => {
-                  setSelectedMarker(m);
-                  setSelectedSegment(null);
-                  setSelectedSegmentInfo(null);
-                  setLoadingDirections(false);
-                  onLocationChange?.({ day: m.day, order: m.order });
-                }}
-                // 🟢 每一天不同顏色的小圓點
-                icon={getMarkerIcon(m.day)}
-                // 圓點中間的編號（同一天內 1,2,3...）
-                label={{
-                  text: String((m.order || 0) + 1), // m.order 算好的順序
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                }}
-              />
-            );
-          })}
-
-
-
-
-
-        {/* InfoWindow：帶圖片 + 名稱 + 地址 + 連到 Google Maps */}
         {selectedMarker && (
-          <InfoWindow
-            position={{
-              lat: selectedMarker.lat,
-              lng: selectedMarker.lng,
-            }}
-            onCloseClick={() => setSelectedMarker(null)}
-          >
+          <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
             <div style={{ maxWidth: '240px', fontSize: '12px' }}>
-              <div
-                style={{
-                  fontWeight: 'bold',
-                  marginBottom: '4px',
-                }}
-              >
-                {selectedMarker.name}
-              </div>
-
-              {selectedMarker.photoReference && (
-                <img
-                  src={getPhotoUrl(selectedMarker.photoReference)}
-                  alt={selectedMarker.name}
-                  style={{
-                    width: '100%',
-                    height: '140px',
-                    objectFit: 'cover',
-                    borderRadius: '6px',
-                    marginBottom: '6px',
-                  }}
-                />
-              )}
-
-              {selectedMarker.address && (
-                <div
-                  style={{
-                    marginBottom: '6px',
-                    color: '#4b5563',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {selectedMarker.address}
-                </div>
-              )}
-
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  selectedMarker.name +
-                    ' ' +
-                    (selectedMarker.address || ''),
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: '#3b82f6', textDecoration: 'none' }}
-              >
-                在 Google Maps 中開啟 →
-              </a>
+              <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
+              {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover' }} />}
+              <div>{selectedMarker.address}</div>
             </div>
           </InfoWindow>
         )}
       </GoogleMap>
     </div>
   );
-
-  
-
-
-
 }
-
-  
-
 
 export default MapView;
