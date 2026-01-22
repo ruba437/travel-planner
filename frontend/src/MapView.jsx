@@ -31,7 +31,13 @@ const getMarkerIcon = (day) => {
   };
 };
 
-const containerStyle = { width: '100%', height: '620px', borderRadius: '8px' };
+// 確保地圖容器填滿父層
+const containerStyle = { 
+  width: '100%', 
+  height: '100%', 
+  borderRadius: '0 0 12px 12px' 
+};
+
 const defaultCenter = { lat: 23.7, lng: 121 };
 const cityCenters = {
   台中: { lat: 24.1477, lng: 120.6736 },
@@ -55,12 +61,8 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [loadingDirections, setLoadingDirections] = useState(false);
   const [routePath, setRoutePath] = useState(null); 
   
-  // 🔵 藍色路線的 Ref
   const activePolylineRef = useRef(null);
-  
-  // 🔴 綠色直線群組的 Ref
   const segmentsRef = useRef([]); 
-
   const [selectedSegmentId, setSelectedSegmentId] = useState(null);
 
   const directionsAbortRef = useRef(null);
@@ -77,7 +79,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     }, 0);
   };
 
-  // 重置狀態
   useEffect(() => {
     setSelectedMarker(null);
     setSelectedSegment(null);
@@ -108,7 +109,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return cityCenters[plan.city] || cityCenters[plan.city.replace('市', '')] || defaultCenter;
   }, [plan]);
 
-  // 資料計算
   const daySegments = useMemo(() => {
     if (!markers.length) return [];
     const byDay = new Map();
@@ -138,9 +138,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return segs;
   }, [markers]);
 
-  // ----------------------------------------------------------------------
-  // 直線繪製邏輯
-  // ----------------------------------------------------------------------
   useEffect(() => {
     if (!mapRef || !window.google) return;
 
@@ -149,7 +146,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
     if (showAll) return; 
 
-    // 如果已經選了某條路，隱藏所有直線
     if (selectedSegmentId) {
       return; 
     }
@@ -183,8 +179,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
   }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]); 
 
-  // ----------------------------------------------------------------------
-
   useEffect(() => {
     if (!activeLocation || !mapRef || !markers.length) return;
     if (!window.google || !window.google.maps) return;
@@ -198,12 +192,10 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     mapRef.setZoom(15);
   }, [activeLocation, markers, mapRef]);
 
-  // 自動縮放邏輯
   useEffect(() => {
     if (!mapRef || !markers.length) return;
     if (!window.google || !window.google.maps) return;
 
-    // 如果正在看詳細路線，就不要強制縮放到全域
     if (selectedSegmentId) return;
 
     const visibleMarkers = markers.filter((m) => selectedDay === null || m.day === selectedDay);
@@ -274,7 +266,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return () => clearTimeout(t);
   }, [travelMode, selectedSegment]);
 
-  // 繪製藍色路線
   useEffect(() => {
     if (!mapRef || !window.google) return;
     const removeLine = () => {
@@ -339,15 +330,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     }
   }
 
-  // -----------------------------------------------------
-
-  if (!plan || !plan.days || plan.days.length === 0) {
-    return <div style={{ fontSize: '12px', padding: '8px', color: '#888' }}>尚未產生行程</div>;
-  }
-  if (!isLoaded) {
-    return <div style={{ fontSize: '12px', padding: '8px', color: '#888' }}>地圖載入中…</div>;
-  }
-
   const renderRouteCard = () => {
     const seg = selectedSegmentInfo?.segment || selectedSegment;
     const summary = selectedSegmentInfo?.summary;
@@ -406,9 +388,11 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    // 🔥 關鍵修正：加上 flex: 1 和 width: 100%
+    // 這會讓 MapView 的根元素自動填滿父層 (.map-card)
+    <div style={{ position: 'relative', width: '100%', flex: 1, display: 'flex', flexDirection: 'column' }}>
       
-      {loadingPlaces && <div style={{position:'absolute',top:8,left:8,zIndex:1,background:'white',padding:'4px'}}>取得位置中…</div>}
+      {loadingPlaces && <div style={{position:'absolute',top:8,left:8,zIndex:1,background:'white',padding:'4px', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'}}>取得位置中…</div>}
       
       {plan?.days?.length > 0 && (
         <div style={{position:'absolute',top:8,right:8,zIndex:2,display:'flex',gap:4,background:'rgba(255,255,255,0.9)',padding:6,borderRadius:99}}>
@@ -424,53 +408,57 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
       {renderRouteCard()}
 
-      <GoogleMap
-        key={showAll ? 'all' : `day-${selectedDay}`}
-        mapContainerStyle={containerStyle}
-        center={center}
-        zoom={12}
-        onLoad={(map) => setMapRef(map)}
-        options={{ disableDefaultUI: false, clickableIcons: false, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
-      >
-        {/* 直線由 useEffect 手動繪製 */}
-        
-        {/* Marker */}
-        {markers
-          .filter((m) => selectedDay === null || m.day === selectedDay)
-          // 專注模式：選中路線時只顯示頭尾
-          .filter((m) => {
-            if (selectedSegment) {
-               const from = selectedSegment.from;
-               const to = selectedSegment.to;
-               const isStart = m.day === from.day && m.order === from.order;
-               const isEnd = m.day === to.day && m.order === to.order;
-               return isStart || isEnd;
-            }
-            return true;
-          })
-          .map((m, idx) => (
-            <Marker
-              key={`${m.day}-${m.order}`}
-              position={{ lat: m.lat, lng: m.lng }}
-              onClick={() => {
-                setSelectedMarker(m);
-                onLocationChange?.({ day: m.day, order: m.order });
-              }}
-              icon={getMarkerIcon(m.day)}
-              label={{ text: String((m.order || 0) + 1), color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}
-            />
-          ))}
+      {/* 修正：將空白狀態的文字置中 */}
+      {(!plan || !plan.days || plan.days.length === 0) ? (
+         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: '14px' }}>
+           尚未產生行程，暫不顯示地圖。
+         </div>
+      ) : (
+         !isLoaded ? (
+           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+             地圖載入中…
+           </div>
+         ) : (
+           <GoogleMap
+             key={showAll ? 'all' : `day-${selectedDay}`}
+             mapContainerStyle={containerStyle} 
+             center={center}
+             zoom={12}
+             onLoad={(map) => setMapRef(map)}
+             options={{ disableDefaultUI: false, clickableIcons: false, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
+           >
+             {markers
+              .filter((m) => selectedDay === null || m.day === selectedDay)
+              .filter((m) => {
+                if (selectedSegment) {
+                   const from = selectedSegment.from;
+                   const to = selectedSegment.to;
+                   return (m.day === from.day && m.order === from.order) || (m.day === to.day && m.order === to.order);
+                }
+                return true;
+              })
+              .map((m) => (
+                <Marker
+                  key={`${m.day}-${m.order}`}
+                  position={{ lat: m.lat, lng: m.lng }}
+                  onClick={() => { setSelectedMarker(m); onLocationChange?.({ day: m.day, order: m.order }); }}
+                  icon={getMarkerIcon(m.day)}
+                  label={{ text: String((m.order || 0) + 1), color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}
+                />
+              ))}
 
-        {selectedMarker && (
-          <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
-            <div style={{ maxWidth: '240px', fontSize: '12px' }}>
-              <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
-              {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover' }} />}
-              <div>{selectedMarker.address}</div>
-            </div>
-          </InfoWindow>
-        )}
-      </GoogleMap>
+            {selectedMarker && (
+              <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
+                <div style={{ maxWidth: '240px', fontSize: '12px' }}>
+                  <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
+                  {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover' }} />}
+                  <div>{selectedMarker.address}</div>
+                </div>
+              </InfoWindow>
+            )}
+           </GoogleMap>
+         )
+      )}
     </div>
   );
 }

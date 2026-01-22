@@ -1,312 +1,227 @@
-:root {
-  --primary: #2563eb;      /* 主按鈕 */
-  --secondary: #10b981;    
-  --bg-soft: #f8fafc;     
-  --card-bg: #ffffff;
-  --border-soft: #e5e7eb;
-  --text-main: #111827;
-  --text-sub: #6b7280;
-}
+/* frontend/src/App.css */
 
-html,
-body,
-#root {
-  height: 100%;
+/* 1. 確保根元素填滿視窗 */
+html, body, #root {
   margin: 0;
   padding: 0;
-  background: var(--bg-soft);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    sans-serif;
-}
-
-/* 外層：置中一個大白卡 */
-.app-root {
-  width: 100vw;
-  height: 100vh;
-  padding: 12px;
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f3f4f6;
   box-sizing: border-box;
 }
 
-
-/* 主卡片：白底 + 圓角 + 陰影 */
-.app-shell {
-  width: 100%;
-  height: 100%;
-  background: #ffffff;
-  border-radius: 14px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+/* 2. 最外層容器 */
+.app-root {
   display: flex;
   flex-direction: column;
-  padding: 14px;
-  box-sizing: border-box;
+  height: 100vh;
+  overflow: hidden;
 }
 
+/* 3. App 骨架層 */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
 
 /* 標題列 */
+.app-header {
+  background: white;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .app-header-title {
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  margin-bottom: 4px;
+  color: #111827;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.app-header-title span.logo-dot {
+.logo-dot {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #3b82f6, #22c55e);
+  background: #2563eb;
+  border-radius: 50%;
+  display: inline-block;
 }
 
 .app-header-subtitle {
-  font-size: 12px;
   color: #6b7280;
-  margin-bottom: 12px;
+  font-size: 0.875rem;
+  margin-left: 18px;
 }
 
-/* 上半部：左聊右展示的 layout */
+/* 主版面 */
 .main-layout {
   display: flex;
-  gap: 14px;
   flex: 1;
+  overflow: hidden;
+  padding: 16px;
+  gap: 16px;
+  height: 100%;
 }
 
-/* 左邊聊天區 */
+/* -------- 左側：聊天面板 -------- */
 .chat-panel {
-  flex: 0 0 32%;
+  width: 350px;
+  flex-shrink: 0;
+  background: white;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  border: 1px solid var(--border-soft);
-  background: #f9fafb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  height: 100%;
   overflow: hidden;
 }
 
-/* 聊天訊息捲動區 */
 .chat-messages {
   flex: 1;
-  padding: 10px;
   overflow-y: auto;
+  padding: 16px;
+  background: #f9fafb;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
 }
 
-/* 單一訊息外框（用來左右對齊） */
 .chat-row {
   display: flex;
+  width: 100%;
 }
-
-/* 使用者在右邊，assistant/system 在左邊 */
-.chat-row.user {
-  justify-content: flex-end;
-}
-.chat-row.assistant,
-.chat-row.system {
-  justify-content: flex-start;
-}
-
+.chat-row.user { justify-content: flex-end; }
+.chat-row.assistant { justify-content: flex-start; }
+.chat-row.system { justify-content: center; }
 
 .bubble {
-  max-width: 75%;
-  padding: 8px 12px;
-  border-radius: 14px;
-  font-size: 14px;
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.95rem;
   line-height: 1.5;
   white-space: pre-wrap;
+  word-wrap: break-word;
 }
-
-
-.bubble-user {
-  background: linear-gradient(135deg, var(--primary), #60a5fa);
-  color: #ffffff;
-  border-bottom-right-radius: 4px;
-}
-
-
-.bubble-assistant {
-  background: linear-gradient(135deg, var(--secondary), #34d399);
-  color: #ffffff;
-  border-bottom-left-radius: 4px;
-}
-
-/* system 提示 */
+.bubble-user { background: #2563eb; color: white; border-bottom-right-radius: 2px; }
+.bubble-assistant { background: #e5e7eb; color: #1f2937; border-bottom-left-radius: 2px; }
 .bubble-system {
-  background: #e5e7eb;
-  color: #111827;
-  border-bottom-left-radius: 4px;
+  background: #fffbeb; color: #b45309; font-size: 0.85rem;
+  text-align: center; border: 1px solid #fcd34d;
 }
 
-/* 下方輸入區 */
 .chat-input-area {
-  padding: 8px;
+  padding: 12px;
   border-top: 1px solid #e5e7eb;
-  background: #f3f4f6;
+  background: white;
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .chat-textarea {
   flex: 1;
   resize: none;
+  border: 1px solid #d1d5db;
   border-radius: 8px;
-  border: 1px solid #284776;
   padding: 8px;
-  font-size: 14px;
+  font-size: 0.95rem;
   outline: none;
+  font-family: inherit;
 }
-
 .chat-textarea:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
 }
 
-/* 送出按鈕 */
 .send-button {
-  padding: 0 16px;
-  border-radius: 8px;
-  border: none;
-  background: #3b82f6;
-  color: #ffffff;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
+  background: #2563eb; color: white; border: none; border-radius: 8px;
+  padding: 0 20px; font-weight: 600; cursor: pointer;
+}
+.send-button:disabled { background: #93c5fd; cursor: not-allowed; }
+
+/* -------- 右側：視覺化面板 -------- */
+.visualization-panel {
+  flex: 1;
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+  height: 100%;
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+.card-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f3f4f6;
+  font-weight: 700;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  background: white;
+  flex-shrink: 0; /* 確保標題不會被壓縮或拉伸 */
+}
+
+.dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; }
+
+.map-card { flex: 2; }
+.plan-card { flex: 1; min-width: 280px; background: #f8fafc; }
+
+/* 🔥 新增：專門給行程內容的捲動區塊 */
+.plan-content {
+  flex: 1;            /* 只有內容區塊會自動填滿剩餘空間 */
+  overflow-y: auto;   /* 內容太多時出現捲軸 */
+}
+
+.plan-summary {
+  padding: 12px; background: #e0f2fe; color: #0c4a6e;
+  border-bottom: 1px solid #bae6fd;
+}
+.plan-day-block { border-bottom: 1px solid #e2e8f0; }
+.plan-day-title {
+  padding: 10px 16px; background: #f1f5f9; font-weight: 700;
+  color: #475569; position: sticky; top: 0;
+}
+.plan-item-list { list-style: none; margin: 0; padding: 0; }
+
+.plan-item {
+  padding: 10px 16px; border-bottom: 1px solid #f1f5f9; cursor: pointer;
+}
+.plan-item:hover { background: #ffffff; }
+.plan-item-active { background: #eff6ff; border-left: 4px solid #3b82f6; }
+
+.plan-item-main { font-size: 0.9rem; color: #1f2937; margin-bottom: 4px; }
+.plan-item-type { font-size: 0.75rem; color: #9ca3af; margin-left: 4px; }
+.plan-item-note { font-size: 0.8rem; color: #6b7280; margin-left: 4px; }
+
+/* 🔥 修改：空狀態也自動置中填滿 */
+.plan-empty-text { 
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.send-button:disabled {
-  background: #9ca3af;
-  cursor: not-allowed;
-}
-
-/* 右邊地圖 + 行程 */
-.side-panel {
-  flex: 0.9;
-  display: flex;
   flex-direction: column;
-  gap: 10px;
+  text-align: center;
+  color: #9ca3af; 
+  font-size: 0.9rem; 
+  padding: 20px;
 }
-
-/* 共用卡片樣式（地圖卡 + 行程卡） */
-.card {
-  background: var(--card-bg);
-  border-radius: 14px;
-  border: 1px solid var(--border-soft);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-  padding: 10px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-}
-
-/* 卡片標題 */
-.card-header {
-  color: var(--text-main);
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.card-header span.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
-}
-
-/* 地圖卡高度固定，行程卡可以捲動 */
-.map-card {
-  flex: 0 0 36%;
-  display: flex;
-  flex-direction: column;
-}
-
-
-.plan-card {
-  flex: 0 0 32%;
-  overflow-y: auto;
-  background: #1f5895;
-}
-
-
-/* 行程內容樣式 */
-.plan-summary {
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-
-.plan-summary strong {
-  font-weight: 600;
-}
-
-.plan-day-block {
-  border-radius: 10px;
-  padding: 8px;
-  background: #3174b7;
-  border: 1px solid #e5e7eb;
-  margin-bottom: 6px;
-}
-
-.plan-day-title {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-
-.plan-item-list {
-  list-style: none;
-  padding-left: 0;
-  margin: 0;
-}
-
-.plan-item {
-  margin-bottom: 4px;
-}
-
-.plan-item-main {
-  font-size: 13px;
-}
-
-.plan-item-type {
-  color: #6b7280;
-  font-size: 11px;
-}
-
-.plan-item-note {
-  font-size: 12px;
-  color: #4b5563;
-}
-
-/* 「尚未產生行程」提示 */
-.plan-empty-text {
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-/* 小螢幕時：上下堆疊顯示（可選） */
-@media (max-width: 900px) {
-  .app-shell {
-    height: auto;
-    min-height: 90vh;
-  }
-  .main-layout {
-    flex-direction: column;
-  }
-  .side-panel {
-    flex: 1;
-  }
-}
-
-.plan-item-active {
-  background: #eff6ff;
-  border-left: 3px solid #3b82f6;
-}
-
-
