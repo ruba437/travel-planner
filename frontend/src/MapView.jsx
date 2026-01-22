@@ -31,13 +31,14 @@ const getMarkerIcon = (day) => {
   };
 };
 
-const containerStyle = { width: '100%', height: '620px', borderRadius: '8px' };
-const defaultCenter = { lat: 23.7, lng: 121 };
-const cityCenters = {
-  台中: { lat: 24.1477, lng: 120.6736 },
-  台北: { lat: 25.033, lng: 121.5654 },
-  高雄: { lat: 22.6273, lng: 120.3014 },
+const containerStyle = { 
+  width: '100%', 
+  height: '100%', 
+  borderRadius: '0 0 12px 12px' 
 };
+
+// 預設中心 (台灣)
+const defaultCenter = { lat: 23.7, lng: 121 };
 
 const getPhotoUrl = (photoReference) => {
   if (!photoReference) return null;
@@ -55,12 +56,11 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [loadingDirections, setLoadingDirections] = useState(false);
   const [routePath, setRoutePath] = useState(null); 
   
-  // 🔵 藍色路線的 Ref
-  const activePolylineRef = useRef(null);
-  
-  // 🔴 綠色直線群組的 Ref
-  const segmentsRef = useRef([]); 
+  // 儲存目前城市的中心點座標 (解決國外景點搜尋偏移問題)
+  const [cityCenter, setCityCenter] = useState(null);
 
+  const activePolylineRef = useRef(null);
+  const segmentsRef = useRef([]); 
   const [selectedSegmentId, setSelectedSegmentId] = useState(null);
 
   const directionsAbortRef = useRef(null);
@@ -77,7 +77,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     }, 0);
   };
 
-  // 重置狀態
+  // 切換天數時重置狀態
   useEffect(() => {
     setSelectedMarker(null);
     setSelectedSegment(null);
@@ -87,6 +87,7 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     setRoutePath(null);
   }, [selectedDay]);
 
+  // 新行程產生時重置所有狀態
   useEffect(() => {
     setSelectedDay(null);
     setSelectedMarker(null);
@@ -94,7 +95,8 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     setSelectedSegmentInfo(null);
     setLoadingDirections(false);
     setRoutePath(null);
-    setSelectedSegmentId(null); 
+    setSelectedSegmentId(null);
+    setCityCenter(null); 
   }, [plan]);
 
   const { isLoaded } = useJsApiLoader({
@@ -104,11 +106,11 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   });
 
   const center = useMemo(() => {
-    if (!plan || !plan.city) return defaultCenter;
-    return cityCenters[plan.city] || cityCenters[plan.city.replace('市', '')] || defaultCenter;
-  }, [plan]);
+    if (cityCenter) return cityCenter;
+    return defaultCenter;
+  }, [cityCenter]);
 
-  // 資料計算
+  // 計算路徑線段
   const daySegments = useMemo(() => {
     if (!markers.length) return [];
     const byDay = new Map();
@@ -138,25 +140,18 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return segs;
   }, [markers]);
 
-  // ----------------------------------------------------------------------
-  // 直線繪製邏輯
-  // ----------------------------------------------------------------------
+  // 繪製直線 (Segments)
   useEffect(() => {
     if (!mapRef || !window.google) return;
-
     segmentsRef.current.forEach(line => line.setMap(null));
     segmentsRef.current = [];
-
     if (showAll) return; 
-
-    // 如果已經選了某條路，隱藏所有直線
-    if (selectedSegmentId) {
-      return; 
-    }
+    
+    // 如果正在看詳細路線，隱藏其他直線
+    if (selectedSegmentId) return; 
 
     daySegments.forEach(seg => {
       if (seg.day !== selectedDay) return;
-      
       const line = new window.google.maps.Polyline({
         path: seg.path,
         strokeColor: getDayColor(seg.day),
@@ -166,53 +161,58 @@ function MapView({ plan, activeLocation, onLocationChange }) {
         zIndex: 1,
         map: mapRef, 
       });
-
       line.addListener('click', () => {
         setSelectedSegmentId(seg.id); 
         setSelectedSegment(seg);
         handleSegmentClick(seg);
       });
-
       segmentsRef.current.push(line);
     });
-
     return () => {
       segmentsRef.current.forEach(line => line.setMap(null));
       segmentsRef.current = [];
     };
-
   }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]); 
 
-  // ----------------------------------------------------------------------
+  // 自動縮放與視角移動
+  useEffect(() => {
+    if (!mapRef || !window.google || !window.google.maps) return;
 
+    // 1. 一般模式：縮放以包含所有 Markers
+    if (markers.length > 0 && !selectedSegmentId) {
+      const bounds = new window.google.maps.LatLngBounds();
+      markers.filter((m) => selectedDay === null || m.day === selectedDay)
+             .forEach((m) => bounds.extend({ lat: m.lat, lng: m.lng }));
+      mapRef.fitBounds(bounds);
+    } 
+    // 2. 剛載入城市但還沒Markers：飛去城市中心
+    else if (cityCenter && markers.length === 0) {
+      mapRef.panTo(cityCenter);
+      mapRef.setZoom(12);
+    }
+  }, [mapRef, markers, selectedDay, selectedSegmentId, cityCenter]);
+
+  // 🔥 關鍵修正：當點擊右側行程列表時，連動地圖 Marker
   useEffect(() => {
     if (!activeLocation || !mapRef || !markers.length) return;
     if (!window.google || !window.google.maps) return;
+
     const target = markers.find(
       (m) => Number(m.day) === Number(activeLocation.day) && Number(m.order) === Number(activeLocation.order),
     );
+
     if (!target) return;
+
+    // 1. 自動選中 Marker (讓 InfoWindow 彈出)
     setSelectedMarker(target);
+
+    // 2. 移動視角
     const center = new window.google.maps.LatLng(target.lat, target.lng);
     mapRef.panTo(center);
     mapRef.setZoom(15);
   }, [activeLocation, markers, mapRef]);
 
-  // 自動縮放邏輯
-  useEffect(() => {
-    if (!mapRef || !markers.length) return;
-    if (!window.google || !window.google.maps) return;
-
-    // 如果正在看詳細路線，就不要強制縮放到全域
-    if (selectedSegmentId) return;
-
-    const visibleMarkers = markers.filter((m) => selectedDay === null || m.day === selectedDay);
-    if (!visibleMarkers.length) return;
-    const bounds = new window.google.maps.LatLngBounds();
-    visibleMarkers.forEach((m) => bounds.extend({ lat: m.lat, lng: m.lng }));
-    mapRef.fitBounds(bounds);
-  }, [mapRef, markers, selectedDay, selectedSegmentId]);
-
+  // 搜尋景點邏輯
   useEffect(() => {
     if (!plan || !plan.days || plan.days.length === 0) {
       setMarkers([]);
@@ -223,6 +223,28 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     const fetchMarkers = async () => {
       try {
         setLoadingPlaces(true);
+        
+        // 1. 先查城市座標
+        let currentCityLocation = null;
+        if (plan.city) {
+          try {
+            const cityRes = await fetch(`${API_BASE}/api/places/search`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: plan.city }), 
+            });
+            const cityData = await cityRes.json();
+            const cityPlace = cityData.places && cityData.places[0];
+            if (cityPlace && cityPlace.lat && cityPlace.lng) {
+              currentCityLocation = { lat: cityPlace.lat, lng: cityPlace.lng };
+              setCityCenter(currentCityLocation);
+            }
+          } catch (e) {
+            console.error('查詢城市失敗', e);
+          }
+        }
+
+        // 2. 再查景點
         const newMarkers = [];
         const seenNames = new Set();
         for (const day of plan.days) {
@@ -237,7 +259,11 @@ function MapView({ plan, activeLocation, onLocationChange }) {
               const res = await fetch(`${API_BASE}/api/places/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: itemName, city: plan.city }),
+                body: JSON.stringify({ 
+                  query: itemName, 
+                  city: plan.city,
+                  center: currentCityLocation 
+                }),
               });
               const data = await res.json();
               const place = data.places && data.places[0];
@@ -261,20 +287,18 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     fetchMarkers();
   }, [plan, isLoaded]);
 
+  // 自動觸發導航查詢
   useEffect(() => {
     if (!selectedSegment) return;
     if (directionsAbortRef.current) directionsAbortRef.current.abort();
     setRoutePath(null);
     setSelectedSegmentInfo(null);
     setLoadingDirections(true);
-
-    const t = setTimeout(() => {
-      handleSegmentClick(selectedSegment);
-    }, 50); 
+    const t = setTimeout(() => { handleSegmentClick(selectedSegment); }, 50); 
     return () => clearTimeout(t);
   }, [travelMode, selectedSegment]);
 
-  // 繪製藍色路線
+  // 繪製藍色導航路線
   useEffect(() => {
     if (!mapRef || !window.google) return;
     const removeLine = () => {
@@ -299,7 +323,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     const controller = new AbortController();
     directionsAbortRef.current = controller;
     const reqId = ++directionsReqIdRef.current;
-
     try {
       const res = await fetch(`${API_BASE}/api/directions`, {
         method: 'POST',
@@ -313,21 +336,18 @@ function MapView({ plan, activeLocation, onLocationChange }) {
       });
       const data = await res.json();
       if (reqId !== directionsReqIdRef.current) return;
-      
       if (data.encodedPolyline && window.google?.maps?.geometry?.encoding) {
         const decoded = window.google.maps.geometry.encoding.decodePath(data.encodedPolyline);
         setRoutePath(decoded.map((p) => ({ lat: p.lat(), lng: p.lng() })));
       } else {
         setRoutePath(null);
       }
-
       if (data.bounds && mapRef && window.google) {
         const bounds = new window.google.maps.LatLngBounds();
         bounds.extend(data.bounds.northeast);
         bounds.extend(data.bounds.southwest);
         mapRef.fitBounds(bounds);
       }
-
       if (data.error) setSelectedSegmentInfo({ segment, error: data.error_message || data.error });
       else setSelectedSegmentInfo({ segment, summary: data.summary });
     } catch (err) {
@@ -339,21 +359,11 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     }
   }
 
-  // -----------------------------------------------------
-
-  if (!plan || !plan.days || plan.days.length === 0) {
-    return <div style={{ fontSize: '12px', padding: '8px', color: '#888' }}>尚未產生行程</div>;
-  }
-  if (!isLoaded) {
-    return <div style={{ fontSize: '12px', padding: '8px', color: '#888' }}>地圖載入中…</div>;
-  }
-
   const renderRouteCard = () => {
     const seg = selectedSegmentInfo?.segment || selectedSegment;
     const summary = selectedSegmentInfo?.summary;
     const err = selectedSegmentInfo?.error;
     if (!seg && !loadingDirections) return null;
-
     return (
       <div style={{
         position: 'absolute', bottom: 8, left: 8, zIndex: 2, background: 'rgba(15,23,42,0.96)',
@@ -375,7 +385,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
             style={{ border: 'none', background: 'transparent', color: '#e5e7eb', cursor: 'pointer', fontSize: '14px' }}
           >✕</button>
         </div>
-
         {seg && (
           <div style={{ display: 'flex', gap: 6, margin: '6px 0 8px 0' }}>
             {['DRIVING', 'TRANSIT', 'WALKING'].map(mode => (
@@ -406,9 +415,9 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', width: '100%', flex: 1, display: 'flex', flexDirection: 'column' }}>
       
-      {loadingPlaces && <div style={{position:'absolute',top:8,left:8,zIndex:1,background:'white',padding:'4px'}}>取得位置中…</div>}
+      {loadingPlaces && <div style={{position:'absolute',top:8,left:8,zIndex:1,background:'white',padding:'4px', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'}}>取得位置中…</div>}
       
       {plan?.days?.length > 0 && (
         <div style={{position:'absolute',top:8,right:8,zIndex:2,display:'flex',gap:4,background:'rgba(255,255,255,0.9)',padding:6,borderRadius:99}}>
@@ -424,53 +433,56 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
       {renderRouteCard()}
 
-      <GoogleMap
-        key={showAll ? 'all' : `day-${selectedDay}`}
-        mapContainerStyle={containerStyle}
-        center={center}
-        zoom={12}
-        onLoad={(map) => setMapRef(map)}
-        options={{ disableDefaultUI: false, clickableIcons: false, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
-      >
-        {/* 直線由 useEffect 手動繪製 */}
-        
-        {/* Marker */}
-        {markers
-          .filter((m) => selectedDay === null || m.day === selectedDay)
-          // 專注模式：選中路線時只顯示頭尾
-          .filter((m) => {
-            if (selectedSegment) {
-               const from = selectedSegment.from;
-               const to = selectedSegment.to;
-               const isStart = m.day === from.day && m.order === from.order;
-               const isEnd = m.day === to.day && m.order === to.order;
-               return isStart || isEnd;
-            }
-            return true;
-          })
-          .map((m, idx) => (
-            <Marker
-              key={`${m.day}-${m.order}`}
-              position={{ lat: m.lat, lng: m.lng }}
-              onClick={() => {
-                setSelectedMarker(m);
-                onLocationChange?.({ day: m.day, order: m.order });
-              }}
-              icon={getMarkerIcon(m.day)}
-              label={{ text: String((m.order || 0) + 1), color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}
-            />
-          ))}
+      {(!plan || !plan.days || plan.days.length === 0) ? (
+         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: '14px' }}>
+           尚未產生行程，暫不顯示地圖。
+         </div>
+      ) : (
+         !isLoaded ? (
+           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+             地圖載入中…
+           </div>
+         ) : (
+           <GoogleMap
+             key={showAll ? 'all' : `day-${selectedDay}`}
+             mapContainerStyle={containerStyle} 
+             center={center}
+             zoom={12}
+             onLoad={(map) => setMapRef(map)}
+             options={{ disableDefaultUI: false, clickableIcons: false, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
+           >
+             {markers
+              .filter((m) => selectedDay === null || m.day === selectedDay)
+              .filter((m) => {
+                if (selectedSegment) {
+                   const from = selectedSegment.from;
+                   const to = selectedSegment.to;
+                   return (m.day === from.day && m.order === from.order) || (m.day === to.day && m.order === to.order);
+                }
+                return true;
+              })
+              .map((m) => (
+                <Marker
+                  key={`${m.day}-${m.order}`}
+                  position={{ lat: m.lat, lng: m.lng }}
+                  onClick={() => { setSelectedMarker(m); onLocationChange?.({ day: m.day, order: m.order }); }}
+                  icon={getMarkerIcon(m.day)}
+                  label={{ text: String((m.order || 0) + 1), color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}
+                />
+              ))}
 
-        {selectedMarker && (
-          <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
-            <div style={{ maxWidth: '240px', fontSize: '12px' }}>
-              <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
-              {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover' }} />}
-              <div>{selectedMarker.address}</div>
-            </div>
-          </InfoWindow>
-        )}
-      </GoogleMap>
+            {selectedMarker && (
+              <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
+                <div style={{ maxWidth: '240px', fontSize: '12px' }}>
+                  <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
+                  {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover' }} />}
+                  <div>{selectedMarker.address}</div>
+                </div>
+              </InfoWindow>
+            )}
+           </GoogleMap>
+         )
+      )}
     </div>
   );
 }

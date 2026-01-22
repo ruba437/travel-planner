@@ -5,19 +5,22 @@ import MapView from './MapView';
 
 function App() {
   const [messages, setMessages] = useState([
-    { role: 'system', text: '嗨，我是旅遊小助手，試著輸入你的旅遊需求吧！' },
+    { role: 'assistant', content: '嗨，我是旅遊小助手！我們可以先聊聊你想去哪裡、喜歡吃什麼，確定後我再幫你生成行程地圖。' },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [plan, setPlan] = useState(null); // 用來存後端回傳的行程 JSON
+  const [plan, setPlan] = useState(null);
   const [activeLocation, setActiveLocation] = useState(null);
 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isSending) return;
 
-    const newMessages = [...messages, { role: 'user', text }];
-    setMessages(newMessages);
+    // 1. 準備新的歷史紀錄
+    const userMsg = { role: 'user', content: text };
+    const newHistory = [...messages, userMsg];
+    
+    setMessages(newHistory);
     setInput('');
     setIsSending(true);
 
@@ -25,30 +28,24 @@ function App() {
       const res = await fetch('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ messages: newHistory }), // 傳送完整歷史
       });
 
       const data = await res.json();
 
-      const assistantText =
-        data.reply ||
-        (data.plan?.summary
-          ? data.plan.summary
-          : '已產生行程，請看右側行程預覽。');
+      // 2. 顯示 AI 回覆
+      const assistantMsg = { role: 'assistant', content: data.content };
+      setMessages([...newHistory, assistantMsg]);
 
-      setMessages([...newMessages, { role: 'assistant', text: assistantText }]);
-
+      // 3. 只有當 AI 決定更新行程時 (plan 不為 null)，才更新地圖
       if (data.plan) {
         setPlan(data.plan);
       }
     } catch (err) {
       console.error(err);
       setMessages([
-        ...newMessages,
-        {
-          role: 'assistant',
-          text: '後端連線失敗，請確認 server 有沒有啟動。',
-        },
+        ...newHistory,
+        { role: 'assistant', content: '系統連線錯誤，請稍後再試。' },
       ]);
     } finally {
       setIsSending(false);
@@ -62,36 +59,24 @@ function App() {
     }
   };
 
-  // 小工具：把 time/type 轉成比較好看的中文
   const displayTime = (time) => {
     switch (time) {
-      case 'morning':
-        return '早上';
-      case 'noon':
-        return '中午';
-      case 'afternoon':
-        return '下午';
-      case 'evening':
-        return '傍晚';
-      case 'night':
-        return '晚上';
-      default:
-        return time;
+      case 'morning': return '早上';
+      case 'noon': return '中午';
+      case 'afternoon': return '下午';
+      case 'evening': return '傍晚';
+      case 'night': return '晚上';
+      default: return time;
     }
   };
 
   const displayType = (type) => {
     switch (type) {
-      case 'sight':
-        return '景點';
-      case 'food':
-        return '美食';
-      case 'shopping':
-        return '購物';
-      case 'activity':
-        return '活動';
-      default:
-        return type;
+      case 'sight': return '景點';
+      case 'food': return '美食';
+      case 'shopping': return '購物';
+      case 'activity': return '活動';
+      default: return type;
     }
   };
 
@@ -101,72 +86,50 @@ function App() {
         <div className="app-header">
           <div className="app-header-title">
             <span className="logo-dot" />
-            旅遊聊天小助手 · 行程展示版
-          </div>
-          <div className="app-header-subtitle">
-            試著輸入：「幫我安排台中兩天一夜行程，預算一萬，想吃美食跟看夜景」看看效果！
+            旅遊聊天小助手
           </div>
         </div>
 
-        
         <div className="main-layout">
+          {/* 左側聊天區 */}
           <div className="chat-panel">
             <div className="chat-messages">
               {messages.map((m, idx) => (
                 <div
                   key={idx}
-                  className={
-                    'chat-row ' +
-                    (m.role === 'user'
-                      ? 'user'
-                      : m.role === 'assistant'
-                      ? 'assistant'
-                      : 'system')
-                  }
+                  className={'chat-row ' + (m.role === 'user' ? 'user' : 'assistant')}
                 >
-                  <div
-                    className={
-                      'bubble ' +
-                      (m.role === 'user'
-                        ? 'bubble-user'
-                        : m.role === 'assistant'
-                        ? 'bubble-assistant'
-                        : 'bubble-system')
-                    }
-                  >
-                    {m.text}
+                  <div className={'bubble ' + (m.role === 'user' ? 'bubble-user' : 'bubble-assistant')}>
+                    {/* 支援換行顯示 */}
+                    {m.content.split('\n').map((line, i) => (
+                      <div key={i} style={{ minHeight: '1.2em' }}>{line}</div>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
-
-            {/* 輸入框 */}
             <div className="chat-input-area">
               <textarea
                 rows={2}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="輸入你的旅遊需求，例如：幫我安排台中兩天一夜行程..."
+                placeholder="輸入訊息..."
                 className="chat-textarea"
               />
-              <button
-                onClick={handleSend}
-                disabled={isSending}
-                className="send-button"
-              >
-                {isSending ? '傳送中…' : '送出'}
+              <button onClick={handleSend} disabled={isSending} className="send-button">
+                {isSending ? '...' : '送出'}
               </button>
             </div>
           </div>
 
-          {/* 右邊：地圖 + 行程預覽 */}
-          
-            {/* 地圖卡片 */}
+          {/* 右側視覺區 */}
+          <div className="visualization-panel">
+            
+            {/* 地圖 */}
             <div className="card map-card">
               <div className="card-header">
-                <span className="dot" />
-                行程地圖
+                <span className="dot" /> 行程地圖
               </div>
               <MapView 
                 plan={plan} 
@@ -175,81 +138,60 @@ function App() {
               />
             </div>
 
-            {/* 行程卡片 */}
+            {/* 行程列表 */}
             <div className="card plan-card">
               <div className="card-header">
-                <span className="dot" />
-                行程預覽
+                <span className="dot" /> 行程預覽
               </div>
 
               {plan ? (
-                <div style={{ fontSize: '13px' }}>
+                <div className="plan-content" style={{ fontSize: '13px' }}>
                   <div className="plan-summary">
-                    <div>
-                      <strong>城市：</strong>
-                      {plan.city || '（未指定）'}
-                    </div>
-                    <div>
-                      <strong>概要：</strong>
-                      {plan.summary || '（無概要）'}
-                    </div>
+                    <div><strong>城市：</strong>{plan.city || '（未指定）'}</div>
+                    <div><strong>概要：</strong>{plan.summary || '（無概要）'}</div>
                   </div>
 
-              {(plan.days || []).map((day) => {
-                const dayNumber = Number(day.day);
+                  {(plan.days || []).map((day) => (
+                    <div key={day.day} className="plan-day-block">
+                      <div className="plan-day-title">
+                        第 {day.day} 天 · {day.title || '未命名主題'}
+                      </div>
+                      <ul className="plan-item-list">
+                        {(day.items || []).map((item, idx) => {
+                          const isActive =
+                            activeLocation &&
+                            Number(activeLocation.day) === Number(day.day) &&
+                            Number(activeLocation.order) === idx;
 
-                return (
-                  <div key={day.day} className="plan-day-block">
-                    <div className="plan-day-title">
-                      第 {day.day} 天 · {day.title || '未命名主題'}
+                          return (
+                            <li
+                              key={idx}
+                              className={'plan-item' + (isActive ? ' plan-item-active' : '')}
+                              onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
+                            >
+                              <div className="plan-item-main">
+                                <strong>{displayTime(item.time)}：</strong>
+                                {item.name} <span className="plan-item-type">({displayType(item.type)})</span>
+                              </div>
+                              {item.note && <div className="plan-item-note">{item.note}</div>}
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
-                    <ul className="plan-item-list">
-                      {(day.items || []).map((item, idx) => {
-                        const isActive =
-                          activeLocation &&
-                          Number(activeLocation.day) === dayNumber &&
-                          Number(activeLocation.order) === idx;
-
-                        return (
-                          <li
-                            key={idx}
-                            className={
-                              'plan-item' + (isActive ? ' plan-item-active' : '')
-                            }
-                            // 🟢 點列表 → 通知 MapView：第幾天 / 當天第幾個
-                            onClick={() =>
-                              setActiveLocation({ day: dayNumber, order: idx })
-                            }
-                          >
-                            <div className="plan-item-main">
-                              <strong>{displayTime(item.time)}：</strong>
-                              {item.name}{' '}
-                              <span className="plan-item-type">
-                                ({displayType(item.type)})
-                              </span>
-                            </div>
-                            {item.note && (
-                              <div className="plan-item-note">{item.note}</div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                );
-              })}
-
+                  ))}
                 </div>
               ) : (
                 <div className="plan-empty-text">
-                  尚未產生行程，請在左邊輸入你的旅遊需求。
+                  目前地圖是空的。<br/>
+                  試著說：「幫我安排台北一日遊」來生成行程。
                 </div>
               )}
             </div>
           </div>
         </div>
       </div>
-    
+    </div>
   );
 }
 

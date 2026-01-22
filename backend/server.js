@@ -5,8 +5,6 @@ const cors = require('cors');
 const OpenAI = require('openai');
 const axios = require('axios');
 
-
-// 初始化 OpenAI Client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -15,129 +13,141 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 健康檢查: GET /api/health
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'backend is running' });
-});
+// ------------------ 定義工具 (Tools) ------------------
+const tools = [
+  {
+    type: 'function',
+    function: {
+      name: 'update_itinerary',
+      description: '當使用者明確要求安排、規劃、修改或更新旅遊行程時呼叫此工具。',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: '行程的簡短中文概要' },
+          // 🔥 修改重點 1: 強制 AI 在這裡填寫 "國家+城市"
+          city: { 
+            type: 'string', 
+            description: '旅遊目的地城市。⚠️重要：若為國外城市，請務必包含國家名稱以避免地圖搜尋錯誤 (例如: "義大利威尼斯"、"日本東京"、"美國紐約")。若是台灣城市則直接寫城市名 (例如: "台北")。' 
+          },
+          days: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                day: { type: 'number' },
+                title: { type: 'string' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      time: { type: 'string', enum: ['morning', 'noon', 'afternoon', 'evening', 'night'] },
+                      // 🔥 修改重點 2: 提示 AI 提供更精確的景點原名或全名
+                      name: { type: 'string', description: '地點的具體名稱。國外景點建議附上原文名稱以便搜尋 (例如: "聖馬可廣場 (Piazza San Marco)")' },
+                      type: { type: 'string', enum: ['sight', 'food', 'shopping', 'activity'] },
+                      note: { type: 'string' },
+                    },
+                    required: ['time', 'name', 'type'],
+                  },
+                },
+              },
+              required: ['day', 'items'],
+            },
+          },
+        },
+        required: ['summary', 'city', 'days'],
+      },
+    },
+  },
+];
 
-// 聊天 + 行程產生: POST /api/chat
+// ------------------ API: Chat Endpoint ------------------
 app.post('/api/chat', async (req, res) => {
-  const userMessage = req.body.message || '';
-
-  if (!userMessage) {
-    return res.status(400).json({ error: 'message is required' });
-  }
+  const { messages } = req.body; 
+  if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
   try {
-    // 用 Chat Completions 要求 AI 回傳「只有一個 JSON」
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini', // 或改成你帳號可用的模型名稱
+      model: 'gpt-4o-mini', 
       messages: [
         {
           role: 'system',
-          content:
-            '你是一位專門幫人規劃台灣旅遊行程的助理。請務必只輸出 JSON，不要有額外文字。',
+          // 🔥 修改重點 3: 加強 System Prompt 的地理概念
+          content: `你是一位專業的全球旅遊行程規劃助理。
+          
+          原則：
+          1. 規劃行程時，請確保景點名稱具體且真實存在。
+          2. 當使用者明確表示「幫我排行程」、「更新行程」時，請呼叫 'update_itinerary' 工具。
+          3. 【關鍵規則】：針對城市名稱 (city)，如果是國外，請務必加上國家前綴，例如「日本京都」、「法國巴黎」、「泰國曼谷」，這對地圖定位非常重要。
+          4. 景點名稱請盡量提供「中文+原文」，例如「羅浮宮 (Louvre Museum)」。`
         },
-        {
-          role: 'user',
-          content: `
-            請根據下面使用者的需求，產生一個旅遊行程 JSON。格式必須完全符合：
-
-            {
-              "summary": "簡短中文概要，說明這次行程，例如：台中兩天一夜美食＋夜景行程",
-              "city": "主要旅遊城市，例如：台中",
-              "days": [
-                {
-                  "day": 1,
-                  "title": "第一天主題，例如：市區景點＋夜市美食",
-                  "items": [
-                    {
-                      "time": "morning | noon | afternoon | evening | night 其中一個",
-                      "name": "景點或餐廳名稱（短）",
-                      "type": "sight | food | shopping | activity 其中一個",
-                      "note": "1~2 句中文說明，包含為什麼推薦、大概停留多久等"
-                    }
-                  ]
-                }
-              ]
-            }
-
-            要求：
-            1. 一定要是有效的 JSON（用雙引號、不能有註解）。
-            2. 不可以有任何 JSON 以外的文字說明。
-            3. "days" 至少要有 2 天，如果使用者沒說天數，就幫忙猜 2~3 天。
-
-使用者需求如下：
-${userMessage}
-          `.trim(),
-        },
+        ...messages
       ],
-      temperature: 0.7,
+      tools: tools,
+      tool_choice: 'auto',
     });
 
-    const rawText = completion.choices[0]?.message?.content?.trim() || '';
+    const responseMessage = completion.choices[0].message;
 
-    let plan = null;
-    try {
-      plan = JSON.parse(rawText);
-    } catch (parseErr) {
-      console.error('JSON parse error:', parseErr);
-      // 解析失敗就把原始文字丟回去，至少前端有東西可顯示
-      return res.json({
-        reply: 'AI 回傳格式解析失敗，以下是原始內容：\n' + rawText,
-        plan: null,
-      });
+    if (responseMessage.tool_calls) {
+      const toolCall = responseMessage.tool_calls[0];
+      if (toolCall.function.name === 'update_itinerary') {
+        const itineraryArgs = JSON.parse(toolCall.function.arguments);
+        console.log(`AI 生成行程: ${itineraryArgs.city} - ${itineraryArgs.summary}`);
+
+        return res.json({
+          role: 'assistant',
+          content: `好的！已為您更新行程：${itineraryArgs.summary}`,
+          plan: itineraryArgs,
+        });
+      }
     }
 
-    // 到這裡代表 JSON 解析成功
-    // 順便準備一段簡短回覆文字給聊天泡泡用
-    const replyText =
-      plan.summary ||
-      `已根據你的需求規劃了 ${plan.city || '旅遊'} 行程，請看下方行程表。`;
+    return res.json({
+      role: 'assistant',
+      content: responseMessage.content,
+      plan: null,
+    });
 
-    res.json({
-      reply: replyText,
-      plan, // 給前端用來畫行程表的 JSON
-    });
   } catch (err) {
-    console.error('Error calling OpenAI:', err);
-    res.status(500).json({
-      error: 'Failed to get AI response',
-    });
+    console.error('OpenAI Error:', err);
+    res.status(500).json({ error: 'AI processing failed' });
   }
 });
 
-// ------------------ Google Places 真實座標查詢 ------------------
-// POST /api/places/search
-// body: { query: '景點名稱', city: '台中' }
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// ------------------ API: Places Search ------------------
 app.post('/api/places/search', async (req, res) => {
-  const { query, city } = req.body || {};
+  const { query, city, center } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query is required' });
 
   try {
+    // 組合查詢：如果是找城市本身，query 就是 "義大利威尼斯"，這樣搜尋非常準確
+    // 如果是找景點，則是 "義大利威尼斯 聖馬可廣場"
     const fullQuery = city ? `${city} ${query}` : query;
+    console.log(`搜尋: ${fullQuery}, Center Bias:`, center ? 'YES' : 'NO');
+
+    const params = {
+      query: fullQuery,
+      key: process.env.GOOGLE_PLACES_API_KEY,
+      language: 'zh-TW',
+    };
+
+    // 只有當真的有有效的 center 時才鎖定範圍
+    if (center && center.lat && center.lng) {
+      params.location = `${center.lat},${center.lng}`;
+      params.radius = 10000; // 10km bias
+    }
 
     const response = await axios.get(
       'https://maps.googleapis.com/maps/api/place/textsearch/json',
-      {
-        params: {
-          query: fullQuery,
-          key: process.env.GOOGLE_PLACES_API_KEY,
-          language: 'zh-TW',
-          region: 'tw',
-        },
-      },
+      { params }
     );
 
     const data = response.data;
-
     if (data.status !== 'OK') {
-      return res.status(400).json({
-        error: 'Google Places status not OK',
-        status: data.status,
-        error_message: data.error_message,
-        places: [],
-      });
+      return res.status(400).json({ places: [] });
     }
 
     const places = (data.results || []).slice(0, 3).map((r) => ({
@@ -150,129 +160,67 @@ app.post('/api/places/search', async (req, res) => {
       userRatingsTotal: r.user_ratings_total,
       photoReference: r.photos?.[0]?.photo_reference || null,
     }));
-
     return res.json({ places });
   } catch (err) {
-    const details = err.response?.data || err.message || err;
-    console.error('Error calling Google Places API:', details);
-    return res.status(500).json({ error: 'Failed to fetch places' });
+    console.error(err);
+    return res.status(500).json({ error: 'Failed' });
   }
 });
 
-
-// ------------------ Google Places Photo 代理 ------------------
-// GET /api/places/photo?ref=PHOTO_REFERENCE&maxwidth=400
+// Photo API
 app.get('/api/places/photo', async (req, res) => {
   const { ref, maxwidth } = req.query;
-
-  if (!ref) {
-    return res.status(400).send('Missing photo reference');
-  }
-
+  if (!ref) return res.status(400).send('Missing ref');
   try {
-    const url = 'https://maps.googleapis.com/maps/api/place/photo';
-
-    const response = await axios.get(url, {
-      params: {
-        photo_reference: ref,
-        maxwidth: maxwidth || 400,
-        key: process.env.GOOGLE_PLACES_API_KEY,  // 後端那把 key
-      },
-      responseType: 'arraybuffer', // 拿到的是圖片 binary
+    const response = await axios.get('https://maps.googleapis.com/maps/api/place/photo', {
+      params: { photo_reference: ref, maxwidth: maxwidth || 400, key: process.env.GOOGLE_PLACES_API_KEY },
+      responseType: 'arraybuffer',
     });
-
-    const contentType = response.headers['content-type'] || 'image/jpeg';
-    res.set('Content-Type', contentType);
+    res.set('Content-Type', response.headers['content-type']);
     res.send(response.data);
   } catch (err) {
-    console.error('Error fetching place photo:', err.response?.data || err.message || err);
-    res.status(500).send('Failed to fetch photo');
+    res.status(500).send('Failed');
   }
 });
 
-const required = ['OPENAI_API_KEY', 'GOOGLE_PLACES_API_KEY'];
-const missing = required.filter((k) => !process.env[k]);
-if (missing.length) {
-  console.error('❌ Missing env:', missing.join(', '));
-  console.error('請建立 backend/.env（參考 .env.example）');
-  process.exit(1);
-}
-
-// ------------------ Google Directions 路線查詢 ------------------
-// POST /api/directions
-// body: {
-//   origin: { lat: number, lng: number },
-//   destination: { lat: number, lng: number },
-//   mode: 'DRIVING' | 'TRANSIT' | 'WALKING' | 'BICYCLING'
-// }
+// Directions API
 app.post('/api/directions', async (req, res) => {
   const { origin, destination, mode } = req.body || {};
-
-  if (!origin || !destination) {
-    return res.status(400).json({ error: 'origin 和 destination 都是必填' });
-  }
-
+  if (!origin || !destination) return res.status(400).json({ error: 'Missing params' });
   try {
-    const url = 'https://maps.googleapis.com/maps/api/directions/json';
-
-    const modeParam = (mode || 'TRANSIT').toLowerCase();
-
-    const response = await axios.get(url, {
+    const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
       params: {
         origin: `${origin.lat},${origin.lng}`,
         destination: `${destination.lat},${destination.lng}`,
-        mode: modeParam, 
+        mode: (mode || 'TRANSIT').toLowerCase(),
         language: 'zh-TW',
-        region: 'tw',
-        departure_time: Math.floor(Date.now() / 1000),
         key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
       },
     });
-
-
     const data = response.data;
-
-    if (data.status !== 'OK') {
-      return res.status(400).json({
-        error: 'Google Directions status not OK',
-        status: data.status,
-        error_message: data.error_message,
-      });
-    }
-
-    // 只取第一條 route
+    if (data.status !== 'OK') return res.status(400).json({ error: data.status });
     const route = data.routes[0];
     const leg = route.legs[0];
-
-    const summary = {
-      distanceText: leg.distance?.text,
-      durationText: leg.duration?.text,
-      startAddress: leg.start_address,
-      endAddress: leg.end_address,
-      steps: (leg.steps || []).map((s) => ({
-        // HTML 說明文字
-        instructionHtml: s.html_instructions,
-        distanceText: s.distance?.text,
-        durationText: s.duration?.text,
-        travelMode: s.travel_mode,
-      })),
-    };
-
-    const encodedPolyline = route.overview_polyline?.points || null;
-    const bounds = route.bounds || null;
-
-    res.json({ summary, encodedPolyline, bounds });
-  } catch (err) {
-    console.error('Error calling Google Directions API:', err.response?.data || err.message || err);
-    res.status(500).json({
-      error: 'Failed to fetch directions',
+    res.json({
+      summary: {
+        distanceText: leg.distance?.text,
+        durationText: leg.duration?.text,
+        steps: (leg.steps || []).map((s) => ({
+          instructionHtml: s.html_instructions,
+          distanceText: s.distance?.text,
+          durationText: s.duration?.text,
+          travelMode: s.travel_mode,
+        })),
+      },
+      encodedPolyline: route.overview_polyline?.points,
+      bounds: route.bounds,
     });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
   }
 });
 
-
-// 啟動 server
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`Backend is running on http://localhost:${PORT}`);
+  console.log(`Backend running on http://localhost:${PORT}`);
 });
