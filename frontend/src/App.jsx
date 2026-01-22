@@ -86,10 +86,7 @@ function App() {
         <div className="app-header">
           <div className="app-header-title">
             <span className="logo-dot" />
-            旅遊聊天小助手 · 智慧對話版
-          </div>
-          <div className="app-header-subtitle">
-            現在可以正常聊天囉！試試看：「我想去台南吃牛肉湯」，它會先回答你，當你說「幫我排進行程」時才會更新地圖。
+            旅遊聊天小助手
           </div>
         </div>
 
@@ -148,8 +145,6 @@ function App() {
               </div>
 
               {plan ? (
-                // 🔥 修正重點：加上 className="plan-content"
-                // 這樣只有這個區塊會捲動，不會影響到上面的標題
                 <div className="plan-content" style={{ fontSize: '13px' }}>
                   <div className="plan-summary">
                     <div><strong>城市：</strong>{plan.city || '（未指定）'}</div>
