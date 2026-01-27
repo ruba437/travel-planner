@@ -18,6 +18,7 @@
 - OpenAI API
 - Google Places API
 - Google Direction API
+- Open-Meteo
 
 ---
 

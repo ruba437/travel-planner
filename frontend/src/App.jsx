@@ -3,14 +3,30 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import MapView from './MapView';
 
+// WMO Weather Code 轉換表 (Open-Meteo)
+const getWeatherIcon = (code) => {
+  if (code === undefined || code === null) return null;
+  if (code <= 1) return '☀️'; // 晴天
+  if (code <= 3) return '⛅'; // 多雲
+  if (code <= 48) return '🌫️'; // 霧
+  if (code <= 67) return '🌧️'; // 雨
+  if (code <= 77) return '❄️'; // 雪
+  if (code <= 82) return '🌧️'; // 陣雨
+  if (code <= 86) return '❄️'; // 陣雪
+  if (code <= 99) return '⛈️'; // 雷雨
+  return '🌡️';
+};
+
 function App() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '嗨，我是旅遊小助手！我們可以先聊聊你想去哪裡、喜歡吃什麼，確定後我再幫你生成行程地圖。' },
+    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [plan, setPlan] = useState(null);
   const [activeLocation, setActiveLocation] = useState(null);
+  
+  const [weatherData, setWeatherData] = useState(null);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -37,6 +53,7 @@ function App() {
 
       if (data.plan) {
         setPlan(data.plan);
+        setWeatherData(null); // 清空舊天氣
       }
     } catch (err) {
       console.error(err);
@@ -56,27 +73,63 @@ function App() {
     }
   };
 
-  // 🔥 新增：當從地圖切換天數時，列表自動捲動到該天標題
+  // 當 plan 有 startDate 時，自動去抓天氣
+  useEffect(() => {
+    if (plan && plan.city && plan.startDate) {
+      console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
+      fetch('http://localhost:3000/api/weather', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ city: plan.city, startDate: plan.startDate }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.daily) {
+            setWeatherData(data.daily);
+          }
+        })
+        .catch((err) => console.error('天氣獲取失敗', err));
+    }
+  }, [plan]);
+
+  // 取得天氣資訊
+  const getWeatherForDay = (dayIndex) => {
+    if (!weatherData || !weatherData.time) return null;
+    const code = weatherData.weathercode[dayIndex];
+    const maxT = weatherData.temperature_2m_max[dayIndex];
+    const minT = weatherData.temperature_2m_min[dayIndex];
+    // 注意：如果超出預測範圍 (例如第10天)，Open-Meteo 可能會給 undefined，這裡要檢查
+    if (code === undefined || maxT === undefined) return null;
+
+    return { icon: getWeatherIcon(code), max: maxT, min: minT };
+  };
+
+  // 🔥 新增：單純計算日期字串 (不依賴天氣 API)
+  const formatDate = (startDate, dayIndex) => {
+    if (!startDate) return null;
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + dayIndex); 
+    // 格式化為 MM-DD
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const d = date.getDate().toString().padStart(2, '0');
+    return `${m}-${d}`;
+  };
+
+  // 捲動邏輯
   const handleDayChange = (day) => {
     if (day) {
       const el = document.getElementById(`day-header-${day}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
-      // 如果切回「全部」，捲動到最上面
       const el = document.querySelector('.plan-content');
       if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
-  // 🔥 新增：當選中某個地點時 (從地圖點擊)，列表自動捲動到該項目
   useEffect(() => {
     if (activeLocation) {
       const el = document.getElementById(`item-${activeLocation.day}-${activeLocation.order}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [activeLocation]);
 
@@ -112,7 +165,6 @@ function App() {
         </div>
 
         <div className="main-layout">
-          {/* 左側聊天區 */}
           <div className="chat-panel">
             <div className="chat-messages">
               {messages.map((m, idx) => (
@@ -143,10 +195,8 @@ function App() {
             </div>
           </div>
 
-          {/* 右側視覺區 */}
           <div className="visualization-panel">
             
-            {/* 地圖 */}
             <div className="card map-card">
               <div className="card-header">
                 <span className="dot" /> 行程地圖
@@ -155,11 +205,10 @@ function App() {
                 plan={plan} 
                 activeLocation={activeLocation}        
                 onLocationChange={setActiveLocation}
-                onDayChange={handleDayChange} // 🔥 傳入回呼函式
+                onDayChange={handleDayChange}
               />
             </div>
 
-            {/* 行程列表 */}
             <div className="card plan-card">
               <div className="card-header">
                 <span className="dot" /> 行程預覽
@@ -170,40 +219,58 @@ function App() {
                   <div className="plan-summary">
                     <div><strong>城市：</strong>{plan.city || '（未指定）'}</div>
                     <div><strong>概要：</strong>{plan.summary || '（無概要）'}</div>
+                    {plan.startDate && <div style={{marginTop: 4, color: '#666'}}>📅 出發日期：{plan.startDate}</div>}
                   </div>
 
-                  {(plan.days || []).map((day) => (
-                    // 🔥 加上 ID 供捲動定位
-                    <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
-                      <div className="plan-day-title">
-                        第 {day.day} 天 · {day.title || '未命名主題'}
-                      </div>
-                      <ul className="plan-item-list">
-                        {(day.items || []).map((item, idx) => {
-                          const isActive =
-                            activeLocation &&
-                            Number(activeLocation.day) === Number(day.day) &&
-                            Number(activeLocation.order) === idx;
+                  {(plan.days || []).map((day, dayIdx) => {
+                    const weather = getWeatherForDay(dayIdx);
+                    // 🔥 計算日期字串
+                    const dateStr = formatDate(plan.startDate, dayIdx);
 
-                          return (
-                            <li
-                              key={idx}
-                              // 🔥 加上 ID 供捲動定位
-                              id={`item-${day.day}-${idx}`}
-                              className={'plan-item' + (isActive ? ' plan-item-active' : '')}
-                              onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
-                            >
-                              <div className="plan-item-main">
-                                <strong>{displayTime(item.time)}：</strong>
-                                {item.name} <span className="plan-item-type">({displayType(item.type)})</span>
-                              </div>
-                              {item.note && <div className="plan-item-note">{item.note}</div>}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ))}
+                    return (
+                      <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
+                        <div className="plan-day-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>第 {day.day} 天 · {day.title || '未命名主題'}</span>
+                          
+                          <span style={{ fontSize: '0.85em', fontWeight: 'normal', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {/* 1. 無論有沒有天氣，只要有日期就顯示 */}
+                            {dateStr && <span>{dateStr}</span>}
+
+                            {/* 2. 有天氣才顯示圖示 */}
+                            {weather && (
+                              <>
+                                <span style={{ fontSize: '1.2em' }}>{weather.icon}</span>
+                                <span>{weather.min}°-{weather.max}°</span>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        <ul className="plan-item-list">
+                          {(day.items || []).map((item, idx) => {
+                            const isActive =
+                              activeLocation &&
+                              Number(activeLocation.day) === Number(day.day) &&
+                              Number(activeLocation.order) === idx;
+
+                            return (
+                              <li
+                                key={idx}
+                                id={`item-${day.day}-${idx}`}
+                                className={'plan-item' + (isActive ? ' plan-item-active' : '')}
+                                onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
+                              >
+                                <div className="plan-item-main">
+                                  <strong>{displayTime(item.time)}：</strong>
+                                  {item.name} <span className="plan-item-type">({displayType(item.type)})</span>
+                                </div>
+                                {item.note && <div className="plan-item-note">{item.note}</div>}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="plan-empty-text">
