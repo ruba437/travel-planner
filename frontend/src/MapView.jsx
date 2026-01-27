@@ -45,7 +45,8 @@ const getPhotoUrl = (photoReference) => {
   return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=400`;
 };
 
-function MapView({ plan, activeLocation, onLocationChange }) {
+// 🔥 接收 onDayChange prop
+function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
   const [markers, setMarkers] = useState([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
@@ -56,7 +57,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
   const [loadingDirections, setLoadingDirections] = useState(false);
   const [routePath, setRoutePath] = useState(null); 
   
-  // 儲存目前城市的中心點座標 (解決國外景點搜尋偏移問題)
   const [cityCenter, setCityCenter] = useState(null);
 
   const activePolylineRef = useRef(null);
@@ -77,8 +77,16 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     }, 0);
   };
 
-  // 切換天數時重置狀態
   useEffect(() => {
+    if (selectedMarker && Number(selectedMarker.day) === Number(selectedDay)) {
+      setSelectedSegment(null);
+      setSelectedSegmentId(null); 
+      setSelectedSegmentInfo(null);
+      setLoadingDirections(false);
+      setRoutePath(null);
+      return; 
+    }
+
     setSelectedMarker(null);
     setSelectedSegment(null);
     setSelectedSegmentId(null); 
@@ -87,7 +95,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     setRoutePath(null);
   }, [selectedDay]);
 
-  // 新行程產生時重置所有狀態
   useEffect(() => {
     setSelectedDay(null);
     setSelectedMarker(null);
@@ -110,7 +117,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return defaultCenter;
   }, [cityCenter]);
 
-  // 計算路徑線段
   const daySegments = useMemo(() => {
     if (!markers.length) return [];
     const byDay = new Map();
@@ -140,14 +146,11 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return segs;
   }, [markers]);
 
-  // 繪製直線 (Segments)
   useEffect(() => {
     if (!mapRef || !window.google) return;
     segmentsRef.current.forEach(line => line.setMap(null));
     segmentsRef.current = [];
     if (showAll) return; 
-    
-    // 如果正在看詳細路線，隱藏其他直線
     if (selectedSegmentId) return; 
 
     daySegments.forEach(seg => {
@@ -174,25 +177,21 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     };
   }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]); 
 
-  // 自動縮放與視角移動
   useEffect(() => {
     if (!mapRef || !window.google || !window.google.maps) return;
 
-    // 1. 一般模式：縮放以包含所有 Markers
     if (markers.length > 0 && !selectedSegmentId) {
       const bounds = new window.google.maps.LatLngBounds();
       markers.filter((m) => selectedDay === null || m.day === selectedDay)
              .forEach((m) => bounds.extend({ lat: m.lat, lng: m.lng }));
       mapRef.fitBounds(bounds);
     } 
-    // 2. 剛載入城市但還沒Markers：飛去城市中心
     else if (cityCenter && markers.length === 0) {
       mapRef.panTo(cityCenter);
       mapRef.setZoom(12);
     }
   }, [mapRef, markers, selectedDay, selectedSegmentId, cityCenter]);
 
-  // 🔥 關鍵修正：當點擊右側行程列表時，連動地圖 Marker
   useEffect(() => {
     if (!activeLocation || !mapRef || !markers.length) return;
     if (!window.google || !window.google.maps) return;
@@ -203,16 +202,19 @@ function MapView({ plan, activeLocation, onLocationChange }) {
 
     if (!target) return;
 
-    // 1. 自動選中 Marker (讓 InfoWindow 彈出)
+    setSelectedDay(Number(activeLocation.day));
     setSelectedMarker(target);
+    setSelectedSegment(null);
+    setSelectedSegmentId(null);
+    setSelectedSegmentInfo(null);
+    setLoadingDirections(false);
+    setRoutePath(null);
 
-    // 2. 移動視角
     const center = new window.google.maps.LatLng(target.lat, target.lng);
     mapRef.panTo(center);
     mapRef.setZoom(15);
   }, [activeLocation, markers, mapRef]);
 
-  // 搜尋景點邏輯
   useEffect(() => {
     if (!plan || !plan.days || plan.days.length === 0) {
       setMarkers([]);
@@ -224,7 +226,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
       try {
         setLoadingPlaces(true);
         
-        // 1. 先查城市座標
         let currentCityLocation = null;
         if (plan.city) {
           try {
@@ -244,7 +245,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
           }
         }
 
-        // 2. 再查景點
         const newMarkers = [];
         const seenNames = new Set();
         for (const day of plan.days) {
@@ -287,7 +287,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     fetchMarkers();
   }, [plan, isLoaded]);
 
-  // 自動觸發導航查詢
   useEffect(() => {
     if (!selectedSegment) return;
     if (directionsAbortRef.current) directionsAbortRef.current.abort();
@@ -298,7 +297,6 @@ function MapView({ plan, activeLocation, onLocationChange }) {
     return () => clearTimeout(t);
   }, [travelMode, selectedSegment]);
 
-  // 繪製藍色導航路線
   useEffect(() => {
     if (!mapRef || !window.google) return;
     const removeLine = () => {
@@ -421,9 +419,21 @@ function MapView({ plan, activeLocation, onLocationChange }) {
       
       {plan?.days?.length > 0 && (
         <div style={{position:'absolute',top:8,right:8,zIndex:2,display:'flex',gap:4,background:'rgba(255,255,255,0.9)',padding:6,borderRadius:99}}>
-          <button onClick={() => {setSelectedDay(null);onLocationChange?.(null);}} style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>全部</button>
+          <button onClick={() => {
+              setSelectedDay(null);
+              onLocationChange?.(null);
+              onDayChange?.(null); // 🔥 通知外部
+            }} 
+            style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
+            全部
+          </button>
           {plan.days.map(d => (
-            <button key={d.day} onClick={() => {setSelectedDay(Number(d.day));onLocationChange?.(null);}} 
+            <button key={d.day} onClick={() => {
+                const dNum = Number(d.day);
+                setSelectedDay(dNum);
+                onLocationChange?.(null);
+                onDayChange?.(dNum); // 🔥 通知外部
+              }} 
               style={{border:'none',background:selectedDay===Number(d.day)?getDayColor(d.day):'transparent',color:selectedDay===Number(d.day)?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
               第 {d.day} 天
             </button>

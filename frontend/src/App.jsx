@@ -1,5 +1,5 @@
 // frontend/src/App.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 import MapView from './MapView';
 
@@ -16,7 +16,6 @@ function App() {
     const text = input.trim();
     if (!text || isSending) return;
 
-    // 1. 準備新的歷史紀錄
     const userMsg = { role: 'user', content: text };
     const newHistory = [...messages, userMsg];
     
@@ -28,16 +27,14 @@ function App() {
       const res = await fetch('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newHistory }), // 傳送完整歷史
+        body: JSON.stringify({ messages: newHistory }), 
       });
 
       const data = await res.json();
 
-      // 2. 顯示 AI 回覆
       const assistantMsg = { role: 'assistant', content: data.content };
       setMessages([...newHistory, assistantMsg]);
 
-      // 3. 只有當 AI 決定更新行程時 (plan 不為 null)，才更新地圖
       if (data.plan) {
         setPlan(data.plan);
       }
@@ -58,6 +55,30 @@ function App() {
       handleSend();
     }
   };
+
+  // 🔥 新增：當從地圖切換天數時，列表自動捲動到該天標題
+  const handleDayChange = (day) => {
+    if (day) {
+      const el = document.getElementById(`day-header-${day}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } else {
+      // 如果切回「全部」，捲動到最上面
+      const el = document.querySelector('.plan-content');
+      if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // 🔥 新增：當選中某個地點時 (從地圖點擊)，列表自動捲動到該項目
+  useEffect(() => {
+    if (activeLocation) {
+      const el = document.getElementById(`item-${activeLocation.day}-${activeLocation.order}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [activeLocation]);
 
   const displayTime = (time) => {
     switch (time) {
@@ -100,7 +121,6 @@ function App() {
                   className={'chat-row ' + (m.role === 'user' ? 'user' : 'assistant')}
                 >
                   <div className={'bubble ' + (m.role === 'user' ? 'bubble-user' : 'bubble-assistant')}>
-                    {/* 支援換行顯示 */}
                     {m.content.split('\n').map((line, i) => (
                       <div key={i} style={{ minHeight: '1.2em' }}>{line}</div>
                     ))}
@@ -134,7 +154,8 @@ function App() {
               <MapView 
                 plan={plan} 
                 activeLocation={activeLocation}        
-                onLocationChange={setActiveLocation}   
+                onLocationChange={setActiveLocation}
+                onDayChange={handleDayChange} // 🔥 傳入回呼函式
               />
             </div>
 
@@ -152,7 +173,8 @@ function App() {
                   </div>
 
                   {(plan.days || []).map((day) => (
-                    <div key={day.day} className="plan-day-block">
+                    // 🔥 加上 ID 供捲動定位
+                    <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
                       <div className="plan-day-title">
                         第 {day.day} 天 · {day.title || '未命名主題'}
                       </div>
@@ -166,6 +188,8 @@ function App() {
                           return (
                             <li
                               key={idx}
+                              // 🔥 加上 ID 供捲動定位
+                              id={`item-${day.day}-${idx}`}
                               className={'plan-item' + (isActive ? ' plan-item-active' : '')}
                               onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
                             >
