@@ -162,7 +162,7 @@ app.post('/api/places/search', async (req, res) => {
   }
 });
 
-// 🔥 新增：取得地點詳細資訊 (簡介 + 評論)
+// 取得地點詳細資訊 (簡介 + 評論)
 app.get('/api/place-details', async (req, res) => {
   const { placeId } = req.query;
   if (!placeId) return res.status(400).send('Missing placeId');
@@ -170,13 +170,13 @@ app.get('/api/place-details', async (req, res) => {
     const response = await axios.get('https://maps.googleapis.com/maps/api/place/details/json', {
       params: {
         place_id: placeId,
-        // 我們只需要 簡介(editorial_summary) 和 評論(reviews)
-        fields: 'editorial_summary,reviews', 
+        // 🔥 關鍵修改：除了簡介和評論，多抓取基本資料 (名字、地址、照片、評分、類型)
+        // 這樣前端點擊未知的 POI 時，才能顯示完整資訊
+        fields: 'name,formatted_address,rating,user_ratings_total,types,photos,editorial_summary,reviews,geometry', 
         language: 'zh-TW',
         key: process.env.GOOGLE_PLACES_API_KEY,
       },
     });
-    // 回傳結果，如果沒有結果就回傳空物件
     res.json(response.data.result || {});
   } catch (err) {
     console.error('Place Details Error:', err.message);
