@@ -28,10 +28,9 @@ const tools = [
             type: 'string', 
             description: '旅遊目的地城市。⚠️重要：若為國外城市，請務必包含國家名稱 (例如: "義大利威尼斯")。' 
           },
-          // 🔥 修改 1: 新增 startDate 欄位
           startDate: { 
             type: 'string', 
-            description: '旅遊開始日期，格式為 YYYY-MM-DD (例如 2023-10-25)。如果使用者沒提供年份，請預設為今年或明年。' 
+            description: '旅遊開始日期，格式為 YYYY-MM-DD。' 
           },
           days: {
             type: 'array',
@@ -69,7 +68,6 @@ app.post('/api/chat', async (req, res) => {
   const { messages } = req.body; 
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
-  // 取得今天的日期，讓 AI 有時間觀念
   const today = new Date().toISOString().split('T')[0];
 
   try {
@@ -78,13 +76,12 @@ app.post('/api/chat', async (req, res) => {
       messages: [
         {
           role: 'system',
-          // 🔥 修改 2: 告訴 AI 今天幾號，這樣它才能推算「下禮拜五」是幾號
           content: `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
           
           原則：
           1. 當使用者明確表示「幫我排行程」時，請呼叫 'update_itinerary' 工具。
-          2. 如果使用者有提到日期（例如「後天去」、「1月20號去」），請務必計算出正確的 YYYY-MM-DD 填入 startDate 欄位。
-          3. 城市名稱若為國外，請加上國家前綴（如：日本京都）。`
+          2. 如果使用者有提到日期，請務必計算出正確的 YYYY-MM-DD 填入 startDate 欄位。
+          3. 城市名稱若為國外，請加上國家前綴。`
         },
         ...messages
       ],
@@ -98,9 +95,6 @@ app.post('/api/chat', async (req, res) => {
       const toolCall = responseMessage.tool_calls[0];
       if (toolCall.function.name === 'update_itinerary') {
         const itineraryArgs = JSON.parse(toolCall.function.arguments);
-        console.log(`AI 生成行程: ${itineraryArgs.city}, 日期: ${itineraryArgs.startDate}`);
-
-        // 回傳給前端
         return res.json({
           role: 'assistant',
           content: `好的！已為您更新行程：${itineraryArgs.summary} ${itineraryArgs.startDate ? `(出發日: ${itineraryArgs.startDate})` : ''}`,
@@ -168,6 +162,28 @@ app.post('/api/places/search', async (req, res) => {
   }
 });
 
+// 取得地點詳細資訊 (簡介 + 評論)
+app.get('/api/place-details', async (req, res) => {
+  const { placeId } = req.query;
+  if (!placeId) return res.status(400).send('Missing placeId');
+  try {
+    const response = await axios.get('https://maps.googleapis.com/maps/api/place/details/json', {
+      params: {
+        place_id: placeId,
+        // 🔥 關鍵修改：除了簡介和評論，多抓取基本資料 (名字、地址、照片、評分、類型)
+        // 這樣前端點擊未知的 POI 時，才能顯示完整資訊
+        fields: 'name,formatted_address,rating,user_ratings_total,types,photos,editorial_summary,reviews,geometry', 
+        language: 'zh-TW',
+        key: process.env.GOOGLE_PLACES_API_KEY,
+      },
+    });
+    res.json(response.data.result || {});
+  } catch (err) {
+    console.error('Place Details Error:', err.message);
+    res.status(500).send('Failed');
+  }
+});
+
 app.get('/api/places/photo', async (req, res) => {
   const { ref, maxwidth } = req.query;
   if (!ref) return res.status(400).send('Missing ref');
@@ -219,24 +235,20 @@ app.post('/api/directions', async (req, res) => {
   }
 });
 
-// 🔥 新增：天氣 API Endpoint (使用 Open-Meteo)
+// 天氣 API
 app.post('/api/weather', async (req, res) => {
   const { city, startDate } = req.body;
   if (!city || !startDate) return res.status(400).json({ error: 'Missing city or startDate' });
 
   try {
-    // 1. 檢查日期是否太久遠 (超過 14 天後)
     const start = new Date(startDate);
     const now = new Date();
-    const diffTime = start - now;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.ceil((start - now) / (1000 * 60 * 60 * 24));
 
     if (diffDays > 14) {
-      console.log(`[Weather] 日期 ${startDate} 太久遠，無法取得預報，跳過天氣查詢。`);
       return res.json({ daily: null, reason: 'Date too far' });
     }
 
-    // 2. 查座標
     const placeRes = await axios.get(
       'https://maps.googleapis.com/maps/api/place/textsearch/json',
       {
@@ -251,11 +263,7 @@ app.post('/api/weather', async (req, res) => {
     const location = placeRes.data.results?.[0]?.geometry?.location;
     if (!location) return res.status(404).json({ error: 'City not found' });
 
-    // 3. 呼叫 Open-Meteo
-    console.log(`[Weather] 查詢天氣: ${city} (${startDate})`);
-    
-    // 計算結束日期 (預設抓 5 天)
-    const endDate = new Date(start.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const endDate = new Date(start.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const weatherRes = await axios.get('https://api.open-meteo.com/v1/forecast', {
       params: {
@@ -271,7 +279,6 @@ app.post('/api/weather', async (req, res) => {
     res.json({ daily: weatherRes.data.daily });
 
   } catch (err) {
-    // 如果 Open-Meteo 回傳錯誤 (例如日期無效)，我們把它印出來，但不要讓後端當機
     console.error('Weather API Error:', err.response?.data || err.message);
     res.json({ daily: null }); 
   }

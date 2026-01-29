@@ -37,7 +37,6 @@ const containerStyle = {
   borderRadius: '0 0 12px 12px' 
 };
 
-// 預設中心 (台灣)
 const defaultCenter = { lat: 23.7, lng: 121 };
 
 const getPhotoUrl = (photoReference) => {
@@ -45,7 +44,21 @@ const getPhotoUrl = (photoReference) => {
   return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=400`;
 };
 
-// 🔥 接收 onDayChange prop
+const translateType = (type) => {
+  switch (type) {
+    case 'sight': return '景點';
+    case 'food': return '美食';
+    case 'shopping': return '購物';
+    case 'activity': return '活動';
+    case 'point_of_interest': return '地標';
+    case 'establishment': return '地點';
+    case 'store': return '商店';
+    case 'restaurant': return '餐廳';
+    case 'park': return '公園';
+    default: return type;
+  }
+};
+
 function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
   const [markers, setMarkers] = useState([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
@@ -58,6 +71,9 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
   const [routePath, setRoutePath] = useState(null); 
   
   const [cityCenter, setCityCenter] = useState(null);
+  
+  const [placeDetails, setPlaceDetails] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   const activePolylineRef = useRef(null);
   const segmentsRef = useRef([]); 
@@ -77,6 +93,69 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     }, 0);
   };
 
+  // 🔥 新增：處理地圖點擊事件 (包含點擊 POI)
+  const handleMapClick = (e) => {
+    // 如果點擊的地方有 placeId，代表點到了 Google 的 POI (圖標)
+    if (e.placeId) {
+      // 阻止地圖預設的訊息框，改用我們自己的
+      e.stop(); 
+
+      // 1. 先建立一個暫時的 Marker 物件，顯示「載入中」
+      const poiMarker = {
+        placeId: e.placeId,
+        lat: e.latLng.lat(),
+        lng: e.latLng.lng(),
+        name: '載入中...', 
+        address: '讀取資訊中...',
+        isPoi: true, // 標記這是 POI，不是行程內的點
+      };
+
+      setSelectedMarker(poiMarker);
+      
+      // 2. 清除其他狀態，專注顯示這個 POI
+      onLocationChange?.(null); // 清除右邊列表的選取
+      setSelectedSegment(null);
+      
+    } else {
+      // 如果點到地圖空白處，關閉視窗
+      setSelectedMarker(null);
+    }
+  };
+
+  // 當選中的 Marker 改變時，去抓取該地點的詳細資料
+  useEffect(() => {
+    if (!selectedMarker || !selectedMarker.placeId) {
+      setPlaceDetails(null);
+      return;
+    }
+
+    setLoadingDetails(true);
+    setPlaceDetails(null); 
+
+    // 呼叫後端 API
+    fetch(`${API_BASE}/api/place-details?placeId=${selectedMarker.placeId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setPlaceDetails(data);
+
+        // 🔥 關鍵：如果是 POI 點擊 (isPoi)，我們要用查回來的資料「補完」selectedMarker
+        // 因為一開始我們只知道 ID，現在我們知道名字、照片、評分了
+        if (selectedMarker.isPoi) {
+          setSelectedMarker((prev) => ({
+            ...prev,
+            name: data.name || prev.name,
+            address: data.formatted_address || prev.address,
+            rating: data.rating,
+            userRatingsTotal: data.user_ratings_total,
+            photoReference: data.photos?.[0]?.photo_reference,
+            type: data.types?.[0], // 取第一個類型
+          }));
+        }
+      })
+      .catch((err) => console.error('Fetch Details Error', err))
+      .finally(() => setLoadingDetails(false));
+  }, [selectedMarker?.placeId]); // 只監聽 placeId 變化，避免無窮迴圈
+
   useEffect(() => {
     if (selectedMarker && Number(selectedMarker.day) === Number(selectedDay)) {
       setSelectedSegment(null);
@@ -86,6 +165,8 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
       setRoutePath(null);
       return; 
     }
+    // 如果是 POI，不要重置
+    if (selectedMarker?.isPoi) return;
 
     setSelectedMarker(null);
     setSelectedSegment(null);
@@ -225,7 +306,6 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     const fetchMarkers = async () => {
       try {
         setLoadingPlaces(true);
-        
         let currentCityLocation = null;
         if (plan.city) {
           try {
@@ -269,12 +349,19 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
               const place = data.places && data.places[0];
               if (place && place.lat && place.lng) {
                 newMarkers.push({
-                  lat: place.lat, lng: place.lng, name: itemName || place.name,
-                  googleName: place.name, address: place.address || '',
-                  placeId: place.placeId, rating: place.rating,
+                  lat: place.lat,
+                  lng: place.lng,
+                  name: itemName || place.name,
+                  googleName: place.name,
+                  address: place.address || '',
+                  placeId: place.placeId,
+                  rating: place.rating,
                   userRatingsTotal: place.userRatingsTotal,
                   photoReference: place.photoReference || null,
-                  day: dayNumber, order: orderInDay, 
+                  day: dayNumber,
+                  order: orderInDay,
+                  type: item.type,
+                  note: item.note, 
                 });
                 orderInDay += 1;
               }
@@ -422,7 +509,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
           <button onClick={() => {
               setSelectedDay(null);
               onLocationChange?.(null);
-              onDayChange?.(null); // 🔥 通知外部
+              onDayChange?.(null); 
             }} 
             style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
             全部
@@ -432,7 +519,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
                 const dNum = Number(d.day);
                 setSelectedDay(dNum);
                 onLocationChange?.(null);
-                onDayChange?.(dNum); // 🔥 通知外部
+                onDayChange?.(dNum); 
               }} 
               style={{border:'none',background:selectedDay===Number(d.day)?getDayColor(d.day):'transparent',color:selectedDay===Number(d.day)?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
               第 {d.day} 天
@@ -459,7 +546,9 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
              center={center}
              zoom={12}
              onLoad={(map) => setMapRef(map)}
-             options={{ disableDefaultUI: false, clickableIcons: false, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
+             // 🔥 關鍵：綁定 onClick 事件
+             onClick={handleMapClick}
+             options={{ disableDefaultUI: false, clickableIcons: true, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
            >
              {markers
               .filter((m) => selectedDay === null || m.day === selectedDay)
@@ -483,10 +572,69 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
 
             {selectedMarker && (
               <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
-                <div style={{ maxWidth: '240px', fontSize: '12px' }}>
-                  <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
-                  {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover' }} />}
-                  <div>{selectedMarker.address}</div>
+                <div style={{ maxWidth: '260px', fontSize: '12px' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>{selectedMarker.name}</div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '11px', color: '#555' }}>
+                    {selectedMarker.rating && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <span style={{ color: '#f59e0b' }}>★</span>
+                        <span>{selectedMarker.rating}</span>
+                        <span style={{ color: '#9ca3af' }}>({selectedMarker.userRatingsTotal})</span>
+                      </span>
+                    )}
+                    {selectedMarker.type && (
+                      <span style={{ background: '#f3f4f6', padding: '1px 4px', borderRadius: '4px' }}>
+                        {translateType(selectedMarker.type)}
+                      </span>
+                    )}
+                  </div>
+
+                  {selectedMarker.photoReference && <img src={getPhotoUrl(selectedMarker.photoReference)} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: '6px', marginBottom: '6px' }} />}
+                  
+                  {selectedMarker.note && (
+                    <div style={{ marginBottom: '6px', padding: '4px 6px', background: '#fffbeb', borderRadius: '4px', color: '#b45309', fontSize: '11px', lineHeight: 1.3 }}>
+                      💡 {selectedMarker.note}
+                    </div>
+                  )}
+
+                  <div style={{color: '#6b7280', marginBottom: '4px'}}>{selectedMarker.address}</div>
+                  
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedMarker.name)}`} target="_blank" rel="noreferrer" style={{color: '#2563eb', textDecoration: 'none', display: 'block', marginBottom: '8px'}}>在 Google Maps 中開啟 →</a>
+
+                  <div style={{ borderTop: '1px solid #eee', paddingTop: '8px', maxHeight: '150px', overflowY: 'auto' }}>
+                    {loadingDetails ? (
+                      <div style={{color: '#999', textAlign: 'center'}}>載入詳細資訊中...</div>
+                    ) : placeDetails ? (
+                      <>
+                        {placeDetails.editorial_summary?.overview && (
+                          <div style={{ marginBottom: '8px', lineHeight: '1.4' }}>
+                            {placeDetails.editorial_summary.overview}
+                          </div>
+                        )}
+                        
+                        {placeDetails.reviews && placeDetails.reviews.length > 0 && (
+                          <div>
+                            <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#374151' }}>評論 ({placeDetails.reviews.length})</div>
+                            {placeDetails.reviews.slice(0, 3).map((review, i) => (
+                              <div key={i} style={{ marginBottom: '8px', fontSize: '11px', color: '#4b5563', borderBottom: '1px dashed #f3f4f6', paddingBottom: '4px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                  <strong>{review.author_name}</strong>
+                                  <span style={{ color: '#f59e0b' }}>★ {review.rating}</span>
+                                </div>
+                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                                  {review.text}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{color: '#ccc', textAlign: 'center', fontSize: '11px'}}>無更多資訊</div>
+                    )}
+                  </div>
+
                 </div>
               </InfoWindow>
             )}
