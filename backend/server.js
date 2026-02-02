@@ -65,24 +65,48 @@ const tools = [
 
 // ------------------ API: Chat Endpoint ------------------
 app.post('/api/chat', async (req, res) => {
-  const { messages } = req.body; 
+  const { messages, currentPlan } = req.body; 
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
   const today = new Date().toISOString().split('T')[0];
+
+  // 🔥 構建 System Prompt：調整為「主動型」助理
+  let systemContent = `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
+          
+  【核心原則 - 請嚴格遵守】：
+  1. **🚀 主動生成行程 (Trigger)**：
+      - 當使用者提供**「地點」**與**「天數」**意圖時 (例如：「我想去東京五天」、「幫我安排台北一日遊」)，請**直接呼叫 'update_itinerary' 工具**生成一份完整的初始行程。
+      - **不需要**先回覆文字詢問「需要我幫你排嗎？」，請直接生成。
+  
+  2. **純諮詢 (Consultation)**：
+      - 只有當使用者單純詢問「推薦」、「天氣如何」、「好玩嗎」且**沒有**提到具體天數規劃時，才只回覆文字建議。
+  
+  3. **🔧 行程修改 (Modification)**：
+      - 如果下方提供了【目前已有的行程資料】，當使用者要求「新增」或「修改」時，**請務必保留原本行程中未被修改的部分**。
+      - ❌ **絕對禁止**回傳一個只包含新項目的空行程。
+      - 請將新項目插入到合適的時間點，並透過工具回傳【舊行程 + 新項目】的完整 JSON。
+
+  4. **地理資訊**：
+      - 城市名稱若為國外，請加上國家前綴 (例如: "日本東京")。
+      - 如果使用者有提到日期，請計算正確的 YYYY-MM-DD。`;
+
+  // 注入記憶
+  if (currentPlan) {
+    systemContent += `
+    
+    --------------------------------------------------
+    【⚠️ 目前已有的行程資料 (Current Itinerary)】
+    以下是使用者目前的行程表，請基於此資料進行修改，不要刪除既有內容：
+    ${JSON.stringify(currentPlan)}
+    --------------------------------------------------
+    `;
+  }
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini', 
       messages: [
-        {
-          role: 'system',
-          content: `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
-          
-          原則：
-          1. 當使用者明確表示「幫我排行程」時，請呼叫 'update_itinerary' 工具。
-          2. 如果使用者有提到日期，請務必計算出正確的 YYYY-MM-DD 填入 startDate 欄位。
-          3. 城市名稱若為國外，請加上國家前綴。`
-        },
+        { role: 'system', content: systemContent },
         ...messages
       ],
       tools: tools,
@@ -97,7 +121,7 @@ app.post('/api/chat', async (req, res) => {
         const itineraryArgs = JSON.parse(toolCall.function.arguments);
         return res.json({
           role: 'assistant',
-          content: `好的！已為您更新行程：${itineraryArgs.summary} ${itineraryArgs.startDate ? `(出發日: ${itineraryArgs.startDate})` : ''}`,
+          content: `沒問題！已為您生成行程：${itineraryArgs.summary} ${itineraryArgs.startDate ? `(出發日: ${itineraryArgs.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
           plan: itineraryArgs,
         });
       }
@@ -115,54 +139,28 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// 其他 API 保持不變 (Health, Search, Details, Photo, Directions, Weather)
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// ------------------ API: Places Search ------------------
 app.post('/api/places/search', async (req, res) => {
   const { query, city, center } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query is required' });
-
   try {
     const fullQuery = city ? `${city} ${query}` : query;
-    const params = {
-      query: fullQuery,
-      key: process.env.GOOGLE_PLACES_API_KEY,
-      language: 'zh-TW',
-    };
-
+    const params = { query: fullQuery, key: process.env.GOOGLE_PLACES_API_KEY, language: 'zh-TW' };
     if (center && center.lat && center.lng) {
       params.location = `${center.lat},${center.lng}`;
       params.radius = 10000; 
     }
-
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/place/textsearch/json',
-      { params }
-    );
-
-    const data = response.data;
-    if (data.status !== 'OK') {
-      return res.status(400).json({ places: [] });
-    }
-
-    const places = (data.results || []).slice(0, 3).map((r) => ({
-      name: r.name,
-      address: r.formatted_address,
-      lat: r.geometry?.location?.lat,
-      lng: r.geometry?.location?.lng,
-      placeId: r.place_id,
-      rating: r.rating,
-      userRatingsTotal: r.user_ratings_total,
-      photoReference: r.photos?.[0]?.photo_reference || null,
+    const response = await axios.get('https://maps.googleapis.com/maps/api/place/textsearch/json', { params });
+    const places = (response.data.results || []).slice(0, 3).map((r) => ({
+      name: r.name, address: r.formatted_address, lat: r.geometry?.location?.lat, lng: r.geometry?.location?.lng,
+      placeId: r.place_id, rating: r.rating, userRatingsTotal: r.user_ratings_total, photoReference: r.photos?.[0]?.photo_reference || null,
     }));
     return res.json({ places });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Failed' });
-  }
+  } catch (err) { return res.status(500).json({ error: 'Failed' }); }
 });
 
-// 取得地點詳細資訊 (簡介 + 評論)
 app.get('/api/place-details', async (req, res) => {
   const { placeId } = req.query;
   if (!placeId) return res.status(400).send('Missing placeId');
@@ -170,18 +168,13 @@ app.get('/api/place-details', async (req, res) => {
     const response = await axios.get('https://maps.googleapis.com/maps/api/place/details/json', {
       params: {
         place_id: placeId,
-        // 🔥 關鍵修改：除了簡介和評論，多抓取基本資料 (名字、地址、照片、評分、類型)
-        // 這樣前端點擊未知的 POI 時，才能顯示完整資訊
         fields: 'name,formatted_address,rating,user_ratings_total,types,photos,editorial_summary,reviews,geometry', 
         language: 'zh-TW',
         key: process.env.GOOGLE_PLACES_API_KEY,
       },
     });
     res.json(response.data.result || {});
-  } catch (err) {
-    console.error('Place Details Error:', err.message);
-    res.status(500).send('Failed');
-  }
+  } catch (err) { res.status(500).send('Failed'); }
 });
 
 app.get('/api/places/photo', async (req, res) => {
@@ -194,9 +187,7 @@ app.get('/api/places/photo', async (req, res) => {
     });
     res.set('Content-Type', response.headers['content-type']);
     res.send(response.data);
-  } catch (err) {
-    res.status(500).send('Failed');
-  }
+  } catch (err) { res.status(500).send('Failed'); }
 });
 
 app.post('/api/directions', async (req, res) => {
@@ -205,83 +196,42 @@ app.post('/api/directions', async (req, res) => {
   try {
     const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
       params: {
-        origin: `${origin.lat},${origin.lng}`,
-        destination: `${destination.lat},${destination.lng}`,
-        mode: (mode || 'TRANSIT').toLowerCase(),
-        language: 'zh-TW',
-        key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+        origin: `${origin.lat},${origin.lng}`, destination: `${destination.lat},${destination.lng}`,
+        mode: (mode || 'TRANSIT').toLowerCase(), language: 'zh-TW', key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
       },
     });
-    const data = response.data;
-    if (data.status !== 'OK') return res.status(400).json({ error: data.status });
-    const route = data.routes[0];
-    const leg = route.legs[0];
+    const route = response.data.routes[0];
+    const leg = route?.legs[0];
+    if (!leg) return res.status(400).json({ error: 'No route' });
     res.json({
       summary: {
-        distanceText: leg.distance?.text,
-        durationText: leg.duration?.text,
+        distanceText: leg.distance?.text, durationText: leg.duration?.text,
         steps: (leg.steps || []).map((s) => ({
-          instructionHtml: s.html_instructions,
-          distanceText: s.distance?.text,
-          durationText: s.duration?.text,
-          travelMode: s.travel_mode,
+          instructionHtml: s.html_instructions, distanceText: s.distance?.text, durationText: s.duration?.text, travelMode: s.travel_mode,
         })),
       },
-      encodedPolyline: route.overview_polyline?.points,
-      bounds: route.bounds,
+      encodedPolyline: route.overview_polyline?.points, bounds: route.bounds,
     });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// 天氣 API
 app.post('/api/weather', async (req, res) => {
   const { city, startDate } = req.body;
-  if (!city || !startDate) return res.status(400).json({ error: 'Missing city or startDate' });
-
+  if (!city || !startDate) return res.status(400).json({ error: 'Missing' });
   try {
     const start = new Date(startDate);
     const now = new Date();
     const diffDays = Math.ceil((start - now) / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 14) {
-      return res.json({ daily: null, reason: 'Date too far' });
-    }
-
-    const placeRes = await axios.get(
-      'https://maps.googleapis.com/maps/api/place/textsearch/json',
-      {
-        params: {
-          query: city,
-          key: process.env.GOOGLE_PLACES_API_KEY,
-          language: 'zh-TW',
-        },
-      }
-    );
-
+    if (diffDays > 14) return res.json({ daily: null, reason: 'Date too far' });
+    const placeRes = await axios.get('https://maps.googleapis.com/maps/api/place/textsearch/json', { params: { query: city, key: process.env.GOOGLE_PLACES_API_KEY, language: 'zh-TW' } });
     const location = placeRes.data.results?.[0]?.geometry?.location;
     if (!location) return res.status(404).json({ error: 'City not found' });
-
     const endDate = new Date(start.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
     const weatherRes = await axios.get('https://api.open-meteo.com/v1/forecast', {
-      params: {
-        latitude: location.lat,
-        longitude: location.lng,
-        daily: 'weathercode,temperature_2m_max,temperature_2m_min',
-        timezone: 'auto',
-        start_date: startDate,
-        end_date: endDate, 
-      }
+      params: { latitude: location.lat, longitude: location.lng, daily: 'weathercode,temperature_2m_max,temperature_2m_min', timezone: 'auto', start_date: startDate, end_date: endDate }
     });
-
     res.json({ daily: weatherRes.data.daily });
-
-  } catch (err) {
-    console.error('Weather API Error:', err.response?.data || err.message);
-    res.json({ daily: null }); 
-  }
+  } catch (err) { res.json({ daily: null }); }
 });
 
 const PORT = 3000;

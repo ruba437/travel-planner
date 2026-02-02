@@ -3,17 +3,16 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import MapView from './MapView';
 
-// WMO Weather Code 轉換表 (Open-Meteo)
 const getWeatherIcon = (code) => {
   if (code === undefined || code === null) return null;
-  if (code <= 1) return '☀️'; // 晴天
-  if (code <= 3) return '⛅'; // 多雲
-  if (code <= 48) return '🌫️'; // 霧
-  if (code <= 67) return '🌧️'; // 雨
-  if (code <= 77) return '❄️'; // 雪
-  if (code <= 82) return '🌧️'; // 陣雨
-  if (code <= 86) return '❄️'; // 陣雪
-  if (code <= 99) return '⛈️'; // 雷雨
+  if (code <= 1) return '☀️'; 
+  if (code <= 3) return '⛅'; 
+  if (code <= 48) return '🌫️'; 
+  if (code <= 67) return '🌧️'; 
+  if (code <= 77) return '❄️'; 
+  if (code <= 82) return '🌧️'; 
+  if (code <= 86) return '❄️'; 
+  if (code <= 99) return '⛈️'; 
   return '🌡️';
 };
 
@@ -43,7 +42,11 @@ function App() {
       const res = await fetch('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newHistory }), 
+        // 🔥 關鍵修正：把 currentPlan: plan 加進去，這樣後端才收得到！
+        body: JSON.stringify({ 
+          messages: newHistory,
+          currentPlan: plan 
+        }), 
       });
 
       const data = await res.json();
@@ -53,7 +56,7 @@ function App() {
 
       if (data.plan) {
         setPlan(data.plan);
-        setWeatherData(null); // 清空舊天氣
+        setWeatherData(null); 
       }
     } catch (err) {
       console.error(err);
@@ -73,7 +76,6 @@ function App() {
     }
   };
 
-  // 當 plan 有 startDate 時，自動去抓天氣
   useEffect(() => {
     if (plan && plan.city && plan.startDate) {
       console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
@@ -92,30 +94,25 @@ function App() {
     }
   }, [plan]);
 
-  // 取得天氣資訊
   const getWeatherForDay = (dayIndex) => {
     if (!weatherData || !weatherData.time) return null;
     const code = weatherData.weathercode[dayIndex];
     const maxT = weatherData.temperature_2m_max[dayIndex];
     const minT = weatherData.temperature_2m_min[dayIndex];
-    // 注意：如果超出預測範圍 (例如第10天)，Open-Meteo 可能會給 undefined，這裡要檢查
     if (code === undefined || maxT === undefined) return null;
 
     return { icon: getWeatherIcon(code), max: maxT, min: minT };
   };
 
-  // 🔥 新增：單純計算日期字串 (不依賴天氣 API)
   const formatDate = (startDate, dayIndex) => {
     if (!startDate) return null;
     const date = new Date(startDate);
     date.setDate(date.getDate() + dayIndex); 
-    // 格式化為 MM-DD
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
     const d = date.getDate().toString().padStart(2, '0');
     return `${m}-${d}`;
   };
 
-  // 捲動邏輯
   const handleDayChange = (day) => {
     if (day) {
       const el = document.getElementById(`day-header-${day}`);
@@ -196,7 +193,6 @@ function App() {
           </div>
 
           <div className="visualization-panel">
-            
             <div className="card map-card">
               <div className="card-header">
                 <span className="dot" /> 行程地圖
@@ -224,19 +220,14 @@ function App() {
 
                   {(plan.days || []).map((day, dayIdx) => {
                     const weather = getWeatherForDay(dayIdx);
-                    // 🔥 計算日期字串
                     const dateStr = formatDate(plan.startDate, dayIdx);
 
                     return (
                       <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
                         <div className="plan-day-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span>第 {day.day} 天 · {day.title || '未命名主題'}</span>
-                          
                           <span style={{ fontSize: '0.85em', fontWeight: 'normal', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {/* 1. 無論有沒有天氣，只要有日期就顯示 */}
                             {dateStr && <span>{dateStr}</span>}
-
-                            {/* 2. 有天氣才顯示圖示 */}
                             {weather && (
                               <>
                                 <span style={{ fontSize: '1.2em' }}>{weather.icon}</span>
