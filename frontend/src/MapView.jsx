@@ -93,36 +93,25 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     }, 0);
   };
 
-  // 🔥 新增：處理地圖點擊事件 (包含點擊 POI)
   const handleMapClick = (e) => {
-    // 如果點擊的地方有 placeId，代表點到了 Google 的 POI (圖標)
     if (e.placeId) {
-      // 阻止地圖預設的訊息框，改用我們自己的
       e.stop(); 
-
-      // 1. 先建立一個暫時的 Marker 物件，顯示「載入中」
       const poiMarker = {
         placeId: e.placeId,
         lat: e.latLng.lat(),
         lng: e.latLng.lng(),
         name: '載入中...', 
         address: '讀取資訊中...',
-        isPoi: true, // 標記這是 POI，不是行程內的點
+        isPoi: true, 
       };
-
       setSelectedMarker(poiMarker);
-      
-      // 2. 清除其他狀態，專注顯示這個 POI
-      onLocationChange?.(null); // 清除右邊列表的選取
+      onLocationChange?.(null); 
       setSelectedSegment(null);
-      
     } else {
-      // 如果點到地圖空白處，關閉視窗
       setSelectedMarker(null);
     }
   };
 
-  // 當選中的 Marker 改變時，去抓取該地點的詳細資料
   useEffect(() => {
     if (!selectedMarker || !selectedMarker.placeId) {
       setPlaceDetails(null);
@@ -132,14 +121,10 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     setLoadingDetails(true);
     setPlaceDetails(null); 
 
-    // 呼叫後端 API
     fetch(`${API_BASE}/api/place-details?placeId=${selectedMarker.placeId}`)
       .then((res) => res.json())
       .then((data) => {
         setPlaceDetails(data);
-
-        // 🔥 關鍵：如果是 POI 點擊 (isPoi)，我們要用查回來的資料「補完」selectedMarker
-        // 因為一開始我們只知道 ID，現在我們知道名字、照片、評分了
         if (selectedMarker.isPoi) {
           setSelectedMarker((prev) => ({
             ...prev,
@@ -148,13 +133,13 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
             rating: data.rating,
             userRatingsTotal: data.user_ratings_total,
             photoReference: data.photos?.[0]?.photo_reference,
-            type: data.types?.[0], // 取第一個類型
+            type: data.types?.[0], 
           }));
         }
       })
       .catch((err) => console.error('Fetch Details Error', err))
       .finally(() => setLoadingDetails(false));
-  }, [selectedMarker?.placeId]); // 只監聽 placeId 變化，避免無窮迴圈
+  }, [selectedMarker?.placeId]);
 
   useEffect(() => {
     if (selectedMarker && Number(selectedMarker.day) === Number(selectedDay)) {
@@ -165,7 +150,6 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
       setRoutePath(null);
       return; 
     }
-    // 如果是 POI，不要重置
     if (selectedMarker?.isPoi) return;
 
     setSelectedMarker(null);
@@ -176,6 +160,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     setRoutePath(null);
   }, [selectedDay]);
 
+  // 🔥 關鍵修正：移除 setCityCenter(null)
   useEffect(() => {
     setSelectedDay(null);
     setSelectedMarker(null);
@@ -184,7 +169,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     setLoadingDirections(false);
     setRoutePath(null);
     setSelectedSegmentId(null);
-    setCityCenter(null); 
+    // 這裡我們不再重置 cityCenter，讓地圖維持在舊位置直到新資料進來
   }, [plan]);
 
   const { isLoaded } = useJsApiLoader({
@@ -298,8 +283,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
 
   useEffect(() => {
     if (!plan || !plan.days || plan.days.length === 0) {
-      setMarkers([]);
-      return;
+      return; 
     }
     if (!isLoaded) return;
 
@@ -307,6 +291,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
       try {
         setLoadingPlaces(true);
         let currentCityLocation = null;
+        
         if (plan.city) {
           try {
             const cityRes = await fetch(`${API_BASE}/api/places/search`, {
@@ -368,8 +353,12 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
             } catch (err) { console.error(err); }
           }
         }
+        
         setMarkers(newMarkers);
-      } finally { setLoadingPlaces(false); }
+
+      } finally { 
+        setLoadingPlaces(false); 
+      }
     };
     fetchMarkers();
   }, [plan, isLoaded]);
@@ -506,21 +495,9 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
       
       {plan?.days?.length > 0 && (
         <div style={{position:'absolute',top:8,right:8,zIndex:2,display:'flex',gap:4,background:'rgba(255,255,255,0.9)',padding:6,borderRadius:99}}>
-          <button onClick={() => {
-              setSelectedDay(null);
-              onLocationChange?.(null);
-              onDayChange?.(null); 
-            }} 
-            style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
-            全部
-          </button>
+          <button onClick={() => {setSelectedDay(null);onLocationChange?.(null);}} style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>全部</button>
           {plan.days.map(d => (
-            <button key={d.day} onClick={() => {
-                const dNum = Number(d.day);
-                setSelectedDay(dNum);
-                onLocationChange?.(null);
-                onDayChange?.(dNum); 
-              }} 
+            <button key={d.day} onClick={() => {setSelectedDay(Number(d.day));onLocationChange?.(null);}} 
               style={{border:'none',background:selectedDay===Number(d.day)?getDayColor(d.day):'transparent',color:selectedDay===Number(d.day)?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
               第 {d.day} 天
             </button>
@@ -546,7 +523,6 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
              center={center}
              zoom={12}
              onLoad={(map) => setMapRef(map)}
-             // 🔥 關鍵：綁定 onClick 事件
              onClick={handleMapClick}
              options={{ disableDefaultUI: false, clickableIcons: true, fullscreenControl: false, streetViewControl: true, mapTypeControl: false }}
            >
@@ -573,7 +549,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
             {selectedMarker && (
               <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
                 <div style={{ maxWidth: '260px', fontSize: '12px' }}>
-                  <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>{selectedMarker.name}</div>
+                  <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '11px', color: '#555' }}>
                     {selectedMarker.rating && (
