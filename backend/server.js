@@ -234,7 +234,8 @@ app.post('/api/weather', async (req, res) => {
   } catch (err) { res.json({ daily: null }); }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 8080;
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Backend running on port ${PORT}`);
 });
