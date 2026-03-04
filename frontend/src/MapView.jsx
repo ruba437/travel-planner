@@ -8,7 +8,7 @@ import {
   useJsApiLoader,
 } from '@react-google-maps/api';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
 const dayColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
 

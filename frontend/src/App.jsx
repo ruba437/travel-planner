@@ -39,7 +39,7 @@ function App() {
     setIsSending(true);
 
     try {
-      const res = await fetch('http://localhost:3000/api/chat', {
+      const res = await fetch(import.meta.env.VITE_BACKEND_URL + '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // 🔥 關鍵修正：把 currentPlan: plan 加進去，這樣後端才收得到！
@@ -79,7 +79,7 @@ function App() {
   useEffect(() => {
     if (plan && plan.city && plan.startDate) {
       console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
-      fetch('http://localhost:3000/api/weather', {
+      fetch(import.meta.env.VITE_BACKEND_URL + '/api/weather', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ city: plan.city, startDate: plan.startDate }),
