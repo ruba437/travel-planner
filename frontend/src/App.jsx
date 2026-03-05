@@ -60,6 +60,9 @@ function App() {
 
       if (data.plan) {
         setPlan(data.plan);
+        if (data.plan.totalBudget) {
+          setTotalBudget(data.plan.totalBudget);
+        }
         setWeatherData(null); 
       }
     } catch (err) {
