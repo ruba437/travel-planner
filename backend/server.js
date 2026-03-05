@@ -20,7 +20,7 @@ app.use((err, req, res, next) => {
 });
 
 // Console
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000; //  加上 || 3000 作為安全預設值
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
 });

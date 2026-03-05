@@ -3,6 +3,9 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import MapView from './MapView';
 
+// 🔥 關鍵修正：設定安全預設網址
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
 const getWeatherIcon = (code) => {
   if (code === undefined || code === null) return null;
   if (code <= 1) return '☀️'; 
@@ -39,10 +42,10 @@ function App() {
     setIsSending(true);
 
     try {
-      const res = await fetch(import.meta.env.VITE_BACKEND_URL + '/api/chat', {
+      // 🔥 關鍵修正：使用 API_BASE 發送請求
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // 🔥 關鍵修正：把 currentPlan: plan 加進去，這樣後端才收得到！
         body: JSON.stringify({ 
           messages: newHistory,
           currentPlan: plan 
@@ -79,7 +82,8 @@ function App() {
   useEffect(() => {
     if (plan && plan.city && plan.startDate) {
       console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
-      fetch(import.meta.env.VITE_BACKEND_URL + '/api/weather', {
+      // 🔥 關鍵修正：使用 API_BASE 發送請求
+      fetch(`${API_BASE}/api/weather`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ city: plan.city, startDate: plan.startDate }),
