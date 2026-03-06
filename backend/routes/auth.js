@@ -83,18 +83,18 @@ router.post('/login', async (req, res) => {
 });
 
 // GET /auth/me
-// router.get('/me', authMiddleware, async (req, res) => {
-//   try {
-//     const [rows] = await pool.query(
-//       'SELECT id, email, displayName, profilePhoto FROM users WHERE id = ?',
-//       [req.user.id]
-//     );
-//     if (rows.length === 0) return res.status(404).json({ error: '使用者不存在' });
-//     res.json({ user: rows[0] });
-//   } catch (err) {
-//     console.error('Get me error:', err);
-//     res.status(500).json({ error: '取得使用者資料失敗' });
-//   }
-// });
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, email, displayName, profilePhoto FROM users WHERE id = ?',
+      [req.user.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: '使用者不存在' });
+    res.json({ user: rows[0] });
+  } catch (err) {
+    console.error('Get me error:', err);
+    res.status(500).json({ error: '取得使用者資料失敗' });
+  }
+});
 
 module.exports = router;

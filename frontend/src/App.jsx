@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 import MapView from './MapView';
+import { useAuth } from './page/Authentication/AuthContext';
 
 const getWeatherIcon = (code) => {
   if (code === undefined || code === null) return null;
@@ -17,6 +18,7 @@ const getWeatherIcon = (code) => {
 };
 
 function App() {
+  const { user, token, logout } = useAuth();
   const [messages, setMessages] = useState([
     { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
   ]);
@@ -41,8 +43,10 @@ function App() {
     try {
       const res = await fetch(import.meta.env.VITE_BACKEND_URL + '/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // 🔥 關鍵修正：把 currentPlan: plan 加進去，這樣後端才收得到！
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ 
           messages: newHistory,
           currentPlan: plan 
@@ -81,7 +85,10 @@ function App() {
       console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
       fetch(import.meta.env.VITE_BACKEND_URL + '/api/weather', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ city: plan.city, startDate: plan.startDate }),
       })
         .then((res) => res.json())
@@ -158,6 +165,11 @@ function App() {
           <div className="app-header-title">
             <span className="logo-dot" />
             旅遊聊天小助手
+            {/* edit */}
+            {/* <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', fontWeight: 400 }}>
+              <span style={{ color: '#6b7280' }}>{user?.displayName || user?.email}</span>
+              <button onClick={logout} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>登出</button>
+            </span> */}
           </div>
         </div>
 
