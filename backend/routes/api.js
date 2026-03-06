@@ -23,6 +23,10 @@ const tools = [
         type: 'object',
         properties: {
           summary: { type: 'string', description: '行程的簡短中文概要' },
+          totalBudget: { 
+            type: "number", 
+            description: "根據行程預估的總花費建議，或使用者要求的預算上限" 
+          },
           city: { 
             type: 'string', 
             description: '旅遊目的地城市。⚠️重要：若為國外城市，請務必包含國家名稱 (例如: "義大利威尼斯")。' 
@@ -47,8 +51,12 @@ const tools = [
                       name: { type: 'string', description: '地點的具體名稱' },
                       type: { type: 'string', enum: ['sight', 'food', 'shopping', 'activity'] },
                       note: { type: 'string' },
+                      cost: { 
+                        type: "number", 
+                        description: "該項目的預估花費（以當地貨幣或美金估算，僅數字）" 
+                      }
                     },
-                    required: ['time', 'name', 'type'],
+                    required: ['time', 'name', 'type', "cost"],
                   },
                 },
               },
@@ -64,6 +72,14 @@ const tools = [
 
 // ------------------ API: Chat Endpoint ------------------
 router.post('/chat', async (req, res) => {
+  const systemMsg = {
+    role: 'system',
+    content: `你是一個旅遊助手。當使用者提及預算限制（例如：我的預算是兩萬）或要求行程時：
+    1. 請估算各項活動 cost。
+    2. 請在 update_itinerary 的 totalBudget 欄位填入：
+      - 若使用者有指定預算，則填入該金額。
+      - 若使用者沒指定，則填入你估算完所有活動後的總和加 10% 作為緩衝。`
+  };
   const { messages, currentPlan } = req.body; 
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 

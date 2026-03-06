@@ -1,8 +1,11 @@
 // frontend/src/App.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import './App.css';
 import MapView from './MapView';
 import { useAuth } from './page/Authentication/AuthContext';
+
+//設定安全預設網址
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 const getWeatherIcon = (code) => {
   if (code === undefined || code === null) return null;
@@ -28,6 +31,7 @@ function App() {
   const [activeLocation, setActiveLocation] = useState(null);
   
   const [weatherData, setWeatherData] = useState(null);
+  const [totalBudget, setTotalBudget] = useState(50000); // 預設 5 萬，之後可由使用者輸入
 
   const handleSend = async () => {
     const text = input.trim();
@@ -41,7 +45,8 @@ function App() {
     setIsSending(true);
 
     try {
-      const res = await fetch(import.meta.env.VITE_BACKEND_URL + '/api/chat', {
+      //用 API_BASE 發送請求
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -60,6 +65,9 @@ function App() {
 
       if (data.plan) {
         setPlan(data.plan);
+        if (data.plan.totalBudget) {
+          setTotalBudget(data.plan.totalBudget);
+        }
         setWeatherData(null); 
       }
     } catch (err) {
@@ -83,7 +91,8 @@ function App() {
   useEffect(() => {
     if (plan && plan.city && plan.startDate) {
       console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
-      fetch(import.meta.env.VITE_BACKEND_URL + '/api/weather', {
+      // 使用 API_BASE 發送請求
+      fetch(`${API_BASE}/api/weather`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -119,6 +128,36 @@ function App() {
     const d = date.getDate().toString().padStart(2, '0');
     return `${m}-${d}`;
   };
+
+  const updateActivityCost = (dayIdx, itemIdx, newCost) => {
+  if (!plan) return;
+  const newPlan = { ...plan };
+  newPlan.days[dayIdx].items[itemIdx].cost = Number(newCost) || 0;
+  setPlan(newPlan);
+};
+
+  const totalSpent = plan ? plan.days.reduce((sum, day) => {
+    return sum + (day.items || []).reduce((daySum, item) => daySum + (Number(item.cost) || 0), 0);
+  }, 0) : 0;
+
+  const remaining = totalBudget - totalSpent;
+
+  const mapData = useMemo(() => {
+  if (!plan) return null;
+  return {
+    ...plan,
+    days: plan.days.map(day => ({
+      ...day,
+      items: day.items.map(item => ({
+        name: item.name,
+        location: item.location,
+        type: item.type,
+        // 故意不包含 cost，這樣金額變動就不會觸發 mapData 更新
+      }))
+    }))
+  };
+  // 依賴項：我們只在 plan 的結構或核心內容改變時才重新計算
+}, [plan?.city, JSON.stringify(plan?.days?.map(d => d.items.map(i => i.name)))]);
 
   const handleDayChange = (day) => {
     if (day) {
@@ -210,7 +249,7 @@ function App() {
                 <span className="dot" /> 行程地圖
               </div>
               <MapView 
-                plan={plan} 
+                plan={mapData} // 使用過濾後的資料
                 activeLocation={activeLocation}        
                 onLocationChange={setActiveLocation}
                 onDayChange={handleDayChange}
@@ -228,6 +267,35 @@ function App() {
                     <div><strong>城市：</strong>{plan.city || '（未指定）'}</div>
                     <div><strong>概要：</strong>{plan.summary || '（無概要）'}</div>
                     {plan.startDate && <div style={{marginTop: 4, color: '#666'}}>📅 出發日期：{plan.startDate}</div>}
+                  </div>
+
+                  <div className="budget-dashboard">
+                    <div className="budget-row">
+                      <span>總預算：</span>
+                      <input 
+                        type="number" 
+                        className="budget-main-input"
+                        value={totalBudget} 
+                        onChange={(e) => setTotalBudget(Number(e.target.value))} 
+                      />
+                    </div>
+                    <div className="budget-status">
+                      <span style={{ color: totalSpent > totalBudget ? '#ef4444' : '#666' }}>
+                        已支出: ${totalSpent.toLocaleString()}
+                      </span>
+                      <span className={remaining < 0 ? 'budget-over' : 'budget-under'}>
+                        {remaining >= 0 ? `剩餘: $${remaining.toLocaleString()}` : `超額: $${Math.abs(remaining).toLocaleString()}`}
+                      </span>
+                    </div>
+                    <div className="budget-progress-bg">
+                      <div 
+                        className="budget-progress-fill" 
+                        style={{ 
+                          width: `${Math.min((totalSpent / totalBudget) * 100, 100)}%`,
+                          backgroundColor: totalSpent > totalBudget ? '#ef4444' : '#10b981'
+                        }}
+                      />
+                    </div>
                   </div>
 
                   {(plan.days || []).map((day, dayIdx) => {
@@ -265,6 +333,14 @@ function App() {
                                 <div className="plan-item-main">
                                   <strong>{displayTime(item.time)}：</strong>
                                   {item.name} <span className="plan-item-type">({displayType(item.type)})</span>
+                                  <div className="item-cost-input" onClick={(e) => e.stopPropagation()}>
+                                    $ <input 
+                                      type="number" 
+                                      placeholder="金額"
+                                      value={item.cost || ''} 
+                                      onChange={(e) => updateActivityCost(dayIdx, idx, e.target.value)}
+                                    />
+                                  </div>
                                 </div>
                                 {item.note && <div className="plan-item-note">{item.note}</div>}
                               </li>

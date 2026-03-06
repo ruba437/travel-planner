@@ -225,3 +225,61 @@ html, body, #root {
   font-size: 0.9rem; 
   padding: 20px;
 }
+
+/* --- 預算功能樣式 --- */
+.budget-dashboard {
+  padding: 12px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.budget-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+
+.budget-main-input {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 2px 8px;
+  width: 100px;
+}
+
+.budget-status {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.budget-over { color: #ef4444; font-weight: bold; }
+.budget-under { color: #10b981; }
+
+.budget-progress-bg {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.budget-progress-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.item-cost-input {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.item-cost-input input {
+  width: 70px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+}
