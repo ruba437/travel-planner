@@ -6,6 +6,22 @@ const axios = require('axios');
 
 // 所有 API 啟動前查看auth是否通過
 const authMiddleware = require('../middleware/auth');
+
+// 照片不需要 auth（<img> 無法帶 header）
+router.get('/places/photo', async (req, res) => {
+  const { ref, maxwidth } = req.query;
+  if (!ref) return res.status(400).send('Missing ref');
+  try {
+    const response = await axios.get('https://maps.googleapis.com/maps/api/place/photo', {
+      params: { photo_reference: ref, maxwidth: maxwidth || 400, key: process.env.GOOGLE_PLACES_API_KEY },
+      responseType: 'arraybuffer',
+    });
+    res.set('Content-Type', response.headers['content-type']);
+    res.send(response.data);
+  } catch (err) { res.status(500).send('Failed'); }
+});
+
+// 以下路由都需要登入
 router.use(authMiddleware);
 
 const openai = new OpenAI({
@@ -186,19 +202,6 @@ router.get('/place-details', async (req, res) => {
       },
     });
     res.json(response.data.result || {});
-  } catch (err) { res.status(500).send('Failed'); }
-});
-
-router.get('/places/photo', async (req, res) => {
-  const { ref, maxwidth } = req.query;
-  if (!ref) return res.status(400).send('Missing ref');
-  try {
-    const response = await axios.get('https://maps.googleapis.com/maps/api/place/photo', {
-      params: { photo_reference: ref, maxwidth: maxwidth || 400, key: process.env.GOOGLE_PLACES_API_KEY },
-      responseType: 'arraybuffer',
-    });
-    res.set('Content-Type', response.headers['content-type']);
-    res.send(response.data);
   } catch (err) { res.status(500).send('Failed'); }
 });
 

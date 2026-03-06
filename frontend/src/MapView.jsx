@@ -7,8 +7,9 @@ import {
   InfoWindow,
   useJsApiLoader,
 } from '@react-google-maps/api';
+import { useAuth } from './page/Authentication/AuthContext';
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
 const dayColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
 
@@ -60,6 +61,7 @@ const translateType = (type) => {
 };
 
 function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
+  const { token } = useAuth();
   const [markers, setMarkers] = useState([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
@@ -121,7 +123,9 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     setLoadingDetails(true);
     setPlaceDetails(null); 
 
-    fetch(`${API_BASE}/api/place-details?placeId=${selectedMarker.placeId}`)
+    fetch(`${API_BASE}/api/place-details?placeId=${selectedMarker.placeId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => res.json())
       .then((data) => {
         setPlaceDetails(data);
@@ -296,7 +300,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
           try {
             const cityRes = await fetch(`${API_BASE}/api/places/search`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify({ query: plan.city }), 
             });
             const cityData = await cityRes.json();
@@ -323,7 +327,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
             try {
               const res = await fetch(`${API_BASE}/api/places/search`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ 
                   query: itemName, 
                   city: plan.city,
@@ -400,7 +404,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
     try {
       const res = await fetch(`${API_BASE}/api/directions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         signal: controller.signal,
         body: JSON.stringify({
           origin: { lat: segment.from.lat, lng: segment.from.lng },
