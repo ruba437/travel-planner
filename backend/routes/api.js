@@ -4,6 +4,10 @@ const router = express.Router();
 const OpenAI = require('openai');
 const axios = require('axios');
 
+// 所有 API 啟動前查看auth是否通過
+const authMiddleware = require('../middleware/auth');
+router.use(authMiddleware);
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
