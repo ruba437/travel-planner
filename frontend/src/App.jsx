@@ -176,6 +176,31 @@ function App() {
     }
   }, [activeLocation]);
 
+  const exportPlan = () => {
+    if (!plan || !plan.days || plan.days.length === 0) {
+      alert('目前沒有行程可以導航，請先規劃行程。');
+      return;
+    }
+
+    const places = plan.days
+      .flatMap(day => day.items || [])
+      .filter(item => item.name)
+      .map(item =>
+        item.location?.lat && item.location?.lng
+          ? `${item.location.lat},${item.location.lng}`
+          : item.name
+      );
+
+    if (places.length === 0) {
+      alert('行程中沒有地點資訊。');
+      return;
+    }
+
+    // Google Maps 方向連結（不需要 API key）
+    const url = `https://www.google.com/maps/dir/${places.map(p => encodeURIComponent(p)).join('/')}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const displayTime = (time) => {
     switch (time) {
       case 'morning': return '早上';
@@ -205,10 +230,11 @@ function App() {
             <span className="logo-dot" />
             旅遊聊天小助手
             {/* edit */}
-            {/* <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', fontWeight: 400 }}>
+            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', fontWeight: 400 }}>
+              <button onClick={exportPlan}>google導航</button>
               <span style={{ color: '#6b7280' }}>{user?.displayName || user?.email}</span>
               <button onClick={logout} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>登出</button>
-            </span> */}
+            </span>
           </div>
         </div>
 
