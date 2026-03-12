@@ -314,3 +314,59 @@ html, body, #root {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.quick-actions-container {
+  padding: 8px 16px 0 16px; /* 調整與上方訊息區塊和下方輸入框的距離 */
+  background-color: white; /* 確保與輸入框背景一致 */
+  border-top: 1px solid #e5e7eb; /* 加上分隔線 */
+}
+
+.quick-actions {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto; /* 如果選項太多，允許橫向滑動 */
+  padding-bottom: 8px; /* 為了自訂捲軸留點空間 */
+  
+  /* 隱藏捲軸但保持可滑動（為了美觀） */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.quick-actions::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+.quick-actions-container {
+  padding: 12px 16px 8px 16px;
+  background-color: white;
+  border-top: 1px solid #e5e7eb;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap; 
+  gap: 8px;
+}
+
+.quick-action-btn {
+  background-color: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 999px; 
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-grow: 0; 
+}
+
+.quick-action-btn:hover {
+  background-color: #e5e7eb;
+  border-color: #9ca3af;
+  color: #111827;
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

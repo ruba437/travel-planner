@@ -120,19 +120,20 @@ function App() {
     }
   };
 
-  const handleSend = async () => {
-    const text = input.trim();
+  const handleSend = async (quickText) => {
+    // 1. 支援快捷按鈕的文字：如果有傳入 quickText 就用它，否則用輸入框的 input
+    const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
     if (!text || isSending) return;
 
     const userMsg = { role: 'user', content: text };
     const newHistory = [...messages, userMsg];
     
     setMessages(newHistory);
+    // 送出後清空輸入框
     setInput('');
     setIsSending(true);
 
     try {
-      //用 API_BASE 發送請求
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: {
@@ -147,9 +148,18 @@ function App() {
 
       const data = await res.json();
 
-      const assistantMsg = { role: 'assistant', content: data.content };
+      // 2. 錯誤防護：如果後端回傳 500 或 error，主動拋出錯誤，進入 catch 區塊
+      if (!res.ok || data.error) {
+        throw new Error(data.error || '後端回傳錯誤');
+      }
+
+      // 3. 安全處理 content：確保 content 絕對是字串，避免 .split() 導致畫面崩潰
+      const safeContent = data.content || '行程已為您更新，請查看右側地圖與列表。';
+      const assistantMsg = { role: 'assistant', content: safeContent };
+
       setMessages([...newHistory, assistantMsg]);
 
+      // 4. 如果有生成新的行程計畫，則更新畫面
       if (data.plan) {
         setPlan(data.plan);
         if (data.plan.totalBudget) {
@@ -158,10 +168,11 @@ function App() {
         setWeatherData(null); 
       }
     } catch (err) {
-      console.error(err);
+      console.error('Chat API Error:', err);
+      // 發生錯誤時，優雅地在聊天室顯示錯誤訊息，而不是讓整個畫面死掉
       setMessages([
         ...newHistory,
-        { role: 'assistant', content: '系統連線錯誤，請稍後再試。' },
+        { role: 'assistant', content: '系統連線錯誤或 AI 思考中斷，請稍後再試。' },
       ]);
     } finally {
       setIsSending(false);
@@ -351,6 +362,42 @@ function App() {
                 </div>
               ))}
             </div>
+
+            {/* 快捷選項區塊 🔥 */}
+            <div className="quick-actions-container">
+              <div className="quick-actions">
+                <button 
+                  className="quick-action-btn"
+                  onClick={() => handleSend('請幫我多排一些行程')}
+                  disabled={isSending}
+                >
+                  ⏱️ 行程多一點
+                </button>
+                <button 
+                  className="quick-action-btn"
+                  onClick={() => handleSend('請幫我少排一些行程')}
+                  disabled={isSending}
+                >
+                  ☕ 行程少一點
+                </button>
+                <button 
+                  className="quick-action-btn"
+                  onClick={() => handleSend('請提供我幾個住宿的推薦選項')}
+                  disabled={isSending}
+                >
+                  🏨 提供住宿選項
+                </button>
+                <button 
+                  className="quick-action-btn"
+                  onClick={() => handleSend('請推薦幾個當地美食')}
+                  disabled={isSending}
+                >
+                  🍜 推薦在地美食
+                </button>
+              </div>
+            </div>
+            {/* 🔥 新增結束 🔥 */}
+
             <div className="chat-input-area">
               <textarea
                 rows={2}
