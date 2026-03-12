@@ -1,5 +1,6 @@
 // frontend/src/App.jsx
 import { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import './App.css';
 import MapView from './MapView';
 import { useAuth } from './page/Authentication/AuthContext';
@@ -22,6 +23,9 @@ const getWeatherIcon = (code) => {
 
 function App() {
   const { user, token, logout } = useAuth();
+  const { uuid: itineraryUuidParam } = useParams();
+  const navigate = useNavigate();
+
   const [messages, setMessages] = useState([
     { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
   ]);
@@ -31,7 +35,90 @@ function App() {
   const [activeLocation, setActiveLocation] = useState(null);
   
   const [weatherData, setWeatherData] = useState(null);
-  const [totalBudget, setTotalBudget] = useState(50000); // 預設 5 萬，之後可由使用者輸入
+  const [totalBudget, setTotalBudget] = useState(50000);
+
+  // 行程保存相關狀態
+  const [itineraryUuid, setItineraryUuid] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+  const [isLoadingItinerary, setIsLoadingItinerary] = useState(false);
+
+  // 載入已有行程
+  useEffect(() => {
+    if (itineraryUuidParam) {
+      loadItinerary(itineraryUuidParam);
+    }
+  }, [itineraryUuidParam]);
+
+  const loadItinerary = async (uuid) => {
+    setIsLoadingItinerary(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/itineraries/${uuid}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('載入行程失敗');
+      const data = await res.json();
+      if (data.itineraryData) {
+        setPlan(data.itineraryData);
+        setItineraryUuid(data.uuid);
+        if (data.itineraryData.totalBudget) {
+          setTotalBudget(data.itineraryData.totalBudget);
+        }
+        setMessages([
+          { role: 'assistant', content: `已載入行程「${data.title || data.summary || ''}」，您可以繼續修改。` },
+        ]);
+        setWeatherData(null);
+      }
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => [...prev, { role: 'assistant', content: '載入行程失敗，請稍後再試。' }]);
+    } finally {
+      setIsLoadingItinerary(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!plan) return;
+    setIsSaving(true);
+    setSaveMsg(null);
+    const payload = {
+      title: plan.summary || `${plan.city || ''}旅遊行程`,
+      summary: plan.summary || '',
+      city: plan.city || '',
+      startDate: plan.startDate || null,
+      itineraryData: { ...plan, totalBudget },
+    };
+    try {
+      let res;
+      if (itineraryUuid) {
+        res = await fetch(`${API_BASE}/api/itineraries/${itineraryUuid}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch(`${API_BASE}/api/itineraries`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (!res.ok) throw new Error('保存失敗');
+      const data = await res.json();
+      if (data.uuid) {
+        setItineraryUuid(data.uuid);
+        navigate(`/planner/${data.uuid}`, { replace: true });
+      }
+      setSaveMsg('已保存');
+      setTimeout(() => setSaveMsg(null), 2000);
+    } catch (err) {
+      console.error(err);
+      setSaveMsg('保存失敗');
+      setTimeout(() => setSaveMsg(null), 3000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleSend = async () => {
     const text = input.trim();
@@ -224,13 +311,23 @@ function App() {
 
   return (
     <div className="app-root">
+      {isLoadingItinerary && (
+        <div className="loading-overlay">
+          <div className="loading-spinner" />
+          <p>載入行程中...</p>
+        </div>
+      )}
       <div className="app-shell">
         <div className="app-header">
           <div className="app-header-title">
             <span className="logo-dot" />
             旅遊聊天小助手
-            {/* edit */}
             <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', fontWeight: 400 }}>
+              <button onClick={() => navigate('/')} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>← 我的行程</button>
+              <button onClick={handleSave} disabled={!plan || isSaving} style={{ background: plan ? '#10b981' : '#d1d5db', color: 'white', border: 'none', borderRadius: 6, padding: '4px 14px', cursor: plan ? 'pointer' : 'not-allowed', fontSize: '0.85rem', fontWeight: 600 }}>
+                {isSaving ? '保存中...' : itineraryUuid ? '更新行程' : '保存行程'}
+              </button>
+              {saveMsg && <span style={{ color: saveMsg === '已保存' ? '#10b981' : '#ef4444', fontWeight: 500 }}>{saveMsg}</span>}
               <button onClick={exportPlan}>google導航</button>
               <span style={{ color: '#6b7280' }}>{user?.displayName || user?.email}</span>
               <button onClick={logout} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>登出</button>

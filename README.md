@@ -15,6 +15,7 @@
 ### Backend
 - Node.js
 - Express
+- PostgreSQL / Supabase
 - OpenAI API
 - Google Places API
 - Google Direction API
@@ -58,4 +59,5 @@ cd frontend
 npm install
 npm run dev
 
-(example.env要改成.env並改裡面的Key)
+後端目前使用 PostgreSQL。請將 backend/example.env 填完改成 backend/.env，寫入 Supabase 提供的 DATABASE_URL。
+如果 session pooler 在本機網路環境出現連線重置，可額外設定 DATABASE_URL_FALLBACK 指向 transaction pooler 的 6543 連線字串。

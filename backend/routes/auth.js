@@ -24,21 +24,22 @@ router.post('/register', async (req, res) => {
   }
 
   try {
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    const { rows: existing } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.length > 0) {
       return res.status(409).json({ error: 'Email 已被註冊' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
-    const [result] = await pool.query(
-      'INSERT INTO users (email, displayName, passwordHash) VALUES (?, ?, ?)',
-      [email, displayName || email.split('@')[0], passwordHash]
+    const passwordhash = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      'INSERT INTO users (email, displayname, passwordhash) VALUES ($1, $2, $3) RETURNING id',
+      [email, displayName || email.split('@')[0], passwordhash]
     );
 
-    const token = generateToken({ id: result.id, email, displayName: displayName || email.split('@')[0] });
+    const newId = rows[0].id;
+    const token = generateToken({ id: newId, email, displayName: displayName || email.split('@')[0] });
     res.status(201).json({
       token,
-      user: { id: result.insertId, email, displayName: displayName || email.split('@')[0] },
+      user: { id: newId, email, displayName: displayName || email.split('@')[0] },
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -54,27 +55,27 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (rows.length === 0) {
       return res.status(401).json({ error: '沒有這個帳號' });
     }
 
     // edit 
     const user = rows[0];
-    if (!user.passwordHash) {
+    if (!user.passwordhash) {
       return res.status(401).json({ error: '此帳號未設定密碼，請使用其他登入方式' });
     }
     //
 
-    const match = await bcrypt.compare(password, user.passwordHash);
+    const match = await bcrypt.compare(password, user.passwordhash);
     if (!match) {
       return res.status(401).json({ error: '密碼錯誤' });
     }
 
-    const token = generateToken({ id: user.id, email: user.email, displayName: user.displayName || user.email.split('@')[0] });
+    const token = generateToken({ id: user.id, email: user.email, displayName: user.displayname || user.email.split('@')[0] });
     res.json({
       token,
-      user: { id: user.id, email: user.email, displayName: user.displayName || user.email.split('@')[0] },
+      user: { id: user.id, email: user.email, displayName: user.displayname || user.email.split('@')[0] },
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -85,8 +86,8 @@ router.post('/login', async (req, res) => {
 // GET /auth/me
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      'SELECT id, email, displayName, profilePhoto FROM users WHERE id = ?',
+    const { rows } = await pool.query(
+      'SELECT id, email, displayname, profilephoto FROM users WHERE id = $1',
       [req.user.id]
     );
     if (rows.length === 0) return res.status(404).json({ error: '使用者不存在' });

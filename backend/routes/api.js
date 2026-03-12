@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
 const axios = require('axios');
+const crypto = require('crypto');
+const pool = require('../db');
 
 // 所有 API 啟動前查看auth是否通過
 const authMiddleware = require('../middleware/auth');
@@ -249,7 +251,90 @@ router.post('/weather', async (req, res) => {
   } catch (err) { res.json({ daily: null }); }
 });
 
-// 其他 API 保持不變 (Health, Search, Details, Photo, Directions, Weather)
+// ------------------ 行程 CRUD ------------------
+router.get('/itineraries', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT uuid, title, summary, city, startdate, createdat, updatedat FROM itineraries WHERE userid = $1 ORDER BY updatedat DESC',
+      [req.user.id]
+    );
+    res.json({ itineraries: rows });
+  } catch (err) {
+    console.error('Get itineraries error:', err);
+    res.status(500).json({ error: '取得行程列表失敗' });
+  }
+});
+
+router.post('/itineraries', async (req, res) => {
+  const { title, summary, city, startDate, itineraryData } = req.body;
+  if (!itineraryData) return res.status(400).json({ error: '行程資料不可為空' });
+  const uuid = crypto.randomUUID();
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO itineraries (userid, uuid, title, summary, city, startdate, itinerarydata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid, createdat`,
+      [req.user.id, uuid, title || '', summary || '', city || '', startDate || null, JSON.stringify(itineraryData)]
+    );
+    res.status(201).json({ uuid: rows[0].uuid, createdAt: rows[0].createdat });
+  } catch (err) {
+    console.error('Create itinerary error:', err);
+    res.status(500).json({ error: '保存行程失敗' });
+  }
+});
+
+router.get('/itineraries/:uuid', async (req, res) => {
+  const { uuid } = req.params;
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM itineraries WHERE uuid = $1',
+      [uuid]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: '行程不存在' });
+    const row = rows[0];
+    let itineraryData;
+    try { itineraryData = JSON.parse(row.itinerarydata); } catch { itineraryData = null; }
+    res.json({ uuid: row.uuid, title: row.title, summary: row.summary, city: row.city, startDate: row.startdate, itineraryData, createdAt: row.createdat, updatedAt: row.updatedat });
+    
+  } catch (err) {
+    console.error('Get itinerary error:', err);
+    res.status(500).json({ error: '取得行程失敗' });
+  }
+});
+
+router.put('/itineraries/:uuid', async (req, res) => {
+  const { uuid } = req.params;
+  const { title, summary, city, startDate, itineraryData } = req.body;
+  if (!itineraryData) return res.status(400).json({ error: '行程資料不可為空' });
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE itineraries SET title = $1, summary = $2, city = $3, startdate = $4, itinerarydata = $5, updatedat = CURRENT_TIMESTAMP
+       WHERE uuid = $6 AND userid = $7`,
+      [title || '', summary || '', city || '', startDate || null, JSON.stringify(itineraryData), uuid, req.user.id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: '行程不存在或無權限' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Update itinerary error:', err);
+    res.status(500).json({ error: '更新行程失敗' });
+  }
+});
+
+router.delete('/itineraries/:uuid', async (req, res) => {
+  const { uuid } = req.params;
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM itineraries WHERE uuid = $1 AND userid = $2',
+      [uuid, req.user.id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: '行程不存在或無權限' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete itinerary error:', err);
+    res.status(500).json({ error: '刪除行程失敗' });
+  }
+});
+
+// 其他 API
 router.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 module.exports = router;

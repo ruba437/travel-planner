@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import LoginPage from './page/Authentication/Login/LoginPage.jsx'
+import HomePage from './page/Home/HomePage.jsx'
 import { AuthProvider, useAuth } from './page/Authentication/AuthContext.jsx'
 
 function PrivateRoute({ children }) {
@@ -24,7 +25,10 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-          <Route path="/*" element={<PrivateRoute><App /></PrivateRoute>} />
+          <Route path="/" element={<PrivateRoute><HomePage /></PrivateRoute>} />
+          <Route path="/planner" element={<PrivateRoute><App /></PrivateRoute>} />
+          <Route path="/planner/:uuid" element={<PrivateRoute><App /></PrivateRoute>} />
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
