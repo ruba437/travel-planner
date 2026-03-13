@@ -244,6 +244,8 @@ function App() {
   if (!plan) return null;
   return {
     ...plan,
+    startLocation: plan.startLocation,
+    startTime: plan.startTime,
     days: plan.days.map(day => ({
       ...day,
       items: day.items.map(item => ({

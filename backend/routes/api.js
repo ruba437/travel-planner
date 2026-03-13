@@ -36,7 +36,7 @@ const tools = [
     type: 'function',
     function: {
       name: 'update_itinerary',
-      description: '當使用者明確要求安排、規劃、修改或更新旅遊行程時呼叫此工具。',
+      description: '【僅在確認起點與時間後呼叫】生成包含起點與出發時間的完整旅遊行程。',
       parameters: {
         type: 'object',
         properties: {
@@ -52,6 +52,14 @@ const tools = [
           startDate: { 
             type: 'string', 
             description: '旅遊開始日期，格式為 YYYY-MM-DD。' 
+          },
+          startLocation: { 
+            type: 'string', 
+            description: '行程第一天的出發起點（例如：飯店名稱、機場或車站）' 
+          },
+          startTime: { 
+            type: 'string', 
+            description: '第一天開始行程的時間，格式為 HH:mm (例如 "09:00")' 
           },
           days: {
             type: 'array',
@@ -82,7 +90,7 @@ const tools = [
             },
           },
         },
-        required: ['summary', 'city', 'days'],
+        required: ['summary', 'city', 'days', 'startLocation', 'startTime'],
       },
     },
   },
@@ -105,23 +113,22 @@ router.post('/chat', async (req, res) => {
 
   // 🔥 構建 System Prompt：調整為「主動型」助理
   let systemContent = `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
-          
-  【核心原則 - 請嚴格遵守】：
-  1. **🚀 主動生成行程 (Trigger)**：
-      - 當使用者提供**「地點」**與**「天數」**意圖時 (例如：「我想去東京五天」、「幫我安排台北一日遊」)，請**直接呼叫 'update_itinerary' 工具**生成一份完整的初始行程。
-      - **不需要**先回覆文字詢問「需要我幫你排嗎？」，請直接生成。
-  
-  2. **純諮詢 (Consultation)**：
-      - 只有當使用者單純詢問「推薦」、「天氣如何」、「好玩嗎」且**沒有**提到具體天數規劃時，才只回覆文字建議。
-  
-  3. **🔧 行程修改 (Modification)**：
-      - 如果下方提供了【目前已有的行程資料】，當使用者要求「新增」或「修改」時，**請務必保留原本行程中未被修改的部分**。
-      - ❌ **絕對禁止**回傳一個只包含新項目的空行程。
-      - 請將新項目插入到合適的時間點，並透過工具回傳【舊行程 + 新項目】的完整 JSON。
+【標準作業程序 (SOP)】：
+1. **檢查必要資訊**：當使用者想規劃行程時，你必須確認擁有以下資訊：
+   - 目的地城市
+   - 旅遊天數
+   - **起始地點 (例如：機場、飯店、車站)**
+   - **第一天的出發時間 (例如：09:00)**
 
-  4. **地理資訊**：
-      - 城市名稱若為國外，請加上國家前綴 (例如: "日本東京")。
-      - 如果使用者有提到日期，請計算正確的 YYYY-MM-DD。`;
+2. **缺少資訊時的處理**：
+   - 如果使用者提供了「地點」和「天數」，但**沒提到**「起點」或「時間」，請**不要**呼叫 'update_itinerary'。
+   - 請用親切的語氣回覆：「沒問題！我可以幫您安排[地點]的[天數]行程。為了更精準規劃交通，請問您第一天的**出發地點**是哪裡？以及預計幾點**開始行程**呢？」
+
+3. **資訊齊全時的處理**：
+   - 只有當上述四項資訊都明確（或使用者在對話中補齊）時，才呼叫 'update_itinerary' 生成完整 JSON。
+
+4. **預設值處理**：
+   - 如果使用者回答「隨便」、「你決定」、「不用管起點」，此時再使用預設值（例如：台北車站、09:00）並呼叫工具。`;
 
   // 注入記憶
   if (currentPlan) {
@@ -152,6 +159,7 @@ router.post('/chat', async (req, res) => {
       const toolCall = responseMessage.tool_calls[0];
       if (toolCall.function.name === 'update_itinerary') {
         const itineraryArgs = JSON.parse(toolCall.function.arguments);
+        const reply = `沒問題！已為您規劃從 **${itineraryArgs.startLocation}** 於 **${itineraryArgs.startTime}** 出發的行程。`;
         return res.json({
           role: 'assistant',
           content: `沒問題！已為您生成行程：${itineraryArgs.summary} ${itineraryArgs.startDate ? `(出發日: ${itineraryArgs.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,

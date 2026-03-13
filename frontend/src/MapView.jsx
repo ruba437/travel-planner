@@ -32,6 +32,18 @@ const getMarkerIcon = (day) => {
   };
 };
 
+const getStartMarkerIcon = () => {
+  if (!window.google || !window.google.maps) return undefined;
+  return {
+    path: window.google.maps.SymbolPath.BACKWARD_CLOSED_ARROW, // 或者用一個房子的圖示
+    scale: 6,
+    fillColor: '#1e293b', // 深黑色代表起點
+    fillOpacity: 1,
+    strokeColor: '#ffffff',
+    strokeWeight: 2,
+  };
+};
+
 const containerStyle = { 
   width: '100%', 
   height: '100%', 
@@ -199,7 +211,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
 
     const segs = [];
     byDay.forEach((marks, dayKey) => {
-      const sorted = [...marks].sort((a, b) => (a.order || 0) - (b.order || 0));
+      const sorted = [...marks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       for (let i = 0; i < sorted.length - 1; i++) {
         const from = sorted[i];
         const to = sorted[i + 1];
@@ -286,44 +298,72 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
   }, [activeLocation, markers, mapRef]);
 
   useEffect(() => {
-    if (!plan || !plan.days || plan.days.length === 0) {
-      return; 
-    }
+    if (!plan || !plan.days || plan.days.length === 0) return;
     if (!isLoaded) return;
 
     const fetchMarkers = async () => {
       try {
         setLoadingPlaces(true);
+        // 1. 初始化空陣列，避免 ReferenceError
+        const newMarkers = []; 
+        const seenNames = new Set();
         let currentCityLocation = null;
-        
+
+        // 2. 抓城市中心 (優先)
         if (plan.city) {
           try {
             const cityRes = await fetch(`${API_BASE}/api/places/search`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ query: plan.city }), 
+              body: JSON.stringify({ query: plan.city }),
             });
             const cityData = await cityRes.json();
-            const cityPlace = cityData.places && cityData.places[0];
-            if (cityPlace && cityPlace.lat && cityPlace.lng) {
+            const cityPlace = cityData.places?.[0];
+            if (cityPlace?.lat && cityPlace?.lng) {
               currentCityLocation = { lat: cityPlace.lat, lng: cityPlace.lng };
               setCityCenter(currentCityLocation);
             }
-          } catch (e) {
-            console.error('查詢城市失敗', e);
-          }
+          } catch (e) { console.error('查詢城市失敗', e); }
         }
 
-        const newMarkers = [];
-        const seenNames = new Set();
+        // 3. 抓取起點座標 (Start Location)
+        if (plan.startLocation) {
+          try {
+            const startRes = await fetch(`${API_BASE}/api/places/search`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ 
+                query: plan.startLocation, 
+                city: plan.city 
+              }),
+            });
+            const startData = await startRes.json();
+            const startPlace = startData.places?.[0];
+            if (startPlace) {
+              newMarkers.push({
+                lat: startPlace.lat,
+                lng: startPlace.lng,
+                name: `(起點) ${plan.startLocation}`,
+                placeId: startPlace.placeId,
+                day: 1,    
+                order: -1, // 關鍵：讓它排在第 1 天最前面
+                isStart: true,
+                type: 'establishment'
+              });
+            }
+          } catch (e) { console.error('查詢起點失敗', e); }
+        }
+
+        // 4. 抓取各天行程景點
         for (const day of plan.days) {
-          const dayNumber = Number(day.day); 
+          const dayNumber = Number(day.day);
           let orderInDay = 0;
           for (const item of day.items || []) {
             const itemName = item.name?.trim();
             const dedupeKey = `${dayNumber}-${itemName}`;
             if (!itemName || seenNames.has(dedupeKey)) continue;
             seenNames.add(dedupeKey);
+
             try {
               const res = await fetch(`${API_BASE}/api/places/search`, {
                 method: 'POST',
@@ -335,8 +375,8 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
                 }),
               });
               const data = await res.json();
-              const place = data.places && data.places[0];
-              if (place && place.lat && place.lng) {
+              const place = data.places?.[0];
+              if (place?.lat && place?.lng) {
                 newMarkers.push({
                   lat: place.lat,
                   lng: place.lng,
@@ -350,18 +390,16 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
                   day: dayNumber,
                   order: orderInDay,
                   type: item.type,
-                  note: item.note, 
+                  note: item.note,
                 });
                 orderInDay += 1;
               }
-            } catch (err) { console.error(err); }
+            } catch (err) { console.error(`搜尋 ${itemName} 失敗`, err); }
           }
         }
-        
         setMarkers(newMarkers);
-
-      } finally { 
-        setLoadingPlaces(false); 
+      } finally {
+        setLoadingPlaces(false);
       }
     };
     fetchMarkers();
@@ -532,21 +570,24 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
            >
              {markers
               .filter((m) => selectedDay === null || m.day === selectedDay)
-              .filter((m) => {
-                if (selectedSegment) {
-                   const from = selectedSegment.from;
-                   const to = selectedSegment.to;
-                   return (m.day === from.day && m.order === from.order) || (m.day === to.day && m.order === to.order);
-                }
-                return true;
-              })
               .map((m) => (
                 <Marker
-                  key={`${m.day}-${m.order}`}
+                  // 💡 關鍵：key 必須唯一，避免 React 重用組件導致圖示錯誤
+                  key={m.isStart ? `start-${m.day}` : `${m.day}-${m.order}`}
                   position={{ lat: m.lat, lng: m.lng }}
-                  onClick={() => { setSelectedMarker(m); onLocationChange?.({ day: m.day, order: m.order }); }}
-                  icon={getMarkerIcon(m.day)}
-                  label={{ text: String((m.order || 0) + 1), color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}
+                  onClick={() => {
+                    setSelectedMarker(m);
+                    if (!m.isStart) onLocationChange?.({ day: m.day, order: m.order });
+                  }}
+                  // 🔥 關鍵優化：區想起點與一般景點圖示
+                  icon={m.isStart ? getStartMarkerIcon() : getMarkerIcon(m.day)}
+                  label={{ 
+                    // 起點顯示 'S'，其他顯示順序數字
+                    text: m.isStart ? 'S' : String((m.order || 0) + 1), 
+                    color: '#ffffff', 
+                    fontSize: '12px', 
+                    fontWeight: 'bold' 
+                  }}
                 />
               ))}
 
