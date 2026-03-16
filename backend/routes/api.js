@@ -23,6 +23,472 @@ router.get('/places/photo', async (req, res) => {
   } catch (err) { res.status(500).send('Failed'); }
 });
 
+//////////// need edit 
+function toISODate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().split('T')[0];
+}
+
+function normalizeGuideText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[/?#%]+/g, '')
+    .replace(/-+/g, '-');
+}
+
+function parseGuideSlug(raw) {
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch (_) {
+    decoded = raw;
+  }
+
+  const match = decoded.match(/-([A-Za-z0-9]{4,16})$/);
+  const guideCode = match ? match[1] : null;
+  const baseSlug = match ? decoded.slice(0, -(guideCode.length + 1)) : decoded;
+
+  return {
+    decoded,
+    guideCode,
+    baseSlug,
+  };
+}
+
+function buildGuideSlug(row) {
+  if (row.slug) return row.slug;
+  const base = normalizeGuideText(row.city || row.title || `guide-${row.id || 'x'}`);
+  if (row.guide_code) return `${base}-${row.guide_code}`;
+  return base;
+}
+
+function mapGuideListRow(row) {
+  return {
+    id: `guide-${row.id}`,
+    slug: buildGuideSlug(row),
+    title: row.title,
+    summary: row.summary || '',
+    city: row.city || '',
+    authorName: row.author_name || '匿名旅人',
+    authorUsername: row.author_username || null,
+    coverImage: row.cover_image || '',
+    publishedAt: toISODate(row.publishedat),
+    guideCode: row.guide_code || null,
+  };
+}
+
+function mapGuideDetailRow(row) {
+  let tags = [];
+  if (Array.isArray(row.tags)) tags = row.tags;
+  if (!Array.isArray(tags)) tags = [];
+
+  return {
+    id: `guide-${row.id}`,
+    slug: buildGuideSlug(row),
+    guideCode: row.guide_code || null,
+    city: row.city || '',
+    country: row.country || '',
+    title: row.title || '未命名指南',
+    summary: row.summary || '',
+    body: row.body || '',
+    coverImage: row.cover_image || '',
+    tags,
+    tripInfo: {
+      days: Number(row.trip_days) || null,
+      nights: Number(row.trip_nights) || null,
+    },
+    author: {
+      displayName: row.author_name || '匿名旅人',
+      username: row.author_username || null,
+      avatar: row.author_avatar || '',
+    },
+    publishedAt: toISODate(row.publishedat),
+    viewCount: Number(row.view_count) || 0,
+  };
+}
+
+const fallbackDestinations = [
+  { city: '東京', country: '日本', tripCount: 0, coverImage: '' },
+  { city: '大阪', country: '日本', tripCount: 0, coverImage: '' },
+  { city: '首爾', country: '韓國', tripCount: 0, coverImage: '' },
+  { city: '曼谷', country: '泰國', tripCount: 0, coverImage: '' },
+  { city: '香港', country: '中國香港', tripCount: 0, coverImage: '' },
+  { city: '新加坡', country: '新加坡', tripCount: 0, coverImage: '' },
+];
+
+const fallbackGuides = [
+  {
+    id: 'guide-fallback-1',
+    title: '第一次自由行，怎麼排出不趕行程？',
+    summary: '用早中晚節奏切分景點、餐廳與交通，保留 20% 彈性時間。',
+    city: '通用',
+    authorName: 'Travel Planner',
+    authorUsername: 'travel-planner',
+    slug: 'first-trip-planning-starter-AB12',
+    guideCode: 'AB12',
+    publishedAt: null,
+  },
+  {
+    id: 'guide-fallback-2',
+    title: '預算不超支的三步驟',
+    summary: '先定總額，再分配住宿/交通/餐飲比例，最後用每日預算追蹤。',
+    city: '通用',
+    authorName: 'Travel Planner',
+    authorUsername: 'travel-planner',
+    slug: 'budget-control-steps-CD34',
+    guideCode: 'CD34',
+    publishedAt: null,
+  },
+  {
+    id: 'guide-fallback-3',
+    title: '雨天備案與室內景點替代法',
+    summary: '每一天預先準備 1-2 個室內替代點，避免天候影響行程品質。',
+    city: '通用',
+    authorName: 'Travel Planner',
+    authorUsername: 'travel-planner',
+    slug: 'rainy-day-plan-EF56',
+    guideCode: 'EF56',
+    publishedAt: null,
+  },
+];
+
+const fallbackBuddies = [
+  {
+    id: 'buddy-fallback-1',
+    city: '台灣台北市',
+    startDate: null,
+    endDate: null,
+    note: '想找一起吃在地小吃、拍街景的旅伴。',
+    displayName: '旅人 A',
+  },
+  {
+    id: 'buddy-fallback-2',
+    city: '日本大阪',
+    startDate: null,
+    endDate: null,
+    note: '白天景點、晚上居酒屋，歡迎一起安排行程。',
+    displayName: '旅人 B',
+  },
+];
+
+const fallbackGuideDetail = {
+  id: 'guide-fallback-ALQ8',
+  slug: '中國內蒙古自治區呼倫貝爾市-ALQ8',
+  guideCode: 'ALQ8',
+  city: '中國內蒙古自治區呼倫貝爾市',
+  country: '中國',
+  title: '中國內蒙古自治區呼倫貝爾市',
+  summary: '草原、濕地與邊境風景兼具，適合想要慢節奏與自然景觀的旅行者。',
+  body: '建議以海拉爾為移動樞紐，安排莫日格勒河、額爾古納濕地與滿洲里邊境風光。可依季節調整交通方式，並保留彈性時間。',
+  coverImage: '',
+  tags: ['草原', '自然風景', '慢旅行'],
+  tripInfo: { days: 5, nights: 4 },
+  author: {
+    displayName: 'reanna.sun',
+    username: 'reanna.sun',
+    avatar: '',
+  },
+  publishedAt: null,
+  viewCount: 0,
+};
+
+router.get('/guides', async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 12, 48);
+  const city = String(req.query.city || '').trim();
+  const keyword = String(req.query.q || '').trim();
+
+  try {
+    let sql = `SELECT id, city, country, title, summary, cover_image, author_name, author_username, slug, guide_code, publishedat
+               FROM travel_guides
+               WHERE is_published = true`;
+    const params = [];
+
+    if (city) {
+      params.push(`%${city}%`);
+      sql += ` AND city ILIKE $${params.length}`;
+    }
+    if (keyword) {
+      params.push(`%${keyword}%`);
+      sql += ` AND (title ILIKE $${params.length} OR summary ILIKE $${params.length})`;
+    }
+    params.push(limit);
+    sql += ` ORDER BY publishedat DESC, updatedat DESC LIMIT $${params.length}`;
+
+    let rows = [];
+    try {
+      const result = await pool.query(sql, params);
+      rows = result.rows;
+    } catch (err) {
+      if (err.code !== '42P01' && err.code !== '42703') throw err;
+    }
+
+    const guides = rows.length > 0
+      ? rows.map(mapGuideListRow)
+      : fallbackGuides.slice(0, limit);
+
+    return res.json({ guides });
+  } catch (err) {
+    console.error('Get guides error:', err);
+    return res.status(500).json({ error: '取得指南列表失敗' });
+  }
+});
+
+async function getGuideDetailBySlug(slugFromPath, expectedUsername = null) {
+  const parsed = parseGuideSlug(slugFromPath);
+  const decodedSlug = parsed.decoded;
+  const baseSlug = parsed.baseSlug;
+  const guideCode = parsed.guideCode;
+
+  try {
+    const usernameFilter = expectedUsername ? 'AND (author_username = $4 OR author_name = $4)' : '';
+    const values = expectedUsername
+      ? [decodedSlug, guideCode, baseSlug, expectedUsername]
+      : [decodedSlug, guideCode, baseSlug];
+
+    const { rows } = await pool.query(
+      `SELECT id, city, country, title, summary, body, cover_image,
+              author_name, author_username, author_avatar,
+              slug, guide_code, trip_days, trip_nights, tags, view_count,
+              publishedat, updatedat
+       FROM travel_guides
+       WHERE is_published = true
+         AND (slug = $1 OR guide_code = $2 OR slug = $3)
+         ${usernameFilter}
+       ORDER BY publishedat DESC, updatedat DESC
+       LIMIT 1`,
+      values
+    );
+
+    if (rows.length > 0) {
+      return mapGuideDetailRow(rows[0]);
+    }
+  } catch (err) {
+    if (err.code !== '42P01' && err.code !== '42703') throw err;
+  }
+
+  return null;
+}
+
+router.get('/guides/:guideSlug', async (req, res) => {
+  try {
+    const detail = await getGuideDetailBySlug(req.params.guideSlug);
+    if (detail) return res.json({ guide: detail });
+
+    const parsed = parseGuideSlug(req.params.guideSlug);
+    if (parsed.guideCode === 'ALQ8' || parsed.decoded === fallbackGuideDetail.slug) {
+      return res.json({ guide: fallbackGuideDetail });
+    }
+
+    return res.status(404).json({ error: '找不到該指南' });
+  } catch (err) {
+    console.error('Get guide detail error:', err);
+    return res.status(500).json({ error: '取得指南詳情失敗' });
+  }
+});
+
+router.get('/u/:username/guide/:guideSlug', async (req, res) => {
+  const { username, guideSlug } = req.params;
+  try {
+    const detail = await getGuideDetailBySlug(guideSlug, username);
+    if (detail) return res.json({ guide: detail });
+
+    const parsed = parseGuideSlug(guideSlug);
+    if ((username === 'reanna.sun' || username === 'reanna.sun444') && (parsed.guideCode === 'ALQ8' || parsed.decoded === fallbackGuideDetail.slug)) {
+      return res.json({ guide: fallbackGuideDetail });
+    }
+
+    return res.status(404).json({ error: '找不到該用戶的指南' });
+  } catch (err) {
+    console.error('Get user guide detail error:', err);
+    return res.status(500).json({ error: '取得用戶指南詳情失敗' });
+  }
+});
+
+router.get('/home/content', async (req, res) => {
+  const destinationLimit = Math.min(Number(req.query.destinationLimit) || 8, 24);
+  const guideLimit = Math.min(Number(req.query.guideLimit) || 6, 24);
+  const buddyLimit = Math.min(Number(req.query.buddyLimit) || 6, 24);
+  const tripLimit = Math.min(Number(req.query.tripLimit) || 6, 24);
+
+  try {
+    let destinations = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT city, country, trip_count, cover_image
+         FROM trending_destinations
+         WHERE is_active = true
+         ORDER BY score DESC, trip_count DESC, updatedat DESC
+         LIMIT $1`,
+        [destinationLimit]
+      );
+      destinations = rows.map((row) => ({
+        city: row.city,
+        country: row.country || '',
+        tripCount: Number(row.trip_count) || 0,
+        coverImage: row.cover_image || '',
+      }));
+    } catch (err) {
+      if (err.code !== '42P01' && err.code !== '42703') throw err;
+    }
+
+    if (destinations.length === 0) {
+      const { rows } = await pool.query(
+        `SELECT city, COUNT(*)::int AS trip_count
+         FROM itineraries
+         WHERE ispublic = true AND city IS NOT NULL AND city <> ''
+         GROUP BY city
+         ORDER BY trip_count DESC, city ASC
+         LIMIT $1`,
+        [destinationLimit]
+      );
+      destinations = rows.map((row) => ({
+        city: row.city,
+        country: '',
+        tripCount: Number(row.trip_count) || 0,
+        coverImage: '',
+      }));
+    }
+
+    if (destinations.length === 0) {
+      destinations = fallbackDestinations.slice(0, destinationLimit);
+    }
+
+    let guides = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, title, summary, city, author_name, author_username, cover_image, slug, guide_code, publishedat
+         FROM travel_guides
+         WHERE is_published = true
+         ORDER BY publishedat DESC, updatedat DESC
+         LIMIT $1`,
+        [guideLimit]
+      );
+      guides = rows.map(mapGuideListRow);
+    } catch (err) {
+      if (err.code !== '42P01' && err.code !== '42703') throw err;
+    }
+
+    if (guides.length === 0) {
+      const { rows } = await pool.query(
+        `SELECT i.uuid, i.title, i.summary, i.city, i.updatedat, u.displayname, u.email
+         FROM itineraries i
+         JOIN users u ON u.id = i.userid
+         WHERE i.ispublic = true
+         ORDER BY i.updatedat DESC
+         LIMIT $1`,
+        [guideLimit]
+      );
+      guides = rows.map((row) => ({
+        id: row.uuid,
+        slug: row.uuid,
+        guideCode: null,
+        title: row.title || `${row.city || '旅程'} 行程指南`,
+        summary: row.summary || '這份公開行程可以作為你的規劃起點。',
+        city: row.city || '',
+        authorName: row.displayname || row.email || '匿名旅人',
+        authorUsername: null,
+        coverImage: '',
+        publishedAt: toISODate(row.updatedat),
+      }));
+    }
+
+    if (guides.length === 0) {
+      guides = fallbackGuides.slice(0, guideLimit);
+    }
+
+    let buddyPosts = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, city, start_date, end_date, note, display_name
+         FROM travel_buddy_posts
+         WHERE status = 'open'
+         ORDER BY createdat DESC
+         LIMIT $1`,
+        [buddyLimit]
+      );
+      buddyPosts = rows.map((row) => ({
+        id: `buddy-${row.id}`,
+        city: row.city || '',
+        startDate: toISODate(row.start_date),
+        endDate: toISODate(row.end_date),
+        note: row.note || '',
+        displayName: row.display_name || '匿名旅人',
+      }));
+    } catch (err) {
+      if (err.code !== '42P01' && err.code !== '42703') throw err;
+    }
+
+    if (buddyPosts.length === 0) {
+      buddyPosts = fallbackBuddies.slice(0, buddyLimit);
+    }
+
+    const publicTripsResult = await pool.query(
+      `SELECT i.uuid, i.title, i.summary, i.city, i.startdate, i.updatedat, u.displayname, u.email
+       FROM itineraries i
+       JOIN users u ON u.id = i.userid
+       WHERE i.ispublic = true
+       ORDER BY i.updatedat DESC
+       LIMIT $1`,
+      [tripLimit]
+    );
+
+    const publicTrips = publicTripsResult.rows.map((row) => ({
+      uuid: row.uuid,
+      title: row.title || row.summary || '公開旅程',
+      summary: row.summary || '',
+      city: row.city || '',
+      startDate: toISODate(row.startdate),
+      updatedAt: toISODate(row.updatedat),
+      authorName: row.displayname || row.email || '匿名旅人',
+    }));
+
+    return res.json({
+      destinations,
+      guides,
+      buddyPosts,
+      publicTrips,
+    });
+  } catch (err) {
+    console.error('Get home content error:', err);
+    return res.status(500).json({ error: '取得首頁內容失敗' });
+  }
+});
+
+router.get('/itineraries/public', async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 12, 48);
+  try {
+    const { rows } = await pool.query(
+      `SELECT i.uuid, i.title, i.summary, i.city, i.startdate, i.updatedat, u.displayname, u.email
+       FROM itineraries i
+       JOIN users u ON u.id = i.userid
+       WHERE i.ispublic = true
+       ORDER BY i.updatedat DESC
+       LIMIT $1`,
+      [limit]
+    );
+
+    return res.json({
+      itineraries: rows.map((row) => ({
+        uuid: row.uuid,
+        title: row.title || row.summary || '公開旅程',
+        summary: row.summary || '',
+        city: row.city || '',
+        startDate: toISODate(row.startdate),
+        updatedAt: toISODate(row.updatedat),
+        authorName: row.displayname || row.email || '匿名旅人',
+      })),
+    });
+  } catch (err) {
+    console.error('Get public itineraries error:', err);
+    return res.status(500).json({ error: '取得公開行程失敗' });
+  }
+});
+
+//////////////
+
 // 以下路由都需要登入
 router.use(authMiddleware);
 

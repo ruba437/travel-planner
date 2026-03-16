@@ -30,6 +30,7 @@
 - 🎨 每一天不同顏色標記與順序編號
 - 🔄 行程列表與地圖雙向互動
 - 🔍 Google Places 真實座標與照片
+- 🏠 首頁內容區塊（熱門目的地 / 旅遊指南 / 公開旅程）
 
 ---
 
@@ -61,3 +62,22 @@ npm run dev
 
 後端目前使用 PostgreSQL。請將 backend/example.env 填完改成 backend/.env，寫入 Supabase 提供的 DATABASE_URL。
 如果 session pooler 在本機網路環境出現連線重置，可額外設定 DATABASE_URL_FALLBACK 指向 transaction pooler 的 6543 連線字串。
+
+## 🧱 首頁內容資料表初始化
+
+若要啟用首頁真實資料來源（非 fallback 內容），請先執行：
+
+```bash
+cd backend
+psql "$DATABASE_URL" -f home_content_setup.sql
+```
+
+這會建立以下資料表並插入基本 seed：
+
+- `trending_destinations`
+- `travel_guides`
+
+## 🔌 新增公開 API
+
+- `GET /api/home/content`
+- `GET /api/itineraries/public`
