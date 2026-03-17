@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import './App.css';
 import MapView from './MapView';
 import { useAuth } from './page/Authentication/AuthContext';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 //設定安全預設網址
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
@@ -229,10 +230,40 @@ function App() {
 
   const updateActivityCost = (dayIdx, itemIdx, newCost) => {
   if (!plan) return;
+  
+  // 進行深拷貝以確保 React 能正確偵測到狀態更新
   const newPlan = { ...plan };
-  newPlan.days[dayIdx].items[itemIdx].cost = Number(newCost) || 0;
+  newPlan.days = [...plan.days];
+  newPlan.days[dayIdx] = { ...plan.days[dayIdx] };
+  newPlan.days[dayIdx].items = [...plan.days[dayIdx].items];
+  
+  // 更新金額
+  newPlan.days[dayIdx].items[itemIdx] = { 
+    ...plan.days[dayIdx].items[itemIdx], 
+    cost: Number(newCost) || 0 
+  };
+  
   setPlan(newPlan);
 };
+
+  // 更新行程的時間
+  const updateActivityTime = (dayIdx, itemIdx, newTime) => {
+    if (!plan) return;
+    
+    // 進行深拷貝
+    const newPlan = { ...plan };
+    newPlan.days = [...plan.days];
+    newPlan.days[dayIdx] = { ...plan.days[dayIdx] };
+    newPlan.days[dayIdx].items = [...plan.days[dayIdx].items];
+    
+    // 更新時間 (如果沒輸入就保持原本的或留白)
+    newPlan.days[dayIdx].items[itemIdx] = { 
+      ...plan.days[dayIdx].items[itemIdx], 
+      time: newTime || '' 
+    };
+    
+    setPlan(newPlan);
+  };
 
   const totalSpent = plan ? plan.days.reduce((sum, day) => {
     return sum + (day.items || []).reduce((daySum, item) => daySum + (Number(item.cost) || 0), 0);
@@ -301,16 +332,51 @@ function App() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const displayTime = (time) => {
-    switch (time) {
-      case 'morning': return '早上';
-      case 'noon': return '中午';
-      case 'afternoon': return '下午';
-      case 'evening': return '傍晚';
-      case 'night': return '晚上';
-      default: return time;
+
+  const onDragEnd = (result) => {
+    const { source, destination } = result;
+
+    // 1. 如果拖曳到沒有設定 Droppable 的區域（例如清單外），就不做任何改變
+    if (!destination) return;
+
+    // 2. 如果放在原本一模一樣的位置，就不做任何改變
+    if (
+      source.droppableId === destination.droppableId &&
+      source.index === destination.index
+    ) {
+      return;
     }
+
+    // 3. 複製目前的行程資料以進行修改
+    const newPlan = { ...plan };
+    
+    // 從 droppableId 解析出是第幾天 (我們稍後會把 id 設為 'day-0', 'day-1' 等)
+    const sourceDayIdx = parseInt(source.droppableId.split('-')[1], 10);
+    const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
+
+    const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
+    // 如果是同一天內拖曳，目標陣列就是來源陣列；如果是跨天，則需要複製目標天的陣列
+    const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
+
+    // 4. 從原本的天數中移除被拖曳的景點
+    const [movedItem] = sourceItems.splice(source.index, 1);
+
+    // 5. 將該景點插入到新的天數和指定位置
+    destItems.splice(destination.index, 0, movedItem);
+
+    // 6. 將更新後的陣列放回 newPlan
+    if (sourceDayIdx === destDayIdx) {
+      newPlan.days[sourceDayIdx].items = sourceItems;
+    } else {
+      newPlan.days[sourceDayIdx].items = sourceItems;
+      newPlan.days[destDayIdx].items = destItems;
+    }
+
+    // 7. 更新 React 狀態，畫面就會重新渲染
+    setPlan(newPlan);
   };
+
+  
 
   const displayType = (type) => {
     switch (type) {
@@ -470,58 +536,109 @@ function App() {
                     </div>
                   </div>
 
-                  {(plan.days || []).map((day, dayIdx) => {
-                    const weather = getWeatherForDay(dayIdx);
-                    const dateStr = formatDate(plan.startDate, dayIdx);
+                  
+                  <DragDropContext onDragEnd={onDragEnd}>
+                    {(plan.days || []).map((day, dayIdx) => {
+                      const weather = getWeatherForDay(dayIdx);
+                      const dateStr = formatDate(plan.startDate, dayIdx);
 
-                    return (
-                      <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
-                        <div className="plan-day-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>第 {day.day} 天 · {day.title || '未命名主題'}</span>
-                          <span style={{ fontSize: '0.85em', fontWeight: 'normal', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {dateStr && <span>{dateStr}</span>}
-                            {weather && (
-                              <>
-                                <span style={{ fontSize: '1.2em' }}>{weather.icon}</span>
-                                <span>{weather.min}°-{weather.max}°</span>
-                              </>
-                            )}
-                          </span>
-                        </div>
-                        <ul className="plan-item-list">
-                          {(day.items || []).map((item, idx) => {
-                            const isActive =
-                              activeLocation &&
-                              Number(activeLocation.day) === Number(day.day) &&
-                              Number(activeLocation.order) === idx;
+                      return (
+                        <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
+                          <div className="plan-day-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>第 {day.day} 天 · {day.title || '未命名主題'}</span>
+                            <span style={{ fontSize: '0.85em', fontWeight: 'normal', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {dateStr && <span>{dateStr}</span>}
+                              {weather && (
+                                <>
+                                  <span style={{ fontSize: '1.2em' }}>{weather.icon}</span>
+                                  <span>{weather.min}°-{weather.max}°</span>
+                                </>
+                              )}
+                            </span>
+                          </div>
 
-                            return (
-                              <li
-                                key={idx}
-                                id={`item-${day.day}-${idx}`}
-                                className={'plan-item' + (isActive ? ' plan-item-active' : '')}
-                                onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
+                          {/* 👇 用 Droppable 包住這一天的清單 */}
+                          <Droppable droppableId={`day-${dayIdx}`}>
+                            {(provided, snapshot) => (
+                              <ul 
+                                className="plan-item-list"
+                                {...provided.droppableProps}
+                                ref={provided.innerRef}
+                                style={{
+                                  minHeight: '50px', // 確保即使這天沒行程，也有空間可以拖曳進來
+                                  backgroundColor: snapshot.isDraggingOver ? '#f3f4f6' : 'transparent', // 拖曳經過時有一點背景色提示
+                                  transition: 'background-color 0.2s ease',
+                                  borderRadius: '8px'
+                                }}
                               >
-                                <div className="plan-item-main">
-                                  <strong>{displayTime(item.time)}：</strong>
-                                  {item.name} <span className="plan-item-type">({displayType(item.type)})</span>
-                                  <div className="item-cost-input" onClick={(e) => e.stopPropagation()}>
-                                    $ <input 
-                                      type="number" 
-                                      placeholder="金額"
-                                      value={item.cost || ''} 
-                                      onChange={(e) => updateActivityCost(dayIdx, idx, e.target.value)}
-                                    />
-                                  </div>
-                                </div>
-                                {item.note && <div className="plan-item-note">{item.note}</div>}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    );
-                  })}
+                                {(day.items || []).map((item, idx) => {
+                                  const isActive =
+                                    activeLocation &&
+                                    Number(activeLocation.day) === Number(day.day) &&
+                                    Number(activeLocation.order) === idx;
+
+                                  return (
+                                  
+                                    <Draggable 
+                                      key={`item-${dayIdx}-${idx}-${item.name}`} 
+                                      draggableId={`item-${dayIdx}-${idx}-${item.name}`} 
+                                      index={idx}
+                                    >
+                                      {(provided, snapshot) => (
+                                        <li
+                                          ref={provided.innerRef}
+                                          {...provided.draggableProps}
+                                          {...provided.dragHandleProps} /* 這個讓整個 li 都可以用滑鼠抓取 */
+                                          id={`item-${day.day}-${idx}`}
+                                          className={'plan-item' + (isActive ? ' plan-item-active' : '')}
+                                          onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
+                                          style={{
+                                            ...provided.draggableProps.style,
+                                            boxShadow: snapshot.isDragging ? '0 5px 15px rgba(0,0,0,0.15)' : 'none', // 拖曳時加上陰影
+                                            opacity: snapshot.isDragging ? 0.9 : 1,
+                                            cursor: 'grab' // 提示使用者這個東西可以抓
+                                          }}
+                                        >
+                                          <div className="plan-item-main">
+                                            {/* 時間輸入框 */}
+                                            <input 
+                                              type="time" 
+                                              value={item.time && item.time.includes(':') ? item.time : ''} // 確保只顯示 hh:mm 格式，避免原本的 'morning' 報錯
+                                              onChange={(e) => updateActivityTime(dayIdx, idx, e.target.value)}
+                                              onClick={(e) => e.stopPropagation()} 
+                                              style={{
+                                                marginRight: '8px',
+                                                padding: '2px 4px',
+                                                borderRadius: '4px',
+                                                border: '1px solid #ccc',
+                                                fontSize: '0.9em'
+                                              }}
+                                            />
+                                            <strong>{item.name}</strong> <span className="plan-item-type">({displayType(item.type)})</span>
+                                            <div className="item-cost-input" onClick={(e) => e.stopPropagation()}>
+                                              $ <input 
+                                                type="number" 
+                                                placeholder="金額"
+                                                value={item.cost || ''} 
+                                                onChange={(e) => updateActivityCost(dayIdx, idx, e.target.value)}
+                                              />
+                                            </div>
+                                          </div>
+                                          {item.note && <div className="plan-item-note">{item.note}</div>}
+                                        </li>
+                                      )}
+                                    </Draggable>
+                                  );
+                                })}
+                                {/* 👇 這個 placeholder 是給 dnd 算空間用的，不能省略 */}
+                                {provided.placeholder}
+                              </ul>
+                            )}
+                          </Droppable>
+                        </div>
+                      );
+                    })}
+                  </DragDropContext>
                 </div>
               ) : (
                 <div className="plan-empty-text">
