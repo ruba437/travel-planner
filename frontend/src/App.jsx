@@ -162,6 +162,25 @@ function App() {
 
       // 4. 如果有生成新的行程計畫，則更新畫面
       if (data.plan) {
+        
+        // 👇 新增攔截機制：強制讓 AI 生成的每一天都跑一次我們的時間重算邏輯！
+        if (data.plan.days && Array.isArray(data.plan.days)) {
+          data.plan.days = data.plan.days.map((day) => {
+            let baseTime = '09:00'; // 預設 09:00 出發
+            
+            // 抓取 AI 排定的第一個景點時間，當作這天的「飯店出發時間」
+            if (day.items && day.items.length > 0 && day.items[0].time) {
+              baseTime = day.items[0].time.split('~')[0];
+            }
+            
+            return {
+              ...day,
+              // 將這天的行程丟進瀑布流演算法，自動加上 30 分鐘交通與停留時間！
+              items: recalculateDayTimes(day.items, baseTime)
+            };
+          });
+        }
+
         setPlan(data.plan);
         if (data.plan.totalBudget) {
           setTotalBudget(data.plan.totalBudget);
@@ -332,6 +351,44 @@ function App() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  // 自動重新分配時間
+  const recalculateDayTimes = (items, dayStartTime = '09:00') => {
+    if (!items || items.length === 0) return items;
+
+    // 1. 設定基準時間 (飯店出發時間)
+    let currentStartTime = dayStartTime;
+
+    return items.map((item) => {
+      // 2. 計算這個景點原本的「停留時間 (分鐘)」
+      let durationMinutes = 120; // 預設 2 小時
+      if (item.time && item.time.includes('~')) {
+        const [oldStart, oldEnd] = item.time.split('~');
+        const [sH, sM] = oldStart.split(':').map(Number);
+        const [eH, eM] = oldEnd.split(':').map(Number);
+        if (!isNaN(sH) && !isNaN(eH)) {
+          durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+          if (durationMinutes <= 0) durationMinutes = 120; 
+        }
+      }
+
+      // 3. 🚗 加上 30 分鐘交通時間 (算出抵達景點的時間)
+      const [currH, currM] = currentStartTime.split(':').map(Number);
+      const arrivalDate = new Date();
+      arrivalDate.setHours(currH, currM + 30, 0, 0); 
+      const assignedStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
+
+      // 4. ⏳ 根據停留時間，推算出新的結束時間
+      const [h, m] = assignedStartTime.split(':').map(Number);
+      const endDate = new Date();
+      endDate.setHours(h, m + durationMinutes, 0, 0);
+      const assignedEndTime = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+
+      // 5. 將這次的結束時間，設為下一次出發的基準點
+      currentStartTime = assignedEndTime;
+
+      return { ...item, time: `${assignedStartTime}~${assignedEndTime}` };
+    });
+  };
 
   const onDragEnd = (result) => {
     const { source, destination } = result;
@@ -350,12 +407,25 @@ function App() {
     // 3. 複製目前的行程資料以進行修改
     const newPlan = { ...plan };
     
-    // 從 droppableId 解析出是第幾天 (我們稍後會把 id 設為 'day-0', 'day-1' 等)
     const sourceDayIdx = parseInt(source.droppableId.split('-')[1], 10);
     const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
 
+    
+    const getTrueStartTime = (dayIdx) => {
+      if (plan.days[dayIdx].items.length > 0 && plan.days[dayIdx].items[0].time) {
+        const firstItemStart = plan.days[dayIdx].items[0].time.split('~')[0];
+        const [h, m] = firstItemStart.split(':').map(Number);
+        const d = new Date();
+        d.setHours(h, m - 30, 0, 0); // 往前扣除 30 分鐘交通時間
+        return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+      }
+      return '09:00'; // 預設 09:00 出發
+    };
+
+    const destDayStartTime = getTrueStartTime(destDayIdx);
+    const sourceDayStartTime = getTrueStartTime(sourceDayIdx);
+
     const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
-    // 如果是同一天內拖曳，目標陣列就是來源陣列；如果是跨天，則需要複製目標天的陣列
     const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
 
     // 4. 從原本的天數中移除被拖曳的景點
@@ -364,12 +434,12 @@ function App() {
     // 5. 將該景點插入到新的天數和指定位置
     destItems.splice(destination.index, 0, movedItem);
 
-    // 6. 將更新後的陣列放回 newPlan
+    // 6. 將更新後的陣列放回 newPlan，並把剛剛記下來的出發時間傳進去 ⚡
     if (sourceDayIdx === destDayIdx) {
-      newPlan.days[sourceDayIdx].items = sourceItems;
+      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, destDayStartTime);
     } else {
-      newPlan.days[sourceDayIdx].items = sourceItems;
-      newPlan.days[destDayIdx].items = destItems;
+      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, sourceDayStartTime);
+      newPlan.days[destDayIdx].items = recalculateDayTimes(destItems, destDayStartTime);
     }
 
     // 7. 更新 React 狀態，畫面就會重新渲染
@@ -601,19 +671,32 @@ function App() {
                                         >
                                           <div className="plan-item-main">
                                             {/* 時間輸入框 */}
-                                            <input 
-                                              type="time" 
-                                              value={item.time && item.time.includes(':') ? item.time : ''} // 確保只顯示 hh:mm 格式，避免原本的 'morning' 報錯
-                                              onChange={(e) => updateActivityTime(dayIdx, idx, e.target.value)}
+                                            <div 
+                                              className="plan-item-time-range" 
+                                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginRight: '8px' }}
                                               onClick={(e) => e.stopPropagation()} 
-                                              style={{
-                                                marginRight: '8px',
-                                                padding: '2px 4px',
-                                                borderRadius: '4px',
-                                                border: '1px solid #ccc',
-                                                fontSize: '0.9em'
-                                              }}
-                                            />
+                                            >
+                                              <input 
+                                                type="time" 
+                                                value={item.time && item.time.includes('~') ? item.time.split('~')[0] : (item.time || '')} 
+                                                onChange={(e) => {
+                                                  const endTime = item.time && item.time.includes('~') ? item.time.split('~')[1] : '';
+                                                  updateActivityTime(dayIdx, idx, `${e.target.value}~${endTime}`);
+                                                }}
+                                                style={{ padding: '2px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9em' }}
+                                              />
+                                              <span>~</span>
+                                              <input 
+                                                type="time" 
+                                                value={item.time && item.time.includes('~') ? item.time.split('~')[1] : ''} 
+                                                onChange={(e) => {
+                                                  const startTime = item.time && item.time.includes('~') ? item.time.split('~')[0] : (item.time || '');
+                                                  updateActivityTime(dayIdx, idx, `${startTime}~${e.target.value}`);
+                                                }}
+                                                style={{ padding: '2px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9em' }}
+                                              />
+                                            </div>
+                                            
                                             <strong>{item.name}</strong> <span className="plan-item-type">({displayType(item.type)})</span>
                                             <div className="item-cost-input" onClick={(e) => e.stopPropagation()}>
                                               $ <input 
