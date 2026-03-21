@@ -266,21 +266,84 @@ function App() {
 };
 
   // 更新行程的時間
+  
   const updateActivityTime = (dayIdx, itemIdx, newTime) => {
     if (!plan) return;
-    
-    // 進行深拷貝
+
+    // 深拷貝，確保 React 狀態能正確更新
     const newPlan = { ...plan };
     newPlan.days = [...plan.days];
     newPlan.days[dayIdx] = { ...plan.days[dayIdx] };
-    newPlan.days[dayIdx].items = [...plan.days[dayIdx].items];
+    const newItems = [...plan.days[dayIdx].items];
+
+    // 取得修改前的舊時間
+    const oldTime = newItems[itemIdx].time || '';
+    let [oldStart, oldEnd] = oldTime.includes('~') ? oldTime.split('~') : [oldTime, ''];
+    let [newStart, newEnd] = newTime.includes('~') ? newTime.split('~') : [newTime, ''];
+
+    // 1. 計算這個景點原本的「停留時間 (分鐘)」
+    let durationMinutes = 120; // 預設 2 小時
+    if (oldStart && oldEnd && oldStart.includes(':') && oldEnd.includes(':')) {
+      const [sH, sM] = oldStart.split(':').map(Number);
+      const [eH, eM] = oldEnd.split(':').map(Number);
+      durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+      if (durationMinutes <= 0) durationMinutes = 120;
+    }
+
     
-    // 更新時間 (如果沒輸入就保持原本的或留白)
-    newPlan.days[dayIdx].items[itemIdx] = { 
-      ...plan.days[dayIdx].items[itemIdx], 
-      time: newTime || '' 
+    if (newStart !== oldStart && newEnd === oldEnd && newStart.includes(':')) {
+      const [sH, sM] = newStart.split(':').map(Number);
+      const endDate = new Date();
+      endDate.setHours(sH, sM + durationMinutes, 0, 0);
+      newEnd = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+      newTime = `${newStart}~${newEnd}`;
+    }
+
+    // 2. 更新使用者正在修改的這個景點
+    newItems[itemIdx] = {
+      ...newItems[itemIdx],
+      time: newTime
     };
+
+    // 3. 瀑布流更新：從這個景點「之後」的所有行程，自動往後推算
+    let currentEndTime = newEnd;
     
+    if (currentEndTime && currentEndTime.includes(':')) {
+      for (let i = itemIdx + 1; i < newItems.length; i++) {
+        let nextItem = { ...newItems[i] };
+
+        // a. 抓取下一個景點原本的停留時間
+        let nextDuration = 120;
+        if (nextItem.time && nextItem.time.includes('~')) {
+          const [ns, ne] = nextItem.time.split('~');
+          if (ns.includes(':') && ne.includes(':')) {
+            const [sH, sM] = ns.split(':').map(Number);
+            const [eH, eM] = ne.split(':').map(Number);
+            nextDuration = (eH * 60 + eM) - (sH * 60 + sM);
+            if (nextDuration <= 0) nextDuration = 120;
+          }
+        }
+
+        // b. 加上 30 分鐘交通時間
+        const [currH, currM] = currentEndTime.split(':').map(Number);
+        const startDate = new Date();
+        startDate.setHours(currH, currM + 30, 0, 0);
+        const newStartStr = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
+
+        // c. 加上停留時間，算出新的「結束時間」
+        const endDate = new Date(startDate);
+        endDate.setMinutes(endDate.getMinutes() + nextDuration);
+        const newEndStr = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+
+        // d. 更新這個景點，並把結束時間傳給下一次迴圈
+        nextItem.time = `${newStartStr}~${newEndStr}`;
+        newItems[i] = nextItem;
+        currentEndTime = newEndStr; 
+      }
+    }
+
+    // 4. 將計算完的完美陣列寫回 React 狀態
+    newPlan.days[dayIdx].items = newItems;
     setPlan(newPlan);
   };
 
