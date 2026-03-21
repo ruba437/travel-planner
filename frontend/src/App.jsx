@@ -265,6 +265,48 @@ function App() {
   setPlan(newPlan);
 };
 
+
+  // 處理從地圖手動加入景點的邏輯
+  const handleAddLocationFromMap = (locationData) => {
+    // 檢查：1. 有沒有行程；2. 確保 locationData 裡面有 targetDayIndex 參數
+    if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
+      alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
+      return;
+    }
+
+    const targetDayIdx = locationData.targetDayIndex;
+
+    // 深拷貝，確保 React 狀態能正確更新
+    const newPlan = { ...plan };
+    newPlan.days = [...plan.days];
+    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx] };
+
+    const dayItems = [...(plan.days[targetDayIdx].items || [])];
+
+    // 建立新的景點物件
+    const newItem = {
+      name: locationData.name,
+      type: locationData.type || 'sight',
+      time: '', // 稍後會被重新計算
+      cost: 0,
+      note: `手動從地圖加入 (第 ${targetDayIdx + 1} 天)`,
+      location: { lat: locationData.lat, lng: locationData.lng }
+    };
+
+    dayItems.push(newItem);
+
+    // 將更新後的陣列重新計算時間！
+    // 取得這天原本的飯店出發時間 
+    const baseTime = getTrueStartTime(targetDayIdx); 
+
+    newPlan.days[targetDayIdx].items = recalculateDayTimes(dayItems, baseTime);
+
+    setPlan(newPlan);
+
+    // 讓畫面自動捲動到新增的景點 (第 ${targetDayIdx + 1} 天)
+    setActiveLocation({ day: targetDayIdx + 1, order: dayItems.length - 1 });
+  };
+
   // 更新行程的時間
   
   const updateActivityTime = (dayIdx, itemIdx, newTime) => {
@@ -414,6 +456,17 @@ function App() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const getTrueStartTime = (dayIdx) => {
+    if (plan && plan.days && plan.days[dayIdx] && plan.days[dayIdx].items.length > 0 && plan.days[dayIdx].items[0].time) {
+      const firstItemStart = plan.days[dayIdx].items[0].time.split('~')[0];
+      const [h, m] = firstItemStart.split(':').map(Number);
+      const d = new Date();
+      d.setHours(h, m - 30, 0, 0); // 往前扣除 30 分鐘交通時間
+      return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    }
+    return '09:00'; // 預設 09:00 出發
+  };
+
   // 自動重新分配時間
   const recalculateDayTimes = (items, dayStartTime = '09:00') => {
     if (!items || items.length === 0) return items;
@@ -474,16 +527,7 @@ function App() {
     const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
 
     
-    const getTrueStartTime = (dayIdx) => {
-      if (plan.days[dayIdx].items.length > 0 && plan.days[dayIdx].items[0].time) {
-        const firstItemStart = plan.days[dayIdx].items[0].time.split('~')[0];
-        const [h, m] = firstItemStart.split(':').map(Number);
-        const d = new Date();
-        d.setHours(h, m - 30, 0, 0); // 往前扣除 30 分鐘交通時間
-        return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-      }
-      return '09:00'; // 預設 09:00 出發
-    };
+    
 
     const destDayStartTime = getTrueStartTime(destDayIdx);
     const sourceDayStartTime = getTrueStartTime(sourceDayIdx);
@@ -624,6 +668,7 @@ function App() {
                 activeLocation={activeLocation}        
                 onLocationChange={setActiveLocation}
                 onDayChange={handleDayChange}
+                onAddLocation={handleAddLocationFromMap}
               />
             </div>
 

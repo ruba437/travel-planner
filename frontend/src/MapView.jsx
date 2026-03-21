@@ -72,11 +72,12 @@ const translateType = (type) => {
   }
 };
 
-function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
+function MapView({ plan, activeLocation, onLocationChange, onDayChange, onAddLocation }) {
   const { token } = useAuth();
   const [markers, setMarkers] = useState([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
+  const [showDaySelection, setShowDaySelection] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const showAll = selectedDay === null;
   const [mapRef, setMapRef] = useState(null);
@@ -125,6 +126,10 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
       setSelectedMarker(null);
     }
   };
+
+  useEffect(() => {
+    setShowDaySelection(false); 
+  }, [selectedMarker]);
 
   useEffect(() => {
     if (!selectedMarker || !selectedMarker.placeId) {
@@ -622,6 +627,85 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange }) {
                   <div style={{color: '#6b7280', marginBottom: '4px'}}>{selectedMarker.address}</div>
                   
                   <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedMarker.name)}`} target="_blank" rel="noreferrer" style={{color: '#2563eb', textDecoration: 'none', display: 'block', marginBottom: '8px'}}>在 Google Maps 中開啟 →</a>
+
+                  {/* 判斷是不是地圖上隨便點擊的景點 (isPoi)，如果是，就顯示加入按鈕 */}
+                  {selectedMarker.isPoi && (
+                    <div style={{ marginBottom: '8px' }}>
+                      {/* 如果還沒點擊「加入」，顯示加入按鈕 */}
+                      {!showDaySelection && (
+                        <button 
+                          onClick={() => setShowDaySelection(true)}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            backgroundColor: '#10b981',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          ➕ 加入行程
+                        </button>
+                      )}
+
+                      {/* 點擊「加入」後，顯示具體的天數選項 */}
+                      {showDaySelection && (
+                        <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '8px', backgroundColor: '#f9fafb' }}>
+                          <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', fontWeight: 'bold', color: '#374151' }}>請選擇要加入第幾天：</p>
+                          
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {plan?.days?.map((day, index) => (
+                              <button 
+                                key={day.day}
+                                onClick={() => {
+                                  onAddLocation?.({
+                                    name: selectedMarker.name,
+                                    address: selectedMarker.address,
+                                    type: selectedMarker.type || 'sight',
+                                    lat: selectedMarker.lat,
+                                    lng: selectedMarker.lng,
+                                    targetDayIndex: index // 傳回使用者選擇的日期索引
+                                  });
+                                  setSelectedMarker(null); // 加完後關閉視窗
+                                }}
+                                style={{
+                                  padding: '4px 8px',
+                                  backgroundColor: '#fff',
+                                  color: '#374151',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.85em'
+                                }}
+                              >
+                                第 {day.day} 天
+                              </button>
+                            ))}
+                          </div>
+                          
+                          <button 
+                            onClick={() => setShowDaySelection(false)} 
+                            style={{
+                              width: '100%',
+                              marginTop: '8px',
+                              padding: '4px',
+                              backgroundColor: 'transparent',
+                              color: '#6b7280',
+                              border: 'none',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                              fontSize: '0.8em'
+                            }}
+                          >
+                            取消
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
 
                   <div style={{ borderTop: '1px solid #eee', paddingTop: '8px', maxHeight: '150px', overflowY: 'auto' }}>
                     {loadingDetails ? (
