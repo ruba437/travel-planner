@@ -17,6 +17,7 @@ CREATE TABLE public.itineraries (
   CONSTRAINT itineraries_userid_fkey FOREIGN KEY (userid) REFERENCES public.users(id)
 );
 
+-- oath 沒有實裝
 CREATE TABLE public.oauth_tokens (
   id integer NOT NULL DEFAULT nextval('oauth_tokens_id_seq'::regclass),
   oauthaccountid integer NOT NULL,
@@ -36,6 +37,7 @@ CREATE TABLE public.user_oauth_accounts (
   CONSTRAINT user_oauth_accounts_pkey PRIMARY KEY (id),
   CONSTRAINT user_oauth_accounts_userid_fkey FOREIGN KEY (userid) REFERENCES public.users(id)
 );
+--
 
 CREATE TABLE public.users (
   id integer NOT NULL DEFAULT nextval('users_id_seq'::regclass),
@@ -96,3 +98,66 @@ CREATE UNIQUE INDEX travel_guides_slug_uidx
 CREATE UNIQUE INDEX travel_guides_guide_code_uidx
   ON public.travel_guides (guide_code)
   WHERE guide_code IS NOT NULL;
+
+
+
+-- ============================================================
+-- Aizzie-style City Guide — schema additions
+-- ============================================================
+
+-- 1. City meta  (hero image, description, coords)
+CREATE TABLE IF NOT EXISTS public.cities (
+  id          integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  city        character varying NOT NULL,
+  country     character varying,
+  description text,
+  cover_image text,
+  latitude    numeric(10, 6),
+  longitude   numeric(10, 6),
+  is_active   boolean DEFAULT true,
+  createdat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updatedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cities_city_country_uidx
+  ON public.cities (lower(city), lower(country));
+
+-- 2. Generic point-of-interest table (covers all card sections)
+--    category: 'place' | 'hotel' | 'restaurant' | 'activity' | 'transport'
+CREATE TABLE IF NOT EXISTS public.city_pois (
+  id           integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  city_id      integer NOT NULL REFERENCES public.cities(id) ON DELETE CASCADE,
+  category     character varying NOT NULL
+                 CHECK (category IN ('place','hotel','restaurant','activity','transport')),
+  name         character varying NOT NULL,
+  description  text,
+  cover_image  text,
+  star_rating  integer CHECK (star_rating BETWEEN 1 AND 5),
+  book_url     text,
+  sort_order   integer DEFAULT 0,
+  is_active    boolean DEFAULT true,
+  createdat    timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updatedat    timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS city_pois_city_category_idx
+  ON public.city_pois (city_id, category, sort_order);
+
+
+
+--- 還沒用
+-- 3. Saved / favourited items per user  (heart button)
+CREATE TABLE IF NOT EXISTS public.user_saved_pois (
+  id        integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  userid    integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  poi_id    integer NOT NULL REFERENCES public.city_pois(id) ON DELETE CASCADE,
+  savedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (userid, poi_id)
+);
+
+-- 4. User saved cities (destination wishlist)
+CREATE TABLE IF NOT EXISTS public.user_saved_cities (
+  id        integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  userid    integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  city_id   integer NOT NULL REFERENCES public.cities(id) ON DELETE CASCADE,
+  savedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (userid, city_id)
+);

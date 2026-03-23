@@ -4,6 +4,7 @@ const router = express.Router();
 const OpenAI = require('openai');
 const axios = require('axios');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const pool = require('../db');
 
 // 所有 API 啟動前查看auth是否通過
@@ -21,6 +22,317 @@ router.get('/places/photo', async (req, res) => {
     res.set('Content-Type', response.headers['content-type']);
     res.send(response.data);
   } catch (err) { res.status(500).send('Failed'); }
+});
+
+
+/// need check 
+// ─── helpers ────────────────────────────────────────────────
+const ok = (res, data) => res.json({ success: true, data });
+const err = (res, msg, code = 500) => res.status(code).json({ success: false, message: msg });
+
+// ─── middleware: optional auth ───────────────────────────────
+// Attach req.userId if a valid Bearer JWT exists; otherwise keep null.
+const optionalAuth = (req, _res, next) => {
+  req.userId = null;
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return next();
+
+  try {
+    const token = header.slice(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.userId = Number(decoded?.id) || null;
+  } catch (_e) {
+    req.userId = null;
+  }
+
+  next();
+};
+
+// ════════════════════════════════════════════════════════════
+//  CITIES
+// ════════════════════════════════════════════════════════════
+
+// GET /api/cities            — list all active cities
+router.get('/cities', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, city, country, description, cover_image, latitude, longitude
+       FROM public.cities
+       WHERE is_active = true
+       ORDER BY city ASC`
+    );
+    ok(res, rows);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch cities');
+  }
+});
+
+// GET /api/cities/:city      — single city details
+router.get('/cities/:city', optionalAuth, async (req, res) => {
+  try {
+    const { city } = req.params;
+    const { rows } = await pool.query(
+      `SELECT id, city, country, description, cover_image, latitude, longitude
+       FROM public.cities
+       WHERE lower(city) = lower($1) AND is_active = true
+       LIMIT 1`,
+      [city]
+    );
+    if (!rows.length) return err(res, 'City not found', 404);
+    ok(res, rows[0]);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch city');
+  }
+});
+
+// POST /api/cities           — create a city  (admin)
+router.post('/cities', async (req, res) => {
+  try {
+    const { city, country, description, cover_image, latitude, longitude } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO public.cities (city, country, description, cover_image, latitude, longitude)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      [city, country, description, cover_image, latitude, longitude]
+    );
+    ok(res, rows[0]);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to create city');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  CITY POIs  (places / hotels / restaurants / activities / transport)
+// ════════════════════════════════════════════════════════════
+
+// GET /api/cities/:city/pois?category=hotel&limit=10
+router.get('/cities/:city/pois', optionalAuth, async (req, res) => {
+  try {
+    const { city } = req.params;
+    const { category, limit = 20 } = req.query;
+
+    // resolve city → id
+    const cityRow = await pool.query(
+      `SELECT id FROM public.cities WHERE lower(city) = lower($1) AND is_active = true LIMIT 1`,
+      [city]
+    );
+    if (!cityRow.rows.length) return err(res, 'City not found', 404);
+    const cityId = cityRow.rows[0].id;
+
+    const params = [cityId];
+    let catClause = '';
+    if (category) {
+      params.push(category);
+      catClause = `AND p.category = $${params.length}`;
+    }
+
+    // if user is logged in, LEFT JOIN to get saved status
+    const savedJoin = req.userId
+      ? `LEFT JOIN public.user_saved_pois sp ON sp.poi_id = p.id AND sp.userid = ${Number(req.userId)}`
+      : '';
+    const savedCol = req.userId ? ', (sp.id IS NOT NULL) AS is_saved' : ', false AS is_saved';
+
+    const { rows } = await pool.query(
+      `SELECT p.id, p.category, p.name, p.description, p.cover_image,
+              p.star_rating, p.book_url, p.sort_order
+              ${savedCol}
+       FROM   public.city_pois p
+       ${savedJoin}
+       WHERE  p.city_id = $1 ${catClause} AND p.is_active = true
+       ORDER  BY p.sort_order ASC, p.id ASC
+       LIMIT  $${params.length + 1}`,
+      [...params, Number(limit)]
+    );
+    ok(res, rows);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch POIs');
+  }
+});
+
+// GET /api/cities/:city/guide  — full city guide (all categories in one call)
+router.get('/cities/:city/guide', optionalAuth, async (req, res) => {
+  try {
+    const { city } = req.params;
+
+    const cityRow = await pool.query(
+      `SELECT * FROM public.cities WHERE lower(city) = lower($1) AND is_active = true LIMIT 1`,
+      [city]
+    );
+    if (!cityRow.rows.length) return err(res, 'City not found', 404);
+    const cityData = cityRow.rows[0];
+
+    const savedJoin = req.userId
+      ? `LEFT JOIN public.user_saved_pois sp ON sp.poi_id = p.id AND sp.userid = ${Number(req.userId)}`
+      : '';
+    const savedCol = req.userId ? ', (sp.id IS NOT NULL) AS is_saved' : ', false AS is_saved';
+
+    const { rows: pois } = await pool.query(
+      `SELECT p.id, p.category, p.name, p.description, p.cover_image,
+              p.star_rating, p.book_url, p.sort_order ${savedCol}
+       FROM   public.city_pois p ${savedJoin}
+       WHERE  p.city_id = $1 AND p.is_active = true
+       ORDER  BY p.sort_order ASC`,
+      [cityData.id]
+    );
+
+    // group by category
+    const grouped = pois.reduce((acc, poi) => {
+      acc[poi.category] = acc[poi.category] || [];
+      acc[poi.category].push(poi);
+      return acc;
+    }, {});
+
+    ok(res, {
+      city: cityData,
+      places: grouped.place || [],
+      hotels: grouped.hotel || [],
+      restaurants: grouped.restaurant || [],
+      activities: grouped.activity || [],
+      transport: grouped.transport || [],
+    });
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch city guide');
+  }
+});
+
+// POST /api/pois             — add a POI (admin)
+router.post('/pois', async (req, res) => {
+  try {
+    const { city_id, category, name, description, cover_image, star_rating, book_url, sort_order } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO public.city_pois
+         (city_id, category, name, description, cover_image, star_rating, book_url, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [city_id, category, name, description, cover_image, star_rating ?? null, book_url ?? null, sort_order ?? 0]
+    );
+    ok(res, rows[0]);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to create POI');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  SAVED / FAVOURITES  (heart button)
+// ════════════════════════════════════════════════════════════
+
+// POST /api/pois/:id/save   — toggle save
+router.post('/pois/:id/save', optionalAuth, async (req, res) => {
+  if (!req.userId) return err(res, 'Unauthorised', 401);
+  try {
+    const poiId = Number(req.params.id);
+    const existing = await pool.query(
+      `SELECT id FROM public.user_saved_pois WHERE userid = $1 AND poi_id = $2`,
+      [req.userId, poiId]
+    );
+    if (existing.rows.length) {
+      await pool.query(`DELETE FROM public.user_saved_pois WHERE userid = $1 AND poi_id = $2`, [req.userId, poiId]);
+      ok(res, { saved: false });
+    } else {
+      await pool.query(`INSERT INTO public.user_saved_pois (userid, poi_id) VALUES ($1,$2)`, [req.userId, poiId]);
+      ok(res, { saved: true });
+    }
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to toggle save');
+  }
+});
+
+// GET /api/users/:userId/saved  — list user's saved POIs
+router.get('/users/:userId/saved', optionalAuth, async (req, res) => {
+  if (!req.userId || req.userId !== Number(req.params.userId)) return err(res, 'Unauthorised', 401);
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.category, p.name, p.cover_image, p.book_url, c.city, c.country
+       FROM   public.user_saved_pois sp
+       JOIN   public.city_pois p  ON p.id = sp.poi_id
+       JOIN   public.cities    c  ON c.id = p.city_id
+       WHERE  sp.userid = $1
+       ORDER  BY sp.savedat DESC`,
+      [req.userId]
+    );
+    ok(res, rows);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch saved items');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  TRENDING DESTINATIONS  (existing table — extra endpoints)
+// ════════════════════════════════════════════════════════════
+
+// GET /api/trending          — top destinations
+router.get('/trending', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 12, 50);
+    const { rows } = await pool.query(
+      `SELECT id, city, country, trip_count, score, cover_image
+       FROM   public.trending_destinations
+       WHERE  is_active = true
+       ORDER  BY score DESC, trip_count DESC
+       LIMIT  $1`,
+      [limit]
+    );
+    ok(res, rows);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch trending destinations');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  TRAVEL GUIDES  (existing table — extra endpoints)
+// ════════════════════════════════════════════════════════════
+
+// GET /api/guides?city=Tokyo&limit=10
+router.get('/guides', async (req, res) => {
+  try {
+    const { city, limit = 10 } = req.query;
+    const params = [];
+    let where = `WHERE is_published = true`;
+    if (city) {
+      params.push(city);
+      where += ` AND lower(city) = lower($${params.length})`;
+    }
+    params.push(Number(limit));
+    const { rows } = await pool.query(
+      `SELECT id, city, country, title, summary, cover_image, author_name,
+              slug, trip_days, trip_nights, tags, view_count, publishedat
+       FROM   public.travel_guides
+       ${where}
+       ORDER  BY publishedat DESC NULLS LAST
+       LIMIT  $${params.length}`,
+      params
+    );
+    ok(res, rows);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch guides');
+  }
+});
+
+// GET /api/guides/:slug
+router.get('/guides/:slug', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM public.travel_guides WHERE slug = $1 AND is_published = true LIMIT 1`,
+      [req.params.slug]
+    );
+    if (!rows.length) return err(res, 'Guide not found', 404);
+    // bump view count (fire-and-forget)
+    pool.query(`UPDATE public.travel_guides SET view_count = view_count + 1 WHERE id = $1`, [rows[0].id]);
+    ok(res, rows[0]);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch guide');
+  }
 });
 
 //////////// need edit 
@@ -317,10 +629,10 @@ router.get('/home/content', async (req, res) => {
     let destinations = [];
     try {
       const { rows } = await pool.query(
-        `SELECT city, country, trip_count, cover_image
-         FROM trending_destinations
+        `SELECT city, cover_image
+         FROM cities
          WHERE is_active = true
-         ORDER BY score DESC, trip_count DESC, updatedat DESC
+         ORDER BY score DESC, updatedat DESC
          LIMIT $1`,
         [destinationLimit]
       );

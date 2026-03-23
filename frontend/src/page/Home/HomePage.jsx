@@ -302,7 +302,10 @@ export default function HomePage() {
                   <div
                     key={i}
                     className="az-dest-card"
-                    onClick={() => navigate(token ? '/planner' : '/login')}
+                    onClick={() => {
+                      const citySlug = encodeURIComponent((item.city || '').trim().replace(/\s+/g, '-'));
+                      if (citySlug) navigate(`/city/${citySlug}/guide`);
+                    }}
                   >
                     <img
                       src={getImg(item.city)}

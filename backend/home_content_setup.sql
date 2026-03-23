@@ -101,3 +101,74 @@ WHERE NOT EXISTS (SELECT 1 FROM public.travel_guides);
 --     ('日本大阪', CURRENT_DATE + 20, CURRENT_DATE + 24, '希望一起分擔交通與住宿，白天景點晚上居酒屋。', '旅人 B', 'open')
 -- ) AS seed(city, start_date, end_date, note, display_name, status)
 -- WHERE NOT EXISTS (SELECT 1 FROM public.travel_buddy_posts);
+
+
+-- ============================================================
+-- Aizzie-style City Guide — schema additions
+-- ============================================================
+
+-- 1. City meta  (hero image, description, coords)
+CREATE TABLE IF NOT EXISTS public.cities (
+  id          integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  city        character varying NOT NULL,
+  country     character varying,
+  description text,
+  cover_image text,
+  latitude    numeric(10, 6),
+  longitude   numeric(10, 6),
+  is_active   boolean DEFAULT true,
+  createdat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updatedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cities_city_country_uidx
+  ON public.cities (lower(city), lower(country));
+
+-- 2. Generic point-of-interest table (covers all card sections)
+--    category: 'place' | 'hotel' | 'restaurant' | 'activity' | 'transport'
+CREATE TABLE IF NOT EXISTS public.city_pois (
+  id           integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  city_id      integer NOT NULL REFERENCES public.cities(id) ON DELETE CASCADE,
+  category     character varying NOT NULL
+                 CHECK (category IN ('place','hotel','restaurant','activity','transport')),
+  name         character varying NOT NULL,
+  description  text,
+  cover_image  text,
+  star_rating  integer CHECK (star_rating BETWEEN 1 AND 5),
+  book_url     text,
+  sort_order   integer DEFAULT 0,
+  is_active    boolean DEFAULT true,
+  createdat    timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updatedat    timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS city_pois_city_category_idx
+  ON public.city_pois (city_id, category, sort_order);
+
+-- 3. Saved / favourited items per user  (heart button)
+CREATE TABLE IF NOT EXISTS public.user_saved_pois (
+  id        integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  userid    integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  poi_id    integer NOT NULL REFERENCES public.city_pois(id) ON DELETE CASCADE,
+  savedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (userid, poi_id)
+);
+
+-- 4. User saved cities (destination wishlist)
+CREATE TABLE IF NOT EXISTS public.user_saved_cities (
+  id        integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  userid    integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  city_id   integer NOT NULL REFERENCES public.cities(id) ON DELETE CASCADE,
+  savedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (userid, city_id)
+);
+
+-- ============================================================
+-- Sample seed data — Tokyo
+-- ============================================================
+INSERT INTO public.cities (city, country, description, cover_image, latitude, longitude)
+VALUES (
+  'Tokyo', 'Japan',
+  'A vast, organized metropolis that rewards exploration. Tokyo is famous for its seamless mix of hyper-modern districts and quiet, historic shrines. It offers an incredible range of experiences, from the organized chaos of Shibuya to the artisan coffee shops and craft boutiques of its quieter neighborhoods. It''s a city that values both cutting-edge innovation and deep-rooted tradition.',
+  'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1600&auto=format',
+  35.6762, 139.6503
+)
+ON CONFLICT DO NOTHING;
