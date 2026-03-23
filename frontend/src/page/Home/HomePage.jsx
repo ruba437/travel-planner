@@ -77,6 +77,14 @@ export default function HomePage() {
   const [deletingId, setDeletingId] = useState(null);
   const [openMenu, setOpenMenu] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [plannerModalOpen, setPlannerModalOpen] = useState(false);
+  const [plannerMode, setPlannerMode] = useState('manual');
+  const [plannerForm, setPlannerForm] = useState({
+    startLocation: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [plannerFormError, setPlannerFormError] = useState('');
 
   useEffect(() => { fetchHomeContent(); }, []);
   useEffect(() => {
@@ -143,6 +151,55 @@ export default function HomePage() {
   };
 
   const currentPath = location?.pathname || '/';
+
+  const openPlannerModal = (mode) => {
+    setPlannerMode(mode);
+    setPlannerFormError('');
+    setPlannerModalOpen(true);
+  };
+
+  const closePlannerModal = () => {
+    setPlannerModalOpen(false);
+    setPlannerFormError('');
+  };
+
+  const handlePlannerFormChange = (e) => {
+    const { name, value } = e.target;
+    setPlannerForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handlePlannerSubmit = (e) => {
+    e.preventDefault();
+
+    const startLocation = plannerForm.startLocation.trim();
+    const { startDate, endDate } = plannerForm;
+
+    if (!startLocation || !startDate || !endDate) {
+      setPlannerFormError('請完整輸入起點與旅遊區間。');
+      return;
+    }
+
+    if (endDate < startDate) {
+      setPlannerFormError('旅遊結束日期不可早於出發日期。');
+      return;
+    }
+
+    const prompt = `請幫我規劃旅程，起點是${startLocation}，旅遊日期從${startDate}到${endDate}。`;
+
+    navigate('/planner', {
+      state: {
+        prefill: {
+          mode: plannerMode,
+          startLocation,
+          startDate,
+          endDate,
+          prompt,
+          autoSend: plannerMode === 'ai',
+        },
+      },
+    });
+    closePlannerModal();
+  };
 
   return (
     <div className="az-root" onClick={() => setOpenMenu(null)}>
@@ -229,8 +286,10 @@ export default function HomePage() {
               <div className="az-section-head">
                 <h2 className="az-h2">我的行程</h2>
                 <div className="az-head-actions">
-                  <button className="az-btn az-btn--outline" onClick={() => navigate('/planner')}>自己規劃</button>
-                  <button className="az-btn az-btn--ai" onClick={() => navigate('/planner')}>
+                  <button className="az-btn az-btn--outline" onClick={() => openPlannerModal('manual')}>自己規劃</button>
+
+                  
+                  <button className="az-btn az-btn--ai" onClick={() => openPlannerModal('ai')}>
                     <SparkleIcon /> AI 智慧規劃
                   </button>
                 </div>
@@ -244,7 +303,7 @@ export default function HomePage() {
                 <div className="az-empty">
                   <div className="az-empty-emoji">🗺️</div>
                   <p>還沒有任何行程</p>
-                  <button className="az-btn az-btn--ai" onClick={() => navigate('/planner')}>
+                  <button className="az-btn az-btn--ai" onClick={() => openPlannerModal('ai')}>
                     <SparkleIcon /> 開始規劃第一趟旅程
                   </button>
                 </div>
@@ -404,6 +463,61 @@ export default function HomePage() {
           )}
         </div>
       </div>
+
+      {plannerModalOpen && (
+        <div className="az-modal-overlay" onClick={closePlannerModal}>
+          <div className="az-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{plannerMode === 'ai' ? 'AI 智慧規劃' : '建立新行程'}</h3>
+            <p className="az-modal-desc">進入規劃前，請先輸入起點與旅遊區間。</p>
+
+            <form onSubmit={handlePlannerSubmit} className="az-modal-form">
+              <label className="az-modal-label" htmlFor="planner-start-location">起點</label>
+              <input
+                id="planner-start-location"
+                name="startLocation"
+                type="text"
+                className="az-modal-input"
+                placeholder="例如：台北車站、桃園機場"
+                value={plannerForm.startLocation}
+                onChange={handlePlannerFormChange}
+                autoFocus
+              />
+
+              <div className="az-modal-dates">
+                <div>
+                  <label className="az-modal-label" htmlFor="planner-start-date">出發日期</label>
+                  <input
+                    id="planner-start-date"
+                    name="startDate"
+                    type="date"
+                    className="az-modal-input"
+                    value={plannerForm.startDate}
+                    onChange={handlePlannerFormChange}
+                  />
+                </div>
+                <div>
+                  <label className="az-modal-label" htmlFor="planner-end-date">結束日期</label>
+                  <input
+                    id="planner-end-date"
+                    name="endDate"
+                    type="date"
+                    className="az-modal-input"
+                    value={plannerForm.endDate}
+                    onChange={handlePlannerFormChange}
+                  />
+                </div>
+              </div>
+
+              {plannerFormError && <div className="az-modal-error">{plannerFormError}</div>}
+
+              <div className="az-modal-actions">
+                <button type="button" className="az-btn az-btn--outline" onClick={closePlannerModal}>取消</button>
+                <button type="submit" className="az-btn az-btn--ai">開始規劃</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

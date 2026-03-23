@@ -332,6 +332,92 @@
   background: #ea6c0a;
 }
 
+/* ===== PLANNER MODAL ===== */
+.az-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(2px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.az-modal {
+  width: min(520px, 100%);
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  padding: 20px 20px 18px;
+}
+
+.az-modal h3 {
+  font-size: 20px;
+  color: #111827;
+  margin-bottom: 6px;
+}
+
+.az-modal-desc {
+  font-size: 13.5px;
+  color: #6b7280;
+  margin-bottom: 16px;
+}
+
+.az-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.az-modal-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.az-modal-input {
+  width: 100%;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+
+.az-modal-input:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+
+.az-modal-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.az-modal-error {
+  font-size: 12.5px;
+  color: #dc2626;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.az-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 /* ===== TRIP CARDS ===== */
 .az-trip-grid {
   display: grid;
@@ -685,5 +771,22 @@
 
   .az-trip-grid {
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+
+  .az-modal {
+    padding: 16px;
+  }
+
+  .az-modal-dates {
+    grid-template-columns: 1fr;
+  }
+
+  .az-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .az-modal-actions .az-btn {
+    width: 100%;
+    justify-content: center;
   }
 }

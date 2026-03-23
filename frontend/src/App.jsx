@@ -1,31 +1,52 @@
-// frontend/src/App.jsx
-import { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 import MapView from './MapView';
 import { useAuth } from './page/Authentication/AuthContext';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
-//設定安全預設網址
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 const getWeatherIcon = (code) => {
   if (code === undefined || code === null) return null;
-  if (code <= 1) return '☀️'; 
-  if (code <= 3) return '⛅'; 
-  if (code <= 48) return '🌫️'; 
-  if (code <= 67) return '🌧️'; 
-  if (code <= 77) return '❄️'; 
-  if (code <= 82) return '🌧️'; 
-  if (code <= 86) return '❄️'; 
-  if (code <= 99) return '⛈️'; 
+  if (code <= 1) return '☀️';
+  if (code <= 3) return '⛅';
+  if (code <= 48) return '🌫️';
+  if (code <= 67) return '🌧️';
+  if (code <= 77) return '❄️';
+  if (code <= 82) return '🌧️';
+  if (code <= 86) return '❄️';
+  if (code <= 99) return '⛈️';
   return '🌡️';
 };
+
+const TYPE_ICON = {
+  sight: '🗺️',
+  food: '🍜',
+  shopping: '🛍️',
+  activity: '🎯',
+  hotel: '🏨',
+  transport: '🚌',
+};
+
+const TYPE_COLOR = {
+  sight: '#0ea5e9',
+  food: '#f97316',
+  shopping: '#ec4899',
+  activity: '#10b981',
+  hotel: '#7c3aed',
+  transport: '#6b7280',
+};
+
+const WEEKDAYS_ZH = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+const MONTHS_ZH = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
 
 function App() {
   const { user, token, logout } = useAuth();
   const { uuid: itineraryUuidParam } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const hasAppliedPrefill = useRef(false);
 
   const [messages, setMessages] = useState([
     { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
@@ -34,21 +55,30 @@ function App() {
   const [isSending, setIsSending] = useState(false);
   const [plan, setPlan] = useState(null);
   const [activeLocation, setActiveLocation] = useState(null);
-  
   const [weatherData, setWeatherData] = useState(null);
   const [totalBudget, setTotalBudget] = useState(50000);
-
-  // 行程保存相關狀態
   const [itineraryUuid, setItineraryUuid] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const [isLoadingItinerary, setIsLoadingItinerary] = useState(false);
 
-  // 載入已有行程
+  // UI state
+  const [activeTab, setActiveTab] = useState('itinerary'); // 'info' | 'itinerary'
+  const [activeDayIdx, setActiveDayIdx] = useState(0);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [packingItems, setPackingItems] = useState([{ id: 1, text: '物品', checked: false }]);
+  const [newPackingItem, setNewPackingItem] = useState('');
+  const [tripNote, setTripNote] = useState('');
+  const chatEndRef = useRef(null);
+
   useEffect(() => {
-    if (itineraryUuidParam) {
-      loadItinerary(itineraryUuidParam);
-    }
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    if (itineraryUuidParam) loadItinerary(itineraryUuidParam);
   }, [itineraryUuidParam]);
 
   const loadItinerary = async (uuid) => {
@@ -62,12 +92,8 @@ function App() {
       if (data.itineraryData) {
         setPlan(data.itineraryData);
         setItineraryUuid(data.uuid);
-        if (data.itineraryData.totalBudget) {
-          setTotalBudget(data.itineraryData.totalBudget);
-        }
-        setMessages([
-          { role: 'assistant', content: `已載入行程「${data.title || data.summary || ''}」，您可以繼續修改。` },
-        ]);
+        if (data.itineraryData.totalBudget) setTotalBudget(data.itineraryData.totalBudget);
+        setMessages([{ role: 'assistant', content: `已載入行程「${data.title || data.summary || ''}」，您可以繼續修改。` }]);
         setWeatherData(null);
       }
     } catch (err) {
@@ -122,108 +148,72 @@ function App() {
   };
 
   const handleSend = async (quickText) => {
-    // 1. 支援快捷按鈕的文字：如果有傳入 quickText 就用它，否則用輸入框的 input
     const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
     if (!text || isSending) return;
-
     const userMsg = { role: 'user', content: text };
     const newHistory = [...messages, userMsg];
-    
     setMessages(newHistory);
-    // 送出後清空輸入框
     setInput('');
     setIsSending(true);
-
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ 
-          messages: newHistory,
-          currentPlan: plan 
-        }), 
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ messages: newHistory, currentPlan: plan }),
       });
-
       const data = await res.json();
-
-      // 2. 錯誤防護：如果後端回傳 500 或 error，主動拋出錯誤，進入 catch 區塊
-      if (!res.ok || data.error) {
-        throw new Error(data.error || '後端回傳錯誤');
-      }
-
-      // 3. 安全處理 content：確保 content 絕對是字串，避免 .split() 導致畫面崩潰
+      if (!res.ok || data.error) throw new Error(data.error || '後端回傳錯誤');
       const safeContent = data.content || '行程已為您更新，請查看右側地圖與列表。';
-      const assistantMsg = { role: 'assistant', content: safeContent };
-
-      setMessages([...newHistory, assistantMsg]);
-
-      // 4. 如果有生成新的行程計畫，則更新畫面
+      setMessages([...newHistory, { role: 'assistant', content: safeContent }]);
       if (data.plan) {
-        
-        // 👇 新增攔截機制：強制讓 AI 生成的每一天都跑一次我們的時間重算邏輯！
         if (data.plan.days && Array.isArray(data.plan.days)) {
           data.plan.days = data.plan.days.map((day) => {
-            let baseTime = '09:00'; // 預設 09:00 出發
-            
-            // 抓取 AI 排定的第一個景點時間，當作這天的「飯店出發時間」
+            let baseTime = '09:00';
             if (day.items && day.items.length > 0 && day.items[0].time) {
               baseTime = day.items[0].time.split('~')[0];
             }
-            
-            return {
-              ...day,
-              // 將這天的行程丟進瀑布流演算法，自動加上 30 分鐘交通與停留時間！
-              items: recalculateDayTimes(day.items, baseTime)
-            };
+            return { ...day, items: recalculateDayTimes(day.items, baseTime) };
           });
         }
-
         setPlan(data.plan);
-        if (data.plan.totalBudget) {
-          setTotalBudget(data.plan.totalBudget);
-        }
-        setWeatherData(null); 
+        if (data.plan.totalBudget) setTotalBudget(data.plan.totalBudget);
+        setWeatherData(null);
       }
     } catch (err) {
       console.error('Chat API Error:', err);
-      // 發生錯誤時，優雅地在聊天室顯示錯誤訊息，而不是讓整個畫面死掉
-      setMessages([
-        ...newHistory,
-        { role: 'assistant', content: '系統連線錯誤或 AI 思考中斷，請稍後再試。' },
-      ]);
+      setMessages([...messages, { role: 'assistant', content: '系統連線錯誤或 AI 思考中斷，請稍後再試。' }]);
     } finally {
       setIsSending(false);
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
   useEffect(() => {
+    if (itineraryUuidParam || hasAppliedPrefill.current) return;
+    const prefill = location?.state?.prefill;
+    if (!prefill) return;
+    const startLocation = (prefill.startLocation || '').trim();
+    const { startDate, endDate } = prefill;
+    if (!startLocation || !startDate || !endDate) return;
+    hasAppliedPrefill.current = true;
+    const prompt = prefill.prompt || `請幫我規劃旅程，起點是${startLocation}，旅遊日期從${startDate}到${endDate}。`;
+    setInput(prompt);
+    setMessages((prev) => [...prev, { role: 'assistant', content: `已收到資料：起點 ${startLocation}，旅遊區間 ${startDate} 到 ${endDate}。` }]);
+    if (prefill.autoSend) handleSend(prompt);
+  }, [location, itineraryUuidParam]);
+
+  useEffect(() => {
     if (plan && plan.city && plan.startDate) {
-      console.log('正在獲取天氣資訊...', plan.city, plan.startDate);
-      // 使用 API_BASE 發送請求
       fetch(`${API_BASE}/api/weather`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ city: plan.city, startDate: plan.startDate }),
       })
         .then((res) => res.json())
-        .then((data) => {
-          if (data.daily) {
-            setWeatherData(data.daily);
-          }
-        })
+        .then((data) => { if (data.daily) setWeatherData(data.daily); })
         .catch((err) => console.error('天氣獲取失敗', err));
     }
   }, [plan]);
@@ -234,613 +224,612 @@ function App() {
     const maxT = weatherData.temperature_2m_max[dayIndex];
     const minT = weatherData.temperature_2m_min[dayIndex];
     if (code === undefined || maxT === undefined) return null;
-
     return { icon: getWeatherIcon(code), max: maxT, min: minT };
   };
 
-  const formatDate = (startDate, dayIndex) => {
-    if (!startDate) return null;
+  const getDayLabel = (startDate, dayIndex) => {
+    if (!startDate) return { date: `第${dayIndex + 1}天`, weekday: '' };
     const date = new Date(startDate);
-    date.setDate(date.getDate() + dayIndex); 
-    const m = (date.getMonth() + 1).toString().padStart(2, '0');
-    const d = date.getDate().toString().padStart(2, '0');
-    return `${m}-${d}`;
+    date.setDate(date.getDate() + dayIndex);
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    const wd = WEEKDAYS_ZH[date.getDay()];
+    return { date: `${m}月${d}日`, weekday: wd, full: `${wd}，${m} ${d}` };
   };
 
   const updateActivityCost = (dayIdx, itemIdx, newCost) => {
-  if (!plan) return;
-  
-  // 進行深拷貝以確保 React 能正確偵測到狀態更新
-  const newPlan = { ...plan };
-  newPlan.days = [...plan.days];
-  newPlan.days[dayIdx] = { ...plan.days[dayIdx] };
-  newPlan.days[dayIdx].items = [...plan.days[dayIdx].items];
-  
-  // 更新金額
-  newPlan.days[dayIdx].items[itemIdx] = { 
-    ...plan.days[dayIdx].items[itemIdx], 
-    cost: Number(newCost) || 0 
+    if (!plan) return;
+    const newPlan = { ...plan, days: plan.days.map((day, di) => di !== dayIdx ? day : {
+      ...day, items: day.items.map((item, ii) => ii !== itemIdx ? item : { ...item, cost: Number(newCost) || 0 })
+    }) };
+    setPlan(newPlan);
   };
-  
-  setPlan(newPlan);
-};
 
-
-  // 處理從地圖手動加入景點的邏輯
   const handleAddLocationFromMap = (locationData) => {
-    // 檢查：1. 有沒有行程；2. 確保 locationData 裡面有 targetDayIndex 參數
     if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
       alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
       return;
     }
-
     const targetDayIdx = locationData.targetDayIndex;
-
-    // 深拷貝，確保 React 狀態能正確更新
-    const newPlan = { ...plan };
-    newPlan.days = [...plan.days];
-    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx] };
-
+    const newPlan = { ...plan, days: [...plan.days] };
     const dayItems = [...(plan.days[targetDayIdx].items || [])];
-
-    // 建立新的景點物件
-    const newItem = {
-      name: locationData.name,
-      type: locationData.type || 'sight',
-      time: '', // 稍後會被重新計算
-      cost: 0,
-      note: `手動從地圖加入 (第 ${targetDayIdx + 1} 天)`,
-      location: { lat: locationData.lat, lng: locationData.lng }
-    };
-
-    dayItems.push(newItem);
-
-    // 將更新後的陣列重新計算時間！
-    // 取得這天原本的飯店出發時間 
-    const baseTime = getTrueStartTime(targetDayIdx); 
-
-    newPlan.days[targetDayIdx].items = recalculateDayTimes(dayItems, baseTime);
-
+    dayItems.push({ name: locationData.name, type: locationData.type || 'sight', time: '', cost: 0, note: `手動從地圖加入 (第 ${targetDayIdx + 1} 天)`, location: { lat: locationData.lat, lng: locationData.lng } });
+    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: recalculateDayTimes(dayItems, getTrueStartTime(targetDayIdx)) };
     setPlan(newPlan);
-
-    // 讓畫面自動捲動到新增的景點 (第 ${targetDayIdx + 1} 天)
     setActiveLocation({ day: targetDayIdx + 1, order: dayItems.length - 1 });
   };
 
-  // 更新行程的時間
-  
   const updateActivityTime = (dayIdx, itemIdx, newTime) => {
     if (!plan) return;
-
-    // 深拷貝，確保 React 狀態能正確更新
-    const newPlan = { ...plan };
-    newPlan.days = [...plan.days];
-    newPlan.days[dayIdx] = { ...plan.days[dayIdx] };
+    const newPlan = { ...plan, days: [...plan.days] };
     const newItems = [...plan.days[dayIdx].items];
-
-    // 取得修改前的舊時間
     const oldTime = newItems[itemIdx].time || '';
     let [oldStart, oldEnd] = oldTime.includes('~') ? oldTime.split('~') : [oldTime, ''];
     let [newStart, newEnd] = newTime.includes('~') ? newTime.split('~') : [newTime, ''];
-
-    // 1. 計算這個景點原本的「停留時間 (分鐘)」
-    let durationMinutes = 120; // 預設 2 小時
+    let durationMinutes = 120;
     if (oldStart && oldEnd && oldStart.includes(':') && oldEnd.includes(':')) {
       const [sH, sM] = oldStart.split(':').map(Number);
       const [eH, eM] = oldEnd.split(':').map(Number);
       durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
       if (durationMinutes <= 0) durationMinutes = 120;
     }
-
-    
     if (newStart !== oldStart && newEnd === oldEnd && newStart.includes(':')) {
       const [sH, sM] = newStart.split(':').map(Number);
-      const endDate = new Date();
-      endDate.setHours(sH, sM + durationMinutes, 0, 0);
+      const endDate = new Date(); endDate.setHours(sH, sM + durationMinutes, 0, 0);
       newEnd = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
       newTime = `${newStart}~${newEnd}`;
     }
-
-    // 2. 更新使用者正在修改的這個景點
-    newItems[itemIdx] = {
-      ...newItems[itemIdx],
-      time: newTime
-    };
-
-    // 3. 瀑布流更新：從這個景點「之後」的所有行程，自動往後推算
+    newItems[itemIdx] = { ...newItems[itemIdx], time: newTime };
     let currentEndTime = newEnd;
-    
     if (currentEndTime && currentEndTime.includes(':')) {
       for (let i = itemIdx + 1; i < newItems.length; i++) {
         let nextItem = { ...newItems[i] };
-
-        // a. 抓取下一個景點原本的停留時間
         let nextDuration = 120;
         if (nextItem.time && nextItem.time.includes('~')) {
           const [ns, ne] = nextItem.time.split('~');
           if (ns.includes(':') && ne.includes(':')) {
-            const [sH, sM] = ns.split(':').map(Number);
-            const [eH, eM] = ne.split(':').map(Number);
+            const [sH, sM] = ns.split(':').map(Number); const [eH, eM] = ne.split(':').map(Number);
             nextDuration = (eH * 60 + eM) - (sH * 60 + sM);
             if (nextDuration <= 0) nextDuration = 120;
           }
         }
-
-        // b. 加上 30 分鐘交通時間
         const [currH, currM] = currentEndTime.split(':').map(Number);
-        const startDate = new Date();
-        startDate.setHours(currH, currM + 30, 0, 0);
+        const startDate = new Date(); startDate.setHours(currH, currM + 30, 0, 0);
         const newStartStr = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
-
-        // c. 加上停留時間，算出新的「結束時間」
-        const endDate = new Date(startDate);
-        endDate.setMinutes(endDate.getMinutes() + nextDuration);
+        const endDate = new Date(startDate); endDate.setMinutes(endDate.getMinutes() + nextDuration);
         const newEndStr = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
-
-        // d. 更新這個景點，並把結束時間傳給下一次迴圈
         nextItem.time = `${newStartStr}~${newEndStr}`;
         newItems[i] = nextItem;
-        currentEndTime = newEndStr; 
+        currentEndTime = newEndStr;
       }
     }
-
-    // 4. 將計算完的完美陣列寫回 React 狀態
-    newPlan.days[dayIdx].items = newItems;
+    newPlan.days[dayIdx] = { ...plan.days[dayIdx], items: newItems };
     setPlan(newPlan);
   };
 
-  const totalSpent = plan ? plan.days.reduce((sum, day) => {
-    return sum + (day.items || []).reduce((daySum, item) => daySum + (Number(item.cost) || 0), 0);
-  }, 0) : 0;
-
+  const totalSpent = plan ? plan.days.reduce((sum, day) => sum + (day.items || []).reduce((ds, item) => ds + (Number(item.cost) || 0), 0), 0) : 0;
   const remaining = totalBudget - totalSpent;
 
   const mapData = useMemo(() => {
-  if (!plan) return null;
-  return {
-    ...plan,
-    startLocation: plan.startLocation,
-    startTime: plan.startTime,
-    days: plan.days.map(day => ({
-      ...day,
-      items: day.items.map(item => ({
-        name: item.name,
-        location: item.location,
-        type: item.type,
-        // 故意不包含 cost，這樣金額變動就不會觸發 mapData 更新
-      }))
-    }))
-  };
-  // 依賴項：我們只在 plan 的結構或核心內容改變時才重新計算
-}, [plan?.city, JSON.stringify(plan?.days?.map(d => d.items.map(i => i.name)))]);
-
-  const handleDayChange = (day) => {
-    if (day) {
-      const el = document.getElementById(`day-header-${day}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-      const el = document.querySelector('.plan-content');
-      if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  useEffect(() => {
-    if (activeLocation) {
-      const el = document.getElementById(`item-${activeLocation.day}-${activeLocation.order}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [activeLocation]);
-
-  const exportPlan = () => {
-    if (!plan || !plan.days || plan.days.length === 0) {
-      alert('目前沒有行程可以導航，請先規劃行程。');
-      return;
-    }
-
-    const places = plan.days
-      .flatMap(day => day.items || [])
-      .filter(item => item.name)
-      .map(item =>
-        item.location?.lat && item.location?.lng
-          ? `${item.location.lat},${item.location.lng}`
-          : item.name
-      );
-
-    if (places.length === 0) {
-      alert('行程中沒有地點資訊。');
-      return;
-    }
-
-    // Google Maps 方向連結（不需要 API key）
-    const url = `https://www.google.com/maps/dir/${places.map(p => encodeURIComponent(p)).join('/')}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
+    if (!plan) return null;
+    return { ...plan, days: plan.days.map(day => ({ ...day, items: day.items.map(item => ({ name: item.name, location: item.location, type: item.type })) })) };
+  }, [plan?.city, JSON.stringify(plan?.days?.map(d => d.items.map(i => i.name)))]);
 
   const getTrueStartTime = (dayIdx) => {
-    if (plan && plan.days && plan.days[dayIdx] && plan.days[dayIdx].items.length > 0 && plan.days[dayIdx].items[0].time) {
+    if (plan?.days?.[dayIdx]?.items?.length > 0 && plan.days[dayIdx].items[0].time) {
       const firstItemStart = plan.days[dayIdx].items[0].time.split('~')[0];
       const [h, m] = firstItemStart.split(':').map(Number);
-      const d = new Date();
-      d.setHours(h, m - 30, 0, 0); // 往前扣除 30 分鐘交通時間
+      const d = new Date(); d.setHours(h, m - 30, 0, 0);
       return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
     }
-    return '09:00'; // 預設 09:00 出發
+    return '09:00';
   };
 
-  // 自動重新分配時間
   const recalculateDayTimes = (items, dayStartTime = '09:00') => {
     if (!items || items.length === 0) return items;
-
-    // 1. 設定基準時間 (飯店出發時間)
     let currentStartTime = dayStartTime;
-
     return items.map((item) => {
-      // 2. 計算這個景點原本的「停留時間 (分鐘)」
-      let durationMinutes = 120; // 預設 2 小時
+      let durationMinutes = 120;
       if (item.time && item.time.includes('~')) {
         const [oldStart, oldEnd] = item.time.split('~');
-        const [sH, sM] = oldStart.split(':').map(Number);
-        const [eH, eM] = oldEnd.split(':').map(Number);
-        if (!isNaN(sH) && !isNaN(eH)) {
-          durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
-          if (durationMinutes <= 0) durationMinutes = 120; 
-        }
+        const [sH, sM] = oldStart.split(':').map(Number); const [eH, eM] = oldEnd.split(':').map(Number);
+        if (!isNaN(sH) && !isNaN(eH)) { durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); if (durationMinutes <= 0) durationMinutes = 120; }
       }
-
-      // 3. 🚗 加上 30 分鐘交通時間 (算出抵達景點的時間)
       const [currH, currM] = currentStartTime.split(':').map(Number);
-      const arrivalDate = new Date();
-      arrivalDate.setHours(currH, currM + 30, 0, 0); 
+      const arrivalDate = new Date(); arrivalDate.setHours(currH, currM + 30, 0, 0);
       const assignedStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
-
-      // 4. ⏳ 根據停留時間，推算出新的結束時間
       const [h, m] = assignedStartTime.split(':').map(Number);
-      const endDate = new Date();
-      endDate.setHours(h, m + durationMinutes, 0, 0);
+      const endDate = new Date(); endDate.setHours(h, m + durationMinutes, 0, 0);
       const assignedEndTime = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
-
-      // 5. 將這次的結束時間，設為下一次出發的基準點
       currentStartTime = assignedEndTime;
-
       return { ...item, time: `${assignedStartTime}~${assignedEndTime}` };
     });
   };
 
   const onDragEnd = (result) => {
     const { source, destination } = result;
-
-    // 1. 如果拖曳到沒有設定 Droppable 的區域（例如清單外），就不做任何改變
     if (!destination) return;
-
-    // 2. 如果放在原本一模一樣的位置，就不做任何改變
-    if (
-      source.droppableId === destination.droppableId &&
-      source.index === destination.index
-    ) {
-      return;
-    }
-
-    // 3. 複製目前的行程資料以進行修改
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
     const newPlan = { ...plan };
-    
     const sourceDayIdx = parseInt(source.droppableId.split('-')[1], 10);
     const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
-
-    
-    
-
     const destDayStartTime = getTrueStartTime(destDayIdx);
     const sourceDayStartTime = getTrueStartTime(sourceDayIdx);
-
     const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
     const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
-
-    // 4. 從原本的天數中移除被拖曳的景點
     const [movedItem] = sourceItems.splice(source.index, 1);
-
-    // 5. 將該景點插入到新的天數和指定位置
     destItems.splice(destination.index, 0, movedItem);
-
-    // 6. 將更新後的陣列放回 newPlan，並把剛剛記下來的出發時間傳進去 ⚡
     if (sourceDayIdx === destDayIdx) {
       newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, destDayStartTime);
     } else {
       newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, sourceDayStartTime);
       newPlan.days[destDayIdx].items = recalculateDayTimes(destItems, destDayStartTime);
     }
-
-    // 7. 更新 React 狀態，畫面就會重新渲染
     setPlan(newPlan);
   };
 
-  
+  const exportPlan = () => {
+    if (!plan?.days?.length) { alert('目前沒有行程可以導航，請先規劃行程。'); return; }
+    const places = plan.days.flatMap(day => day.items || []).filter(item => item.name)
+      .map(item => item.location?.lat && item.location?.lng ? `${item.location.lat},${item.location.lng}` : item.name);
+    if (!places.length) { alert('行程中沒有地點資訊。'); return; }
+    window.open(`https://www.google.com/maps/dir/${places.map(p => encodeURIComponent(p)).join('/')}`, '_blank', 'noopener,noreferrer');
+  };
 
-  const displayType = (type) => {
-    switch (type) {
-      case 'sight': return '景點';
-      case 'food': return '美食';
-      case 'shopping': return '購物';
-      case 'activity': return '活動';
-      default: return type;
-    }
+  const displayType = (type) => ({ sight: '景點', food: '美食', shopping: '購物', activity: '活動', hotel: '住宿', transport: '交通' }[type] || type);
+
+  const tripTitle = plan?.summary || plan?.city ? `${plan?.city || ''}之旅` : '台北之旅';
+  const tripDateRange = plan?.startDate && plan?.days?.length
+    ? (() => {
+        const start = new Date(plan.startDate);
+        const end = new Date(plan.startDate);
+        end.setDate(end.getDate() + plan.days.length - 1);
+        return `${start.getMonth() + 1}月${start.getDate()}日 - ${end.getMonth() + 1}月${end.getDate()}日`;
+      })()
+    : '';
+
+  const currentDay = plan?.days?.[activeDayIdx];
+  const currentDayLabel = plan?.startDate ? getDayLabel(plan.startDate, activeDayIdx) : null;
+  const currentPath = location?.pathname || '/';
+  const getUserInitial = () => {
+    const n = user?.displayName || user?.displayname || user?.email || '?';
+    return n.charAt(0).toUpperCase();
   };
 
   return (
-    <div className="app-root">
+    <div className="az-root">
       {isLoadingItinerary && (
-        <div className="loading-overlay">
-          <div className="loading-spinner" />
+        <div className="az-loading-overlay">
+          <div className="az-spinner" />
           <p>載入行程中...</p>
         </div>
       )}
-      <div className="app-shell">
-        <div className="app-header">
-          <div className="app-header-title">
-            <span className="logo-dot" />
-            旅遊聊天小助手
-            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', fontWeight: 400 }}>
-              <button onClick={() => navigate('/')} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>← 我的行程</button>
-              <button onClick={handleSave} disabled={!plan || isSaving} style={{ background: plan ? '#10b981' : '#d1d5db', color: 'white', border: 'none', borderRadius: 6, padding: '4px 14px', cursor: plan ? 'pointer' : 'not-allowed', fontSize: '0.85rem', fontWeight: 600 }}>
-                {isSaving ? '保存中...' : itineraryUuid ? '更新行程' : '保存行程'}
-              </button>
-              {saveMsg && <span style={{ color: saveMsg === '已保存' ? '#10b981' : '#ef4444', fontWeight: 500 }}>{saveMsg}</span>}
-              <button onClick={exportPlan}>google導航</button>
-              <span style={{ color: '#6b7280' }}>{user?.displayName || user?.email}</span>
-              <button onClick={logout} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>登出</button>
-            </span>
+
+      {/* ── LEFT SIDEBAR ── */}
+      <aside className={`az-sidebar${sidebarCollapsed ? ' az-sidebar--collapsed' : ''}`}>
+        <div className="az-sidebar-inner">
+          <div className="az-logo">
+            <div className="az-logo-icon">✈</div>
+            {!sidebarCollapsed && (
+              <div className="az-logo-texts">
+                <span className="az-logo-name">旅遊規劃器</span>
+                <span className="az-beta-badge">BETA</span>
+              </div>
+            )}
+          </div>
+
+          <nav className="az-nav">
+            <button
+              className={`az-nav-item${currentPath === '/' ? ' az-nav-item--active' : ''}`}
+              onClick={() => navigate('/')}
+              title={sidebarCollapsed ? '首頁' : ''}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              {!sidebarCollapsed && <span>首頁</span>}
+            </button>
+            <button
+              className={`az-nav-item${currentPath.startsWith('/planner') ? ' az-nav-item--active' : ''}`}
+              onClick={() => navigate('/planner')}
+              title={sidebarCollapsed ? '我的行程' : ''}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+              {!sidebarCollapsed && <span>我的行程</span>}
+            </button>
+            <button className="az-nav-item" title={sidebarCollapsed ? '旅遊指南' : ''}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              {!sidebarCollapsed && <span>旅遊指南</span>}
+            </button>
+            <button className="az-nav-item" title={sidebarCollapsed ? '收藏' : ''}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+              {!sidebarCollapsed && <span>收藏</span>}
+            </button>
+            <button className="az-nav-item" title={sidebarCollapsed ? '尋找旅伴' : ''}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              {!sidebarCollapsed && <span>尋找旅伴</span>}
+            </button>
+          </nav>
+
+          <div className="az-nav-spacer" />
+
+          <button className="az-nav-item az-feedback" title={sidebarCollapsed ? '意見回饋' : ''}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            {!sidebarCollapsed && <span>意見回饋</span>}
+          </button>
+
+          <div className="az-user-row">
+            <div className="az-avatar">{getUserInitial()}</div>
+            {!sidebarCollapsed && (
+              <>
+                <div className="az-user-info">
+                  <span className="az-user-name">{user?.displayName || user?.displayname || '使用者'}</span>
+                  <span className="az-user-email">{user?.email}</span>
+                </div>
+                <button className="az-user-chevron" onClick={logout} title="登出">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 3 18 9"/><polyline points="6 15 12 21 18 15"/></svg>
+                </button>
+              </>
+            )}
           </div>
         </div>
+      </aside>
 
-        <div className="main-layout">
-          <div className="chat-panel">
-            <div className="chat-messages">
-              {messages.map((m, idx) => (
-                <div
-                  key={idx}
-                  className={'chat-row ' + (m.role === 'user' ? 'user' : 'assistant')}
-                >
-                  <div className={'bubble ' + (m.role === 'user' ? 'bubble-user' : 'bubble-assistant')}>
-                    {m.content.split('\n').map((line, i) => (
-                      <div key={i} style={{ minHeight: '1.2em' }}>{line}</div>
-                    ))}
+      {/* ── MAIN CONTENT ── */}
+      <div className="az-main">
+        {/* TOP BAR */}
+        <header className="az-topbar">
+          
+          
+          <button className="az-topbar-icon-btn" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+
+          
+
+          <button className={`az-topbar-btn ${showAiPanel ? 'az-topbar-btn--active' : ''}`} onClick={() => setShowAiPanel(!showAiPanel)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+            </svg>
+            AI 助手
+          </button>
+
+          <button className="az-topbar-btn az-topbar-btn--primary" onClick={handleSave} disabled={!plan || isSaving}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+            </svg>
+            {isSaving ? '保存中...' : itineraryUuid ? '更新行程' : '發佈為指南'}
+          </button>
+
+          <div className="az-topbar-spacer" />
+
+          <button className="az-topbar-icon-btn" onClick={exportPlan} title="Google 導航">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16 10,8"/>
+            </svg>
+          </button>
+          <button className="az-topbar-icon-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+            </svg>
+          </button>
+
+          {saveMsg && <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>{saveMsg}</span>}
+        </header>
+
+        {/* CONTENT AREA */}
+        <div className="az-content-wrap">
+          {/* ── LEFT: Trip detail panel ── */}
+          <div className="az-trip-panel">
+            {/* HERO */}
+            <div className="az-hero">
+              <div className="az-hero-overlay" />
+              <img
+                className="az-hero-img"
+                src={`https://source.unsplash.com/800x240/?${encodeURIComponent(plan?.city || 'taipei')},travel`}
+                alt="trip cover"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              <div className="az-hero-content">
+                <h1 className="az-hero-title">
+                  {tripTitle}
+                  <button className="az-hero-edit-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                  </button>
+                </h1>
+                {tripDateRange && (
+                  <div className="az-hero-date">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                      <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    {tripDateRange}
                   </div>
-                </div>
-              ))}
-            </div>
-
-            {/* 快捷選項區塊 🔥 */}
-            <div className="quick-actions-container">
-              <div className="quick-actions">
-                <button 
-                  className="quick-action-btn"
-                  onClick={() => handleSend('請幫我多排一些行程')}
-                  disabled={isSending}
-                >
-                  ⏱️ 行程多一點
-                </button>
-                <button 
-                  className="quick-action-btn"
-                  onClick={() => handleSend('請幫我少排一些行程')}
-                  disabled={isSending}
-                >
-                  ☕ 行程少一點
-                </button>
-                <button 
-                  className="quick-action-btn"
-                  onClick={() => handleSend('請提供我幾個住宿的推薦選項')}
-                  disabled={isSending}
-                >
-                  🏨 提供住宿選項
-                </button>
-                <button 
-                  className="quick-action-btn"
-                  onClick={() => handleSend('請推薦幾個當地美食')}
-                  disabled={isSending}
-                >
-                  🍜 推薦在地美食
-                </button>
+                )}
               </div>
             </div>
-            {/* 🔥 新增結束 🔥 */}
 
-            <div className="chat-input-area">
+            {/* TABS */}
+            <div className="az-tabs">
+              <button className={`az-tab ${activeTab === 'info' ? 'az-tab--active' : ''}`} onClick={() => setActiveTab('info')}>資訊</button>
+              <button className={`az-tab ${activeTab === 'itinerary' ? 'az-tab--active' : ''}`} onClick={() => setActiveTab('itinerary')}>行程</button>
+            </div>
+
+            {/* ── INFO TAB ── */}
+            {activeTab === 'info' && (
+              <div className="az-tab-content">
+                <textarea
+                  className="az-notes-input"
+                  placeholder="請輸入旅程備註..."
+                  value={tripNote}
+                  onChange={(e) => setTripNote(e.target.value)}
+                />
+
+                <div className="az-section">
+                  <div className="az-section-header">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6,9 12,15 18,9"/></svg>
+                    <span>行前準備清單</span>
+                  </div>
+                  <div className="az-checklist">
+                    {packingItems.map(item => (
+                      <label key={item.id} className="az-check-row">
+                        <input type="checkbox" checked={item.checked} onChange={() => setPackingItems(prev => prev.map(p => p.id === item.id ? { ...p, checked: !p.checked } : p))} />
+                        <span className={item.checked ? 'az-check-done' : ''}>{item.text}</span>
+                      </label>
+                    ))}
+                    <button className="az-add-item-btn" onClick={() => {
+                      const text = prompt('新增項目：');
+                      if (text) setPackingItems(prev => [...prev, { id: Date.now(), text, checked: false }]);
+                    }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      新增項目
+                    </button>
+                  </div>
+                </div>
+
+                <div className="az-section">
+                  <div className="az-section-header">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6,9 12,15 18,9"/></svg>
+                    <span>主要運輸安排</span>
+                  </div>
+                  <div className="az-empty-section">尚無運輸安排</div>
+                </div>
+
+                {/* Budget */}
+                {plan && (
+                  <div className="az-section">
+                    <div className="az-section-header">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                      <span>預算追蹤</span>
+                    </div>
+                    <div className="az-budget-body">
+                      <div className="az-budget-row">
+                        <span>總預算</span>
+                        <input type="number" className="az-budget-input" value={totalBudget} onChange={(e) => setTotalBudget(Number(e.target.value))} />
+                      </div>
+                      <div className="az-budget-bar-wrap">
+                        <div className="az-budget-bar" style={{ width: `${Math.min((totalSpent / totalBudget) * 100, 100)}%`, background: totalSpent > totalBudget ? '#ef4444' : '#10b981' }} />
+                      </div>
+                      <div className="az-budget-stats">
+                        <span style={{ color: totalSpent > totalBudget ? '#ef4444' : '#6b7280' }}>已支出 ${totalSpent.toLocaleString()}</span>
+                        <span className={remaining < 0 ? 'az-over' : 'az-under'}>
+                          {remaining >= 0 ? `剩餘 $${remaining.toLocaleString()}` : `超額 $${Math.abs(remaining).toLocaleString()}`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── ITINERARY TAB ── */}
+            {activeTab === 'itinerary' && (
+              <div className="az-tab-content">
+                {plan?.days?.length > 0 ? (
+                  <>
+                    {/* Day selector */}
+                    <div className="az-day-tabs">
+                      {plan.days.map((day, idx) => {
+                        const lbl = getDayLabel(plan.startDate, idx);
+                        return (
+                          <button
+                            key={idx}
+                            className={`az-day-tab ${activeDayIdx === idx ? 'az-day-tab--active' : ''}`}
+                            onClick={() => setActiveDayIdx(idx)}
+                          >
+                            <span className="az-day-tab-date">{lbl.date}</span>
+                            <span className="az-day-tab-num">第 {idx + 1} 天</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <h2 className="az-itinerary-heading">行程</h2>
+
+                    {/* All days rendered, filtered to active */}
+                    <DragDropContext onDragEnd={onDragEnd}>
+                      {plan.days.map((day, dayIdx) => {
+                        if (dayIdx !== activeDayIdx) return null;
+                        const lbl = getDayLabel(plan.startDate, dayIdx);
+                        const weather = getWeatherForDay(dayIdx);
+                        return (
+                          <div key={dayIdx} className="az-day-block">
+                            <div className="az-day-block-header">
+                              <h3 className="az-day-block-title">
+                                {lbl.weekday && <span>{lbl.weekday}</span>}，{lbl.date}
+                                {day.title && <span className="az-day-theme">· {day.title}</span>}
+                              </h3>
+                              <div className="az-day-block-meta">
+                                {weather && <span className="az-weather">{weather.icon} {weather.min}°–{weather.max}°</span>}
+                                <button className="az-icon-btn">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+
+                            <Droppable droppableId={`day-${dayIdx}`}>
+                              {(provided, snapshot) => (
+                                <div
+                                  className={`az-items-list ${snapshot.isDraggingOver ? 'az-items-list--over' : ''}`}
+                                  {...provided.droppableProps}
+                                  ref={provided.innerRef}
+                                >
+                                  {(day.items || []).map((item, idx) => {
+                                    const isActive = activeLocation && Number(activeLocation.day) === Number(day.day) && Number(activeLocation.order) === idx;
+                                    const iconColor = TYPE_COLOR[item.type] || '#6b7280';
+                                    return (
+                                      <Draggable
+                                        key={`item-${dayIdx}-${idx}-${item.name}`}
+                                        draggableId={`item-${dayIdx}-${idx}-${item.name}`}
+                                        index={idx}
+                                      >
+                                        {(provided, snapshot) => (
+                                          <div
+                                            ref={provided.innerRef}
+                                            {...provided.draggableProps}
+                                            {...provided.dragHandleProps}
+                                            id={`item-${day.day}-${idx}`}
+                                            className={`az-item-card ${isActive ? 'az-item-card--active' : ''} ${snapshot.isDragging ? 'az-item-card--dragging' : ''}`}
+                                            onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
+                                            style={provided.draggableProps.style}
+                                          >
+                                            <div className="az-item-icon" style={{ background: `${iconColor}18`, color: iconColor }}>
+                                              {TYPE_ICON[item.type] || '📍'}
+                                            </div>
+                                            <div className="az-item-body">
+                                              <div className="az-item-name">{item.name}</div>
+                                              {item.time && (
+                                                <div className="az-item-time">
+                                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+                                                  {item.time}
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div className="az-item-right">
+                                              <span className="az-item-type-badge" style={{ background: `${iconColor}18`, color: iconColor }}>
+                                                {displayType(item.type)}
+                                              </span>
+                                              {item.cost > 0 && <span className="az-item-cost">${Number(item.cost).toLocaleString()}</span>}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </Draggable>
+                                    );
+                                  })}
+                                  {provided.placeholder}
+                                </div>
+                              )}
+                            </Droppable>
+
+                            <button className="az-add-item-btn az-add-item-btn--day" onClick={() => {
+                              const name = prompt('新增地點名稱：');
+                              if (name) {
+                                const newPlan = { ...plan };
+                                const dayItems = [...(plan.days[dayIdx].items || [])];
+                                dayItems.push({ name, type: 'sight', time: '', cost: 0 });
+                                newPlan.days = [...plan.days];
+                                newPlan.days[dayIdx] = { ...plan.days[dayIdx], items: recalculateDayTimes(dayItems, getTrueStartTime(dayIdx)) };
+                                setPlan(newPlan);
+                              }
+                            }}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                              新增項目
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </DragDropContext>
+                  </>
+                ) : (
+                  <div className="az-empty-itinerary">
+                    <div className="az-empty-icon">🗺️</div>
+                    <p>尚無行程</p>
+                    <p className="az-empty-hint">點選「AI 助手」開始規劃，或直接輸入目的地</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── RIGHT: MAP ── */}
+          <div className="az-map-panel">
+            <MapView
+              plan={mapData}
+              activeLocation={activeLocation}
+              onLocationChange={setActiveLocation}
+              onDayChange={(day) => { if (day !== null) setActiveDayIdx(day - 1); }}
+              onAddLocation={handleAddLocationFromMap}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── FLOATING AI PANEL ── */}
+      {showAiPanel && (
+        <div className="az-ai-panel">
+          <div className="az-ai-header">
+            <span className="az-ai-title">AI 助手</span>
+            <button className="az-icon-btn" onClick={() => setMessages([{ role: 'assistant', content: '嗨，我是旅遊小助手！' }])}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2,2,0,01-2,2H8a2,2,0,01-2-2L5,6"/>
+                <path d="M10,11v6"/><path d="M14,11v6"/><path d="M9,6V4h6v2"/>
+              </svg>
+            </button>
+          </div>
+
+          <div className="az-ai-messages">
+            {messages.map((m, idx) => (
+              <div key={idx} className={`az-ai-msg ${m.role === 'user' ? 'az-ai-msg--user' : 'az-ai-msg--bot'}`}>
+                {m.content.split('\n').map((line, i) => <div key={i}>{line || '\u00A0'}</div>)}
+              </div>
+            ))}
+            {isSending && <div className="az-ai-msg az-ai-msg--bot az-ai-typing"><span /><span /><span /></div>}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Quick actions */}
+          <div className="az-ai-quick">
+            {['行程多一點', '行程少一點', '推薦住宿', '推薦美食'].map((q, i) => (
+              <button key={i} className="az-quick-chip" onClick={() => handleSend(q)} disabled={isSending}>{q}</button>
+            ))}
+          </div>
+
+          <div className="az-ai-footer">
+            <label className="az-auto-approve">
+              <input type="checkbox" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} />
+              自動核准所有動作
+            </label>
+            <div className="az-ai-input-row">
+              <button className="az-ai-attach">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21,15 16,10 5,21"/>
+                </svg>
+              </button>
               <textarea
+                className="az-ai-textarea"
                 rows={2}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="輸入訊息..."
-                className="chat-textarea"
+                placeholder="向 AI 詢問旅程規劃..."
               />
-              <button onClick={handleSend} disabled={isSending} className="send-button">
-                {isSending ? '...' : '送出'}
+              <button className="az-ai-send" onClick={() => handleSend()} disabled={isSending || !input.trim()}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9 22,2"/>
+                </svg>
               </button>
             </div>
           </div>
-
-          <div className="visualization-panel">
-            <div className="card map-card">
-              <div className="card-header">
-                <span className="dot" /> 行程地圖
-              </div>
-              <MapView 
-                plan={mapData} // 使用過濾後的資料
-                activeLocation={activeLocation}        
-                onLocationChange={setActiveLocation}
-                onDayChange={handleDayChange}
-                onAddLocation={handleAddLocationFromMap}
-              />
-            </div>
-
-            <div className="card plan-card">
-              <div className="card-header">
-                <span className="dot" /> 行程預覽
-              </div>
-
-              {plan ? (
-                <div className="plan-content" style={{ fontSize: '13px' }}>
-                  <div className="plan-summary">
-                    <div><strong>城市：</strong>{plan.city || '（未指定）'}</div>
-                    <div><strong>概要：</strong>{plan.summary || '（無概要）'}</div>
-                    {plan.startDate && <div style={{marginTop: 4, color: '#666'}}>📅 出發日期：{plan.startDate}</div>}
-                  </div>
-
-                  <div className="budget-dashboard">
-                    <div className="budget-row">
-                      <span>總預算：</span>
-                      <input 
-                        type="number" 
-                        className="budget-main-input"
-                        value={totalBudget} 
-                        onChange={(e) => setTotalBudget(Number(e.target.value))} 
-                      />
-                    </div>
-                    <div className="budget-status">
-                      <span style={{ color: totalSpent > totalBudget ? '#ef4444' : '#666' }}>
-                        已支出: ${totalSpent.toLocaleString()}
-                      </span>
-                      <span className={remaining < 0 ? 'budget-over' : 'budget-under'}>
-                        {remaining >= 0 ? `剩餘: $${remaining.toLocaleString()}` : `超額: $${Math.abs(remaining).toLocaleString()}`}
-                      </span>
-                    </div>
-                    <div className="budget-progress-bg">
-                      <div 
-                        className="budget-progress-fill" 
-                        style={{ 
-                          width: `${Math.min((totalSpent / totalBudget) * 100, 100)}%`,
-                          backgroundColor: totalSpent > totalBudget ? '#ef4444' : '#10b981'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  
-                  <DragDropContext onDragEnd={onDragEnd}>
-                    {(plan.days || []).map((day, dayIdx) => {
-                      const weather = getWeatherForDay(dayIdx);
-                      const dateStr = formatDate(plan.startDate, dayIdx);
-
-                      return (
-                        <div key={day.day} id={`day-header-${day.day}`} className="plan-day-block">
-                          <div className="plan-day-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>第 {day.day} 天 · {day.title || '未命名主題'}</span>
-                            <span style={{ fontSize: '0.85em', fontWeight: 'normal', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              {dateStr && <span>{dateStr}</span>}
-                              {weather && (
-                                <>
-                                  <span style={{ fontSize: '1.2em' }}>{weather.icon}</span>
-                                  <span>{weather.min}°-{weather.max}°</span>
-                                </>
-                              )}
-                            </span>
-                          </div>
-
-                          {/* 👇 用 Droppable 包住這一天的清單 */}
-                          <Droppable droppableId={`day-${dayIdx}`}>
-                            {(provided, snapshot) => (
-                              <ul 
-                                className="plan-item-list"
-                                {...provided.droppableProps}
-                                ref={provided.innerRef}
-                                style={{
-                                  minHeight: '50px', // 確保即使這天沒行程，也有空間可以拖曳進來
-                                  backgroundColor: snapshot.isDraggingOver ? '#f3f4f6' : 'transparent', // 拖曳經過時有一點背景色提示
-                                  transition: 'background-color 0.2s ease',
-                                  borderRadius: '8px'
-                                }}
-                              >
-                                {(day.items || []).map((item, idx) => {
-                                  const isActive =
-                                    activeLocation &&
-                                    Number(activeLocation.day) === Number(day.day) &&
-                                    Number(activeLocation.order) === idx;
-
-                                  return (
-                                  
-                                    <Draggable 
-                                      key={`item-${dayIdx}-${idx}-${item.name}`} 
-                                      draggableId={`item-${dayIdx}-${idx}-${item.name}`} 
-                                      index={idx}
-                                    >
-                                      {(provided, snapshot) => (
-                                        <li
-                                          ref={provided.innerRef}
-                                          {...provided.draggableProps}
-                                          {...provided.dragHandleProps} /* 這個讓整個 li 都可以用滑鼠抓取 */
-                                          id={`item-${day.day}-${idx}`}
-                                          className={'plan-item' + (isActive ? ' plan-item-active' : '')}
-                                          onClick={() => setActiveLocation({ day: Number(day.day), order: idx })}
-                                          style={{
-                                            ...provided.draggableProps.style,
-                                            boxShadow: snapshot.isDragging ? '0 5px 15px rgba(0,0,0,0.15)' : 'none', // 拖曳時加上陰影
-                                            opacity: snapshot.isDragging ? 0.9 : 1,
-                                            cursor: 'grab' // 提示使用者這個東西可以抓
-                                          }}
-                                        >
-                                          <div className="plan-item-main">
-                                            {/* 時間輸入框 */}
-                                            <div 
-                                              className="plan-item-time-range" 
-                                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginRight: '8px' }}
-                                              onClick={(e) => e.stopPropagation()} 
-                                            >
-                                              <input 
-                                                type="time" 
-                                                value={item.time && item.time.includes('~') ? item.time.split('~')[0] : (item.time || '')} 
-                                                onChange={(e) => {
-                                                  const endTime = item.time && item.time.includes('~') ? item.time.split('~')[1] : '';
-                                                  updateActivityTime(dayIdx, idx, `${e.target.value}~${endTime}`);
-                                                }}
-                                                style={{ padding: '2px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9em' }}
-                                              />
-                                              <span>~</span>
-                                              <input 
-                                                type="time" 
-                                                value={item.time && item.time.includes('~') ? item.time.split('~')[1] : ''} 
-                                                onChange={(e) => {
-                                                  const startTime = item.time && item.time.includes('~') ? item.time.split('~')[0] : (item.time || '');
-                                                  updateActivityTime(dayIdx, idx, `${startTime}~${e.target.value}`);
-                                                }}
-                                                style={{ padding: '2px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9em' }}
-                                              />
-                                            </div>
-                                            
-                                            <strong>{item.name}</strong> <span className="plan-item-type">({displayType(item.type)})</span>
-                                            <div className="item-cost-input" onClick={(e) => e.stopPropagation()}>
-                                              $ <input 
-                                                type="number" 
-                                                placeholder="金額"
-                                                value={item.cost || ''} 
-                                                onChange={(e) => updateActivityCost(dayIdx, idx, e.target.value)}
-                                              />
-                                            </div>
-                                          </div>
-                                          {item.note && <div className="plan-item-note">{item.note}</div>}
-                                        </li>
-                                      )}
-                                    </Draggable>
-                                  );
-                                })}
-                                {/* 👇 這個 placeholder 是給 dnd 算空間用的，不能省略 */}
-                                {provided.placeholder}
-                              </ul>
-                            )}
-                          </Droppable>
-                        </div>
-                      );
-                    })}
-                  </DragDropContext>
-                </div>
-              ) : (
-                <div className="plan-empty-text">
-                  目前地圖是空的。<br/>
-                  試著說：「幫我安排台北一日遊」來生成行程。
-                </div>
-              )}
-            </div>
-          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
