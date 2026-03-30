@@ -343,6 +343,82 @@ function toISODate(value) {
   return d.toISOString().split('T')[0];
 }
 
+function toHHmm(value) {
+  if (!value && value !== 0) return null;
+  if (typeof value === 'string') {
+    const m = value.trim().match(/^(\d{1,2}):(\d{2})/);
+    if (m) {
+      const hh = Number(m[1]);
+      const mm = Number(m[2]);
+      if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+        return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+      }
+    }
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function normalizeChecklistItems(rawItems) {
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems
+    .map((item, idx) => {
+      const text = String(item?.text || '').trim();
+      if (!text) return null;
+      return {
+        text,
+        checked: Boolean(item?.checked),
+        sortOrder: Number.isFinite(Number(item?.sortOrder)) ? Number(item.sortOrder) : idx,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function readChecklistItemsByUuid(clientOrPool, uuid) {
+  try {
+    const { rows } = await clientOrPool.query(
+      `SELECT id, item_text, is_checked, sort_order
+       FROM itinerary_checklist_items
+       WHERE itinerary_uuid = $1
+       ORDER BY sort_order ASC, id ASC`,
+      [uuid]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      text: row.item_text,
+      checked: Boolean(row.is_checked),
+      sortOrder: Number(row.sort_order) || 0,
+    }));
+  } catch (e) {
+    if (e.code === '42P01') return null;
+    throw e;
+  }
+}
+
+async function replaceChecklistItems(client, uuid, rawItems) {
+  const items = normalizeChecklistItems(rawItems);
+  try {
+    await client.query('DELETE FROM itinerary_checklist_items WHERE itinerary_uuid = $1', [uuid]);
+    if (!items.length) return;
+
+    const values = [];
+    const placeholders = items.map((item, idx) => {
+      const base = idx * 4;
+      values.push(uuid, item.text, item.checked, item.sortOrder);
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+    });
+    await client.query(
+      `INSERT INTO itinerary_checklist_items (itinerary_uuid, item_text, is_checked, sort_order)
+       VALUES ${placeholders.join(', ')}`,
+      values
+    );
+  } catch (e) {
+    if (e.code === '42P01') return;
+    throw e;
+  }
+}
+
 function normalizeGuideText(value) {
   return String(value || '')
     .trim()
@@ -1049,10 +1125,10 @@ router.post('/weather', async (req, res) => {
 router.get('/itineraries', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT uuid, title, summary, city, startdate, createdat, updatedat FROM itineraries WHERE userid = $1 ORDER BY updatedat DESC',
+      'SELECT uuid, title, summary, city, startdate, starttime, createdat, updatedat FROM itineraries WHERE userid = $1 ORDER BY updatedat DESC',
       [req.user.id]
     );
-    res.json({ itineraries: rows });
+    res.json({ itineraries: rows.map((row) => ({ ...row, starttime: toHHmm(row.starttime) })) });
   } catch (err) {
     console.error('Get itineraries error:', err);
     res.status(500).json({ error: '取得行程列表失敗' });
@@ -1060,19 +1136,38 @@ router.get('/itineraries', async (req, res) => {
 });
 
 router.post('/itineraries', async (req, res) => {
-  const { title, summary, city, startDate, itineraryData } = req.body;
+  const { title, summary, city, startDate, startTime, itineraryData, tripNote, checklistItems } = req.body;
   if (!itineraryData) return res.status(400).json({ error: '行程資料不可為空' });
   const uuid = crypto.randomUUID();
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO itineraries (userid, uuid, title, summary, city, startdate, itinerarydata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid, createdat`,
-      [req.user.id, uuid, title || '', summary || '', city || '', startDate || null, JSON.stringify(itineraryData)]
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO itineraries (userid, uuid, title, summary, city, startdate, starttime, note, itinerarydata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING uuid, createdat`,
+      [
+        req.user.id,
+        uuid,
+        title || '',
+        summary || '',
+        city || '',
+        startDate || null,
+        toHHmm(startTime || itineraryData?.startTime),
+        tripNote || itineraryData?.tripNote || null,
+        JSON.stringify(itineraryData),
+      ]
     );
+
+    await replaceChecklistItems(client, uuid, checklistItems || itineraryData?.packingItems || []);
+    await client.query('COMMIT');
+
     res.status(201).json({ uuid: rows[0].uuid, createdAt: rows[0].createdat });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Create itinerary error:', err);
     res.status(500).json({ error: '保存行程失敗' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1080,14 +1175,28 @@ router.get('/itineraries/:uuid', async (req, res) => {
   const { uuid } = req.params;
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM itineraries WHERE uuid = $1',
-      [uuid]
+      'SELECT * FROM itineraries WHERE uuid = $1 AND userid = $2',
+      [uuid, req.user.id]
     );
     if (rows.length === 0) return res.status(404).json({ error: '行程不存在' });
     const row = rows[0];
     let itineraryData;
     try { itineraryData = JSON.parse(row.itinerarydata); } catch { itineraryData = null; }
-    res.json({ uuid: row.uuid, title: row.title, summary: row.summary, city: row.city, startDate: row.startdate, itineraryData, createdAt: row.createdat, updatedAt: row.updatedat });
+    const checklistItems = await readChecklistItemsByUuid(pool, row.uuid);
+    const fallbackChecklist = normalizeChecklistItems(itineraryData?.packingItems || []).map((item, idx) => ({ ...item, id: `legacy-${idx}` }));
+    res.json({
+      uuid: row.uuid,
+      title: row.title,
+      summary: row.summary,
+      city: row.city,
+      startDate: row.startdate,
+      startTime: toHHmm(row.starttime || itineraryData?.startTime),
+      tripNote: row.note || itineraryData?.tripNote || '',
+      checklistItems: checklistItems ?? fallbackChecklist,
+      itineraryData,
+      createdAt: row.createdat,
+      updatedAt: row.updatedat,
+    });
     
   } catch (err) {
     console.error('Get itinerary error:', err);
@@ -1097,19 +1206,49 @@ router.get('/itineraries/:uuid', async (req, res) => {
 
 router.put('/itineraries/:uuid', async (req, res) => {
   const { uuid } = req.params;
-  const { title, summary, city, startDate, itineraryData } = req.body;
+  const { title, summary, city, startDate, startTime, itineraryData, tripNote, checklistItems } = req.body;
   if (!itineraryData) return res.status(400).json({ error: '行程資料不可為空' });
+  const client = await pool.connect();
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE itineraries SET title = $1, summary = $2, city = $3, startdate = $4, itinerarydata = $5, updatedat = CURRENT_TIMESTAMP
-       WHERE uuid = $6 AND userid = $7`,
-      [title || '', summary || '', city || '', startDate || null, JSON.stringify(itineraryData), uuid, req.user.id]
+    await client.query('BEGIN');
+    const { rowCount } = await client.query(
+      `UPDATE itineraries
+       SET title = $1,
+           summary = $2,
+           city = $3,
+           startdate = $4,
+           starttime = $5,
+           note = $6,
+           itinerarydata = $7,
+           updatedat = CURRENT_TIMESTAMP
+       WHERE uuid = $8 AND userid = $9`,
+      [
+        title || '',
+        summary || '',
+        city || '',
+        startDate || null,
+        toHHmm(startTime || itineraryData?.startTime),
+        tripNote || itineraryData?.tripNote || null,
+        JSON.stringify(itineraryData),
+        uuid,
+        req.user.id,
+      ]
     );
-    if (rowCount === 0) return res.status(404).json({ error: '行程不存在或無權限' });
+
+    if (rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '行程不存在或無權限' });
+    }
+
+    await replaceChecklistItems(client, uuid, checklistItems || itineraryData?.packingItems || []);
+    await client.query('COMMIT');
     res.json({ success: true });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Update itinerary error:', err);
     res.status(500).json({ error: '更新行程失敗' });
+  } finally {
+    client.release();
   }
 });
 

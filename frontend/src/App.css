@@ -406,6 +406,68 @@ input, textarea { font-family: var(--font); }
 
 .az-hero-edit-btn:hover { background: rgba(255,255,255,.32); }
 
+.az-hero-edit-panel {
+  margin: 10px auto 0;
+  width: min(92%, 460px);
+  background: rgba(13, 29, 41, 0.68);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 12px;
+  padding: 10px;
+  backdrop-filter: blur(8px);
+}
+
+.az-hero-edit-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr .8fr;
+  gap: 8px;
+}
+
+.az-hero-edit-input {
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.24);
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  padding: 0 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.az-hero-edit-input:focus {
+  border-color: rgba(255,255,255,.55);
+  background: rgba(255,255,255,.2);
+}
+
+.az-hero-edit-input[type="date"],
+.az-hero-edit-input[type="time"] {
+  color-scheme: dark;
+}
+
+.az-hero-edit-input::placeholder { color: rgba(255,255,255,.75); }
+
+.az-hero-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.az-hero-edit-action {
+  border: 1px solid rgba(255,255,255,.25);
+  background: rgba(255,255,255,.14);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.az-hero-edit-action--primary {
+  background: rgba(19, 213, 194, .24);
+  border-color: rgba(19, 213, 194, .4);
+}
+
 .az-hero-date {
   display: inline-flex;
   align-items: center;
@@ -514,6 +576,48 @@ input, textarea { font-family: var(--font); }
   color: var(--text);
   cursor: pointer;
 }
+
+.az-check-delete {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.az-check-delete:hover {
+  color: #ef4444;
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.az-check-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.az-check-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  font-size: 13px;
+  outline: none;
+  background: var(--bg);
+}
+
+.az-check-input:focus { border-color: var(--brand-teal); }
 
 .az-check-row input[type="checkbox"] {
   width: 16px;
@@ -944,6 +1048,7 @@ input, textarea { font-family: var(--font); }
   .az-sidebar { width: var(--sidebar-w-collapsed); }
   .az-trip-panel { width: 340px; min-width: 300px; }
   .az-ai-panel { left: calc(var(--sidebar-w-collapsed) + 12px); width: 320px; }
+  .az-hero-edit-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

@@ -172,3 +172,26 @@ VALUES (
   35.6762, 139.6503
 )
 ON CONFLICT DO NOTHING;
+
+-- ============================================================
+-- Itinerary enhancements (start time + pre-trip checklist)
+-- ============================================================
+
+ALTER TABLE public.itineraries
+  ADD COLUMN IF NOT EXISTS starttime time;
+
+ALTER TABLE public.itineraries
+  ADD COLUMN IF NOT EXISTS note text;
+
+CREATE TABLE IF NOT EXISTS public.itinerary_checklist_items (
+  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  itinerary_uuid character varying NOT NULL REFERENCES public.itineraries(uuid) ON DELETE CASCADE,
+  item_text character varying NOT NULL,
+  is_checked boolean DEFAULT false,
+  sort_order integer DEFAULT 0,
+  createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS itinerary_checklist_items_uuid_order_idx
+  ON public.itinerary_checklist_items (itinerary_uuid, sort_order, id);
