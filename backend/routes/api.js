@@ -269,14 +269,15 @@ router.get('/users/:userId/saved', optionalAuth, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 
 // GET /api/trending          — top destinations
+// GET /api/trending          — top destinations
 router.get('/trending', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 12, 50);
     const { rows } = await pool.query(
-      `SELECT id, city, country, trip_count, score, cover_image
-       FROM   public.trending_destinations
+      `SELECT id, city, country, score, cover_image
+       FROM   public.cities
        WHERE  is_active = true
-       ORDER  BY score DESC, trip_count DESC
+       ORDER  BY score DESC NULLS LAST, updatedat DESC
        LIMIT  $1`,
       [limit]
     );
@@ -705,18 +706,20 @@ router.get('/home/content', async (req, res) => {
     let destinations = [];
     try {
       const { rows } = await pool.query(
-        `SELECT city, cover_image
+        // 👇 這裡補上 score 欄位
+        `SELECT city, country, cover_image, score 
          FROM cities
          WHERE is_active = true
-         ORDER BY score DESC, updatedat DESC
+         ORDER BY score DESC NULLS LAST, updatedat DESC
          LIMIT $1`,
         [destinationLimit]
       );
       destinations = rows.map((row) => ({
         city: row.city,
         country: row.country || '',
-        tripCount: Number(row.trip_count) || 0,
+        tripCount: 0,
         coverImage: row.cover_image || '',
+        score: Number(row.score) || 0, // 確保轉換為數字
       }));
     } catch (err) {
       if (err.code !== '42P01' && err.code !== '42703') throw err;

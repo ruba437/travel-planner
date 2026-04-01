@@ -567,17 +567,51 @@
   display: block;
 }
 
+/* ===== DESTINATION CARDS (全新樣式) ===== */
 .az-dest-label {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 28px 12px 12px;
-  background: linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 100%);
+  padding: 36px 12px 12px; /* 增加上方 padding 讓漸層更自然 */
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
   color: #ffffff;
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.az-dest-country {
+  font-size: 11px;
+  font-weight: 500;
+  color: #d1d5db; /* 淺灰色，讓國家名稱當作低調的副標題 */
+  letter-spacing: 0.5px;
+}
+
+.az-dest-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.az-dest-city {
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.2px;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.az-dest-score {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fbbf24; /* 漂亮的星星黃色 */
+  background: rgba(0, 0, 0, 0.45);
+  padding: 3px 6px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px); /* 微微的毛玻璃效果 */
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* ===== GUIDE CARDS ===== */

@@ -372,7 +372,16 @@ export default function HomePage() {
                       className="az-dest-img"
                       onError={e => { e.target.src = FALLBACK_IMG; }}
                     />
-                    <div className="az-dest-label">{item.city}</div>
+                    {/* 👇 這是我們全新升級的標籤區塊 */}
+                    <div className="az-dest-label">
+                      {item.country && <div className="az-dest-country">{item.country}</div>}
+                      <div className="az-dest-name-row">
+                        <span className="az-dest-city">{item.city}</span>
+                        {item.score > 0 && (
+                          <span className="az-dest-score">★ {item.score}</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
