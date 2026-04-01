@@ -99,6 +99,65 @@ function App() {
     if (itineraryUuidParam) loadItinerary(itineraryUuidParam);
   }, [itineraryUuidParam]);
 
+  const fetchTravelTime = async (originItem, destItem, token, mode = 'TRANSIT') => {
+    // 1. 如果資料不存在，直接退回 30 分鐘
+    if (!originItem || !destItem) return 30;
+
+    // 2. 更聰明的取值邏輯
+    const getPayload = (item) => {
+      // 優先使用精確的經緯度
+      if (item.location && item.location.lat && item.location.lng) {
+        return { lat: item.location.lat, lng: item.location.lng };
+      }
+      // 如果沒有經緯度，檢查是否有具體名稱 (過濾掉純符號或空字串)
+      if (item.name && typeof item.name === 'string' && item.name.trim() !== '') {
+        const name = item.name.trim();
+        // 可以選擇性過濾掉一些明顯無法導航的 AI 常用語
+        if (['自由活動', '休息', '回飯店'].includes(name)) return null;
+        return name;
+      }
+      return null;
+    };
+
+    const originPayload = getPayload(originItem);
+    const destPayload = getPayload(destItem);
+
+    // 3. 如果任一點無法辨識，直接預設 30 分鐘，不打 API 避免 400 報錯
+    if (!originPayload || !destPayload) return 30;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/directions`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          origin: originPayload,
+          destination: destPayload,
+          mode
+        })
+      });
+      
+      // 4. 如果後端回傳 400 (例如 Google 找不到兩點間的路線)，我們安靜地退回 30 分鐘
+      if (!res.ok) {
+        // 不拋出 Error，直接 return
+        return 30; 
+      }
+      
+      const data = await res.json();
+      if (data.routes && data.routes.length > 0) {
+        const durationSeconds = data.routes[0].legs[0].duration.value;
+        return Math.ceil(durationSeconds / 60); // 成功取得交通時間
+      }
+    } catch (error) {
+      // 只有在網路斷線等嚴重錯誤時才會走到這裡
+      console.warn(`[交通時間計算] 無法取得時間，使用預設值。原因: ${error.message}`);
+    }
+    
+    return 30; // 最終保底
+  };
+
   const loadItinerary = async (uuid) => {
     setIsLoadingItinerary(true);
     try {
@@ -226,15 +285,21 @@ function App() {
       if (!res.ok || data.error) throw new Error(data.error || '後端回傳錯誤');
       const safeContent = data.content || '行程已為您更新，請查看右側地圖與列表。';
       setMessages([...newHistory, { role: 'assistant', content: safeContent }]);
+      
       if (data.plan) {
         if (data.plan.days && Array.isArray(data.plan.days)) {
-          data.plan.days = data.plan.days.map((day) => {
-            let baseTime = '09:00';
-            if (day.items && day.items.length > 0 && day.items[0].time) {
-              baseTime = day.items[0].time.split('~')[0];
-            }
-            return { ...day, items: recalculateDayTimes(day.items, baseTime) };
-          });
+          // 👉 加上 await Promise.all 以及 async (day) => {...}
+          data.plan.days = await Promise.all(
+            data.plan.days.map(async (day) => {
+              let baseTime = '09:00';
+              if (day.items && day.items.length > 0 && day.items[0].time) {
+                baseTime = day.items[0].time.split('~')[0];
+              }
+              // 👉 加上 await，並且傳入 token
+              const recalculatedItems = await recalculateDayTimesAsync(day.items || [], baseTime, token);
+              return { ...day, items: recalculatedItems };
+            })
+          );
         }
         setPlan(data.plan);
         if (data.plan.totalBudget) setTotalBudget(data.plan.totalBudget);
@@ -306,7 +371,7 @@ function App() {
     setPlan(newPlan);
   };
 
-  const handleAddLocationFromMap = (locationData) => {
+  const handleAddLocationFromMap = async (locationData) => {
     if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
       alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
       return;
@@ -315,12 +380,12 @@ function App() {
     const newPlan = { ...plan, days: [...plan.days] };
     const dayItems = [...(plan.days[targetDayIdx].items || [])];
     dayItems.push({ name: locationData.name, type: locationData.type || 'sight', time: '', cost: 0, note: `手動從地圖加入 (第 ${targetDayIdx + 1} 天)`, location: { lat: locationData.lat, lng: locationData.lng } });
-    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: recalculateDayTimes(dayItems, getTrueStartTime(targetDayIdx)) };
+    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: await recalculateDayTimesAsync(dayItems, getTrueStartTime(targetDayIdx)) };
     setPlan(newPlan);
     setActiveLocation({ day: targetDayIdx + 1, order: dayItems.length - 1 });
   };
 
-  const updateActivityTime = (dayIdx, itemIdx, newTime) => {
+  const updateActivityTime = async (dayIdx, itemIdx, newTime) => {
     if (!plan) return;
     const newPlan = { ...plan, days: [...plan.days] };
     const newItems = [...plan.days[dayIdx].items];
@@ -354,16 +419,23 @@ function App() {
             if (nextDuration <= 0) nextDuration = 120;
           }
         }
+        const travelTime = await fetchTravelTime(newItems[i - 1], nextItem, token);
+
         const [currH, currM] = currentEndTime.split(':').map(Number);
-        const startDate = new Date(); startDate.setHours(currH, currM + 30, 0, 0);
+        const startDate = new Date(); 
+        startDate.setHours(currH, currM + travelTime, 0, 0); // 這裡替換掉原來的 30
+        
         const newStartStr = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
-        const endDate = new Date(startDate); endDate.setMinutes(endDate.getMinutes() + nextDuration);
+        const endDate = new Date(startDate); 
+        endDate.setMinutes(endDate.getMinutes() + nextDuration);
         const newEndStr = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+        
         nextItem.time = `${newStartStr}~${newEndStr}`;
         newItems[i] = nextItem;
         currentEndTime = newEndStr;
       }
     }
+    
     newPlan.days[dayIdx] = { ...plan.days[dayIdx], items: newItems };
     setPlan(newPlan);
   };
@@ -386,28 +458,59 @@ function App() {
     return normalizeTimeValue(plan?.startTime, DEFAULT_DAY_START_TIME);
   };
 
-  const recalculateDayTimes = (items, dayStartTime = '09:00') => {
+  const recalculateDayTimesAsync = async (items, dayStartTime = '09:00', token) => {
     if (!items || items.length === 0) return items;
+    
     let currentStartTime = dayStartTime;
-    return items.map((item) => {
+    const newItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = { ...items[i] };
+      
+      // 計算交通時間（第一個行程不用加上交通時間）
+      let travelTime = 0;
+      if (i > 0) {
+        const prevItem = newItems[i - 1];
+        travelTime = await fetchTravelTime(prevItem, item, token);
+      }
+
+      // 將抵達時間往後推 travelTime 分鐘
+      if (i > 0) {
+        const [currH, currM] = currentStartTime.split(':').map(Number);
+        const arrivalDate = new Date(); 
+        arrivalDate.setHours(currH, currM + travelTime, 0, 0);
+        currentStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
+      }
+
+      // 計算停留時間 (預設 120 分鐘)
       let durationMinutes = 120;
       if (item.time && item.time.includes('~')) {
         const [oldStart, oldEnd] = item.time.split('~');
-        const [sH, sM] = oldStart.split(':').map(Number); const [eH, eM] = oldEnd.split(':').map(Number);
-        if (!isNaN(sH) && !isNaN(eH)) { durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); if (durationMinutes <= 0) durationMinutes = 120; }
+        const [sH, sM] = oldStart.split(':').map(Number); 
+        const [eH, eM] = oldEnd.split(':').map(Number);
+        if (!isNaN(sH) && !isNaN(eH)) { 
+          durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); 
+          if (durationMinutes <= 0) durationMinutes = 120; 
+        }
       }
-      const [currH, currM] = currentStartTime.split(':').map(Number);
-      const arrivalDate = new Date(); arrivalDate.setHours(currH, currM + 30, 0, 0);
-      const assignedStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
-      const [h, m] = assignedStartTime.split(':').map(Number);
-      const endDate = new Date(); endDate.setHours(h, m + durationMinutes, 0, 0);
-      const assignedEndTime = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+
+      const assignedStartTime = currentStartTime;
+      const [startH, startM] = assignedStartTime.split(':').map(Number);
+      const assignedEndDate = new Date(); 
+      assignedEndDate.setHours(startH, startM + durationMinutes, 0, 0);
+      const assignedEndTime = `${assignedEndDate.getHours().toString().padStart(2, '0')}:${assignedEndDate.getMinutes().toString().padStart(2, '0')}`;
+      
+      item.time = `${assignedStartTime}~${assignedEndTime}`;
+      newItems.push(item);
+      
+      // 下一個行程的起算時間
       currentStartTime = assignedEndTime;
-      return { ...item, time: `${assignedStartTime}~${assignedEndTime}` };
-    });
+    }
+    
+    return newItems;
   };
 
-  const onDragEnd = (result) => {
+  const onDragEnd = async (result) => {
     const { source, destination } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
@@ -421,10 +524,10 @@ function App() {
     const [movedItem] = sourceItems.splice(source.index, 1);
     destItems.splice(destination.index, 0, movedItem);
     if (sourceDayIdx === destDayIdx) {
-      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, destDayStartTime);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, destDayStartTime, token);
     } else {
-      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, sourceDayStartTime);
-      newPlan.days[destDayIdx].items = recalculateDayTimes(destItems, destDayStartTime);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token);
+      newPlan.days[destDayIdx].items = await recalculateDayTimesAsync(destItems, destDayStartTime, token);
     }
     setPlan(newPlan);
   };
@@ -473,7 +576,7 @@ function App() {
     setIsEditingHero(false);
   };
 
-  const handleHeroEditSave = () => {
+  const handleHeroEditSave = async () => {
     if (!plan) {
       setIsEditingHero(false);
       return;
@@ -481,9 +584,23 @@ function App() {
     const nextTripName = tripNameInput.trim();
     const nextStartDate = tripStartDateInput || null;
     const nextStartTime = normalizeTimeValue(tripStartTimeInput, normalizeTimeValue(plan.startTime, DEFAULT_DAY_START_TIME));
-    const nextDays = Array.isArray(plan.days)
-      ? plan.days.map((day) => ({ ...day, items: recalculateDayTimes(day.items || [], nextStartTime) }))
-      : plan.days;
+    
+    // 2. 處理非同步的 days 計算
+    let nextDays = plan.days;
+    
+    if (Array.isArray(plan.days)) {
+      // 使用 Promise.all 等待所有天數的行程都計算完畢
+      nextDays = await Promise.all(
+        plan.days.map(async (day) => {
+          // 3. 呼叫新的非同步函式，並加上 await (如果你的函式需要 token 參數，記得補上)
+          const recalculatedItems = await recalculateDayTimesAsync(day.items || [], nextStartTime, token);
+          return { 
+            ...day, 
+            items: recalculatedItems 
+          };
+        })
+      );
+    }
 
     setPlan({
       ...plan,

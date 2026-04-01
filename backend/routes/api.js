@@ -1080,26 +1080,32 @@ router.get('/place-details', async (req, res) => {
 router.post('/directions', async (req, res) => {
   const { origin, destination, mode } = req.body || {};
   if (!origin || !destination) return res.status(400).json({ error: 'Missing params' });
+
   try {
+    // 判斷傳入的是物件還是字串
+    const originParam = typeof origin === 'string' ? origin : `${origin.lat},${origin.lng}`;
+    const destParam = typeof destination === 'string' ? destination : `${destination.lat},${destination.lng}`;
+
     const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
       params: {
-        origin: `${origin.lat},${origin.lng}`, destination: `${destination.lat},${destination.lng}`,
-        mode: (mode || 'TRANSIT').toLowerCase(), language: 'zh-TW', key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+        origin: originParam,
+        destination: destParam,
+        // 建議預設改為 TRANSIT (大眾運輸) 或 DRIVING
+        mode: (mode || 'TRANSIT').toLowerCase(), 
+        language: 'zh-TW',
+        key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
       },
     });
+
     const route = response.data.routes[0];
     const leg = route?.legs[0];
-    if (!leg) return res.status(400).json({ error: 'No route' });
-    res.json({
-      summary: {
-        distanceText: leg.distance?.text, durationText: leg.duration?.text,
-        steps: (leg.steps || []).map((s) => ({
-          instructionHtml: s.html_instructions, distanceText: s.distance?.text, durationText: s.duration?.text, travelMode: s.travel_mode,
-        })),
-      },
-      encodedPolyline: route.overview_polyline?.points, bounds: route.bounds,
-    });
-  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    if (!leg) return res.status(400).json({ error: 'No routes found' });
+
+    res.json(response.data);
+  } catch (err) {
+    console.error('Directions API Error:', err.response?.data || err.message);
+    res.status(500).send('Failed');
+  }
 });
 
 router.post('/weather', async (req, res) => {
