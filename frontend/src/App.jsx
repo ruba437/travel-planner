@@ -63,7 +63,7 @@ function App() {
   const hasAppliedPrefill = useRef(false);
 
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
+    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。' },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -100,63 +100,58 @@ function App() {
   }, [itineraryUuidParam]);
 
   const fetchTravelTime = async (originItem, destItem, token, mode = 'TRANSIT') => {
-    // 1. 如果資料不存在，直接退回 30 分鐘
-    if (!originItem || !destItem) return 30;
+  if (!originItem || !destItem) return 15; // 找不到資料退回 15 分鐘
 
-    // 2. 更聰明的取值邏輯
-    const getPayload = (item) => {
-      // 優先使用精確的經緯度
-      if (item.location && item.location.lat && item.location.lng) {
-        return { lat: item.location.lat, lng: item.location.lng };
-      }
-      // 如果沒有經緯度，檢查是否有具體名稱 (過濾掉純符號或空字串)
-      if (item.name && typeof item.name === 'string' && item.name.trim() !== '') {
-        const name = item.name.trim();
-        // 可以選擇性過濾掉一些明顯無法導航的 AI 常用語
-        if (['自由活動', '休息', '回飯店'].includes(name)) return null;
-        return name;
-      }
-      return null;
-    };
-
-    const originPayload = getPayload(originItem);
-    const destPayload = getPayload(destItem);
-
-    // 3. 如果任一點無法辨識，直接預設 30 分鐘，不打 API 避免 400 報錯
-    if (!originPayload || !destPayload) return 30;
-
-    try {
-      const res = await fetch(`${API_BASE}/api/directions`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` 
-        },
-        body: JSON.stringify({
-          origin: originPayload,
-          destination: destPayload,
-          mode
-        })
-      });
-      
-      // 4. 如果後端回傳 400 (例如 Google 找不到兩點間的路線)，我們安靜地退回 30 分鐘
-      if (!res.ok) {
-        // 不拋出 Error，直接 return
-        return 30; 
-      }
-      
-      const data = await res.json();
-      if (data.routes && data.routes.length > 0) {
-        const durationSeconds = data.routes[0].legs[0].duration.value;
-        return Math.ceil(durationSeconds / 60); // 成功取得交通時間
-      }
-    } catch (error) {
-      // 只有在網路斷線等嚴重錯誤時才會走到這裡
-      console.warn(`[交通時間計算] 無法取得時間，使用預設值。原因: ${error.message}`);
+  const getPayload = (item) => {
+    if (item.location && item.location.lat && item.location.lng) {
+      return { lat: item.location.lat, lng: item.location.lng };
     }
-    
-    return 30; // 最終保底
+    if (item.name && typeof item.name === 'string' && item.name.trim() !== '') {
+      const name = item.name.trim();
+      if (['自由活動', '休息', '回飯店'].includes(name)) return null;
+      return name;
+    }
+    return null;
   };
+
+  const originPayload = getPayload(originItem);
+  const destPayload = getPayload(destItem);
+
+  if (!originPayload || !destPayload) return 15; // 預設 15 分鐘
+
+  try {
+    const res = await fetch(`${API_BASE}/api/directions`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` 
+      },
+      body: JSON.stringify({
+        origin: originPayload,
+        destination: destPayload,
+        mode
+      })
+    });
+    
+    if (!res.ok) return 15; // 發生 400 錯誤等狀況，退回 15 分鐘
+    
+    const data = await res.json();
+    if (data.routes && data.routes.length > 0) {
+      const durationSeconds = data.routes[0].legs[0].duration.value;
+      const rawMinutes = Math.ceil(durationSeconds / 60);
+      
+      // 以 15 分鐘為單位進位
+      let roundedMinutes = Math.ceil(rawMinutes / 15) * 15;
+      if (roundedMinutes === 0) roundedMinutes = 15;
+
+      return roundedMinutes;
+    }
+  } catch (error) {
+    console.warn(`[交通時間計算] 無法取得時間: ${error.message}`);
+  }
+  
+  return 15; // 最終保底 15 分鐘
+};
 
   const loadItinerary = async (uuid) => {
     setIsLoadingItinerary(true);
@@ -287,21 +282,34 @@ function App() {
       setMessages([...newHistory, { role: 'assistant', content: safeContent }]);
       
       if (data.plan) {
-        if (data.plan.days && Array.isArray(data.plan.days)) {
-          // 👉 加上 await Promise.all 以及 async (day) => {...}
-          data.plan.days = await Promise.all(
-            data.plan.days.map(async (day) => {
-              let baseTime = '09:00';
-              if (day.items && day.items.length > 0 && day.items[0].time) {
-                baseTime = day.items[0].time.split('~')[0];
-              }
-              // 👉 加上 await，並且傳入 token
-              const recalculatedItems = await recalculateDayTimesAsync(day.items || [], baseTime, token);
-              return { ...day, items: recalculatedItems };
-            })
-          );
-        }
-        setPlan(data.plan);
+      if (data.plan.days && Array.isArray(data.plan.days)) {
+        data.plan.days = await Promise.all(
+          data.plan.days.map(async (day) => {
+            const validItems = (day.items || []).filter(item => {
+              if (!item.name) return false;
+              const blockList = ['捷運', '回到住宿', '休息', '搭乘', '前往', '步行至', '交通'];
+              const isBlocked = blockList.some(keyword => item.name.includes(keyword));
+              const isBracketTransit = item.name.startsWith('[') && (item.name.includes('至') || item.name.includes('回'));
+              return !isBlocked && !isBracketTransit; 
+            });
+
+            // 👉 1. 設定每日的起始時間 (保留日後可擴充的彈性)
+            // 如果 AI 有傳 startTime 就用，沒有的話就強制預設 09:00
+            const dayStartTime = day.startTime || '09:00'; 
+            
+            // 👉 2. 將 validItems 和 dayStartTime 丟給時間計算函式
+            const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, token);
+            
+            // 👉 3. 回傳時，把 startTime 記錄到 day 物件裡
+            return { 
+              ...day, 
+              startTime: dayStartTime, 
+              items: recalculatedItems 
+            };
+          })
+        );
+      }
+      setPlan(data.plan);
         if (data.plan.totalBudget) setTotalBudget(data.plan.totalBudget);
         setWeatherData(null);
       }
@@ -517,8 +525,8 @@ function App() {
     const newPlan = { ...plan };
     const sourceDayIdx = parseInt(source.droppableId.split('-')[1], 10);
     const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
-    const destDayStartTime = getTrueStartTime(destDayIdx);
-    const sourceDayStartTime = getTrueStartTime(sourceDayIdx);
+    const destDayStartTime = newPlan.days[destDayIdx].startTime || '09:00';
+    const sourceDayStartTime = newPlan.days[sourceDayIdx].startTime || '09:00';
     const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
     const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
     const [movedItem] = sourceItems.splice(source.index, 1);
@@ -589,13 +597,15 @@ function App() {
     let nextDays = plan.days;
     
     if (Array.isArray(plan.days)) {
-      // 使用 Promise.all 等待所有天數的行程都計算完畢
       nextDays = await Promise.all(
         plan.days.map(async (day) => {
-          // 3. 呼叫新的非同步函式，並加上 await (如果你的函式需要 token 參數，記得補上)
-          const recalculatedItems = await recalculateDayTimesAsync(day.items || [], nextStartTime, token);
+          // 👉 取得該天專屬的出發時間，如果沒有才退回行程預設時間或 09:00
+          const dayStartTime = day.startTime || nextStartTime || '09:00';
+          
+          const recalculatedItems = await recalculateDayTimesAsync(day.items || [], dayStartTime, token);
           return { 
             ...day, 
+            startTime: dayStartTime, 
             items: recalculatedItems 
           };
         })
