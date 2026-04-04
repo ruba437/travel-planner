@@ -295,15 +295,13 @@ function App() {
 
             // 👉 1. 設定每日的起始時間 (保留日後可擴充的彈性)
             // 如果 AI 有傳 startTime 就用，沒有的話就強制預設 09:00
-            const dayStartTime = day.startTime || '09:00'; 
-            
-            // 👉 2. 將 validItems 和 dayStartTime 丟給時間計算函式
-            const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, token);
-            
-            // 👉 3. 回傳時，把 startTime 記錄到 day 物件裡
+            const dayStartTime = day.startTime || '09:00';
+            const mode = day.transportMode || 'TRANSIT'; 
+            const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, token, mode);
             return { 
               ...day, 
               startTime: dayStartTime, 
+              transportMode: mode, 
               items: recalculatedItems 
             };
           })
@@ -427,7 +425,8 @@ function App() {
             if (nextDuration <= 0) nextDuration = 120;
           }
         }
-        const travelTime = await fetchTravelTime(newItems[i - 1], nextItem, token);
+        const mode = newPlan.days[dayIdx].transportMode || 'TRANSIT';
+        const travelTime = await fetchTravelTime(newItems[i - 1], nextItem, token, mode);
 
         const [currH, currM] = currentEndTime.split(':').map(Number);
         const startDate = new Date(); 
@@ -466,7 +465,7 @@ function App() {
     return normalizeTimeValue(plan?.startTime, DEFAULT_DAY_START_TIME);
   };
 
-  const recalculateDayTimesAsync = async (items, dayStartTime = '09:00', token) => {
+  const recalculateDayTimesAsync = async (items, dayStartTime = '09:00', token, mode = 'TRANSIT') => {
     if (!items || items.length === 0) return items;
     
     let currentStartTime = dayStartTime;
@@ -479,7 +478,7 @@ function App() {
       let travelTime = 0;
       if (i > 0) {
         const prevItem = newItems[i - 1];
-        travelTime = await fetchTravelTime(prevItem, item, token);
+        travelTime = await fetchTravelTime(prevItem, item, token, mode);
       }
 
       // 將抵達時間往後推 travelTime 分鐘
@@ -530,12 +529,14 @@ function App() {
     const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
     const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
     const [movedItem] = sourceItems.splice(source.index, 1);
+    const sourceMode = newPlan.days[sourceDayIdx].transportMode || 'TRANSIT';
+    const destMode = newPlan.days[destDayIdx].transportMode || 'TRANSIT';
     destItems.splice(destination.index, 0, movedItem);
     if (sourceDayIdx === destDayIdx) {
-      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, destDayStartTime, token);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token, sourceMode);
     } else {
-      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token);
-      newPlan.days[destDayIdx].items = await recalculateDayTimesAsync(destItems, destDayStartTime, token);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token, sourceMode);
+      newPlan.days[destDayIdx].items = await recalculateDayTimesAsync(destItems, destDayStartTime, token, destMode);
     }
     setPlan(newPlan);
   };
@@ -634,6 +635,22 @@ function App() {
       const next = prev.filter((item) => item.id !== id);
       return next.length > 0 ? next : DEFAULT_CHECKLIST;
     });
+  };
+
+  const handleTransportModeChange = async (dayIdx, newMode) => {
+    if (!plan) return;
+    const newPlan = { ...plan, days: [...plan.days] };
+    const day = newPlan.days[dayIdx];
+
+    // 1. 更新該天的交通方式
+    day.transportMode = newMode;
+
+    // 2. 依照新的交通方式，重新計算整天的行程時間
+    const dayStartTime = day.startTime || '09:00';
+    day.items = await recalculateDayTimesAsync(day.items || [], dayStartTime, token, newMode);
+
+    // 3. 更新畫面
+    setPlan(newPlan);
   };
 
   return (
@@ -955,6 +972,22 @@ function App() {
                                   </svg>
                                 </button>
                               </div>
+                            </div>
+
+                            <div className="day-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <h3 className="az-day-title">Day {dayIdx + 1} {day.date ? `(${day.date})` : ''}</h3>
+                              
+                              {/* 👉 交通方式切換下拉選單 */}
+                              <select 
+                                value={day.transportMode || 'TRANSIT'} 
+                                onChange={(e) => handleTransportModeChange(dayIdx, e.target.value)}
+                                style={{ padding: '4px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '14px' }}
+                              >
+                                <option value="TRANSIT">🚆 大眾運輸</option>
+                                <option value="DRIVING">🚗 開車</option>
+                                <option value="WALKING">🚶 步行</option>
+                                <option value="BICYCLING">🚲 騎車</option>
+                              </select>
                             </div>
 
                             <Droppable droppableId={`day-${dayIdx}`}>
