@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════
-   AIZZIE-STYLE DESIGN SYSTEM
+   AIZZIE-STYLE DESIGN SYSTEM (改进版 Pre-trip Prep List)
    ════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
@@ -95,15 +95,6 @@ input, textarea { font-family: var(--font); }
   letter-spacing: -0.3px;
 }
 
-.az-sidebar-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 18px 16px 14px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
 .az-logo-icon {
   width: 34px;
   height: 34px;
@@ -117,15 +108,6 @@ input, textarea { font-family: var(--font); }
   color: white;
   font-weight: 700;
   flex-shrink: 0;
-}
-
-.az-logo-text {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .az-beta-badge {
@@ -145,9 +127,7 @@ input, textarea { font-family: var(--font); }
   gap: 2px;
 }
 
-.az-nav-spacer {
-  flex: 1;
-}
+.az-nav-spacer { flex: 1; }
 
 .az-feedback {
   margin: 0 8px;
@@ -174,22 +154,6 @@ input, textarea { font-family: var(--font); }
 .az-nav-item:hover { background: var(--bg); color: var(--text); }
 .az-nav-item--active { background: var(--bg); color: var(--text); font-weight: 600; }
 
-.az-nav-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-}
-
-.az-sidebar-bottom {
-  padding: 8px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .az-user-row {
   display: flex;
   align-items: center;
@@ -201,25 +165,9 @@ input, textarea { font-family: var(--font); }
   transition: background 0.12s;
 }
 
-.az-user-row:hover {
-  background: #f3f4f6;
-}
+.az-user-row:hover { background: #f3f4f6; }
 
 .az-avatar {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  border-radius: 50%;
-  background: #f97316;
-  color: white;
-  font-size: 14px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.az-user-avatar {
   width: 32px;
   height: 32px;
   min-width: 32px;
@@ -439,9 +387,7 @@ input, textarea { font-family: var(--font); }
 }
 
 .az-hero-edit-input[type="date"],
-.az-hero-edit-input[type="time"] {
-  color-scheme: dark;
-}
+.az-hero-edit-input[type="time"] { color-scheme: dark; }
 
 .az-hero-edit-input::placeholder { color: rgba(255,255,255,.75); }
 
@@ -502,11 +448,7 @@ input, textarea { font-family: var(--font); }
 }
 
 .az-tab:hover { color: var(--text); }
-
-.az-tab--active {
-  color: var(--text);
-  font-weight: 600;
-}
+.az-tab--active { color: var(--text); font-weight: 600; }
 
 .az-tab--active::after {
   content: '';
@@ -532,107 +474,362 @@ input, textarea { font-family: var(--font); }
 .az-tab-content::-webkit-scrollbar { width: 4px; }
 .az-tab-content::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
 
-/* ── NOTES ── */
-.az-notes-input {
-  width: 100%;
-  min-height: 80px;
+/* ── SECTION ── */
+.az-section {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
-  font-size: 13.5px;
-  color: var(--text);
-  resize: vertical;
-  outline: none;
-  background: var(--bg);
-  transition: border-color var(--transition);
+  overflow: hidden;
+  background: var(--surface);
 }
-
-.az-notes-input::placeholder { color: var(--text-muted); }
-.az-notes-input:focus { border-color: var(--brand-teal); background: var(--surface); }
-
-/* ── SECTION ── */
-.az-section { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 
 .az-section-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px 14px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  background: var(--surface);
+  background: #fafbfc;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
 }
 
-.az-checklist { padding: 4px 14px 8px; display: flex; flex-direction: column; gap: 4px; }
+/* ════════════════════════════════════════════
+   PRE-TRIP PREP LIST
+   ════════════════════════════════════════════ */
 
-.az-check-row {
+.az-pretrip-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.az-pretrip-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 2px;
+  margin-bottom: 4px;
+}
+
+.az-pretrip-header-right {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.az-pretrip-title {
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.az-pretrip-count {
+  font-size: 18px;
+  font-weight: 600;
+  color: #7a7f86;
+  letter-spacing: -0.2px;
+}
+
+.az-pretrip-progress-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  font-size: 13.5px;
-  color: var(--text);
-  cursor: pointer;
+  gap: 10px;
+  margin-top: -2px;
 }
 
-.az-check-delete {
-  margin-left: auto;
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--border);
+.az-pretrip-progress {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.az-pretrip-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #14b8a6 0%, #0ea5e9 100%);
+  transition: width 0.2s ease;
+}
+
+.az-pretrip-progress-text {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+/* ── 清单容器 ── */
+.az-pretrip-list {
+  border: 1px solid #d9dde3;
+  border-radius: 18px;
+  background: #fff;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.az-pretrip-empty {
+  padding: 34px 16px;
+  font-size: 14px;
+  color: #9ca3af;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* ── 清单行（项目）── */
+.az-pretrip-row {
+  display: grid;
+  grid-template-columns: 16px 28px 1fr auto;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+  border-radius: 0;
+  background: #fff;
+  margin-bottom: 0;
+  transition: background 0.15s ease;
+}
+
+.az-pretrip-row:hover { background: #f8fafc; }
+
+.az-pretrip-row:last-child { border-bottom: none; }
+
+.az-pretrip-row--done { background: #fcfcfd; }
+
+/* Adding row variant — no bottom border on hover artifact */
+.az-pretrip-row--adding {
+  background: #f8fffe;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.az-pretrip-row--adding:hover { background: #f8fffe; }
+
+/* ── 拖拽手柄 ── */
+.az-pretrip-handle {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, 4px);
+  grid-template-rows: repeat(3, 4px);
+  gap: 3px;
+  opacity: 0.55;
+  cursor: grab;
+}
+
+.az-pretrip-handle:active { cursor: grabbing; opacity: 0.75; }
+
+.az-pretrip-handle span {
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: var(--bg);
-  color: var(--text-muted);
+  background: #c3c8d0;
+  display: block;
+}
+
+/* ── 复选框 ── */
+.az-pretrip-checkbox {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 8px;
+  border: 1.5px solid #d1d5db;
+  background: #fff;
+  margin-top: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.az-pretrip-checkbox:checked {
+  background: #111827;
+  border-color: #111827;
+}
+
+.az-pretrip-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 6px;
+  height: 11px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.az-pretrip-checkbox:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ── 清单内容 ── */
+.az-pretrip-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 清单项目文本 */
+.az-pretrip-text {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  font-size: 15px;
+  line-height: 1.52;
+  color: #111827;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.az-pretrip-text.is-done {
+  text-decoration: line-through;
+  color: #9ca3af;
+  opacity: 0.9;
+}
+
+/* 编辑输入框（共用于 edit existing & new item） */
+.az-pretrip-edit-input {
+  width: 100%;
+  min-height: 60px;
+  border: 2px solid #3cbdb1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #111827;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(60, 189, 177, 0.12);
+  resize: vertical;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+/* New item input — slightly different min-height */
+.az-pretrip-edit-input--new {
+  min-height: 48px;
+  font-weight: 400;
+}
+
+/* ── 操作按钮组 ── */
+.az-pretrip-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 0;
+}
+
+.az-pretrip-action {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #4b5563;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 11px;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-size: 14px;
+  font-weight: 500;
 }
 
-.az-check-delete:hover {
-  color: #ef4444;
-  border-color: #fecaca;
-  background: #fff5f5;
-}
+.az-pretrip-action:hover:not(:disabled) { background: #f3f4f6; color: #1f2937; }
+.az-pretrip-action:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.az-check-add-row {
+.az-pretrip-action--bell { color: #374151; }
+
+.az-pretrip-action--bell.is-active { color: #b45309; background: #fffbeb; }
+.az-pretrip-action--bell.is-active:hover { background: #fef3c7; }
+
+.az-pretrip-action--save { color: #059669; }
+.az-pretrip-action--save:hover:not(:disabled) { background: #d1fae5; }
+
+.az-pretrip-action--delete { color: #374151; font-size: 20px; line-height: 1; }
+.az-pretrip-action--delete:hover:not(:disabled) { background: #f3f4f6; }
+
+/* ════════════════════════════════════════════
+   ADD ITEM TRIGGER ROW (matches screenshot)
+   ════════════════════════════════════════════ */
+.az-pretrip-add-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.az-check-input {
-  flex: 1;
-  min-width: 0;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 10px;
-  font-size: 13px;
-  outline: none;
-  background: var(--bg);
-}
-
-.az-check-input:focus { border-color: var(--brand-teal); }
-
-.az-check-row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--brand-teal);
+  gap: 12px;
+  width: 100%;
+  padding: 16px 20px;
+  border: none;
+  background: #fff;
   cursor: pointer;
+  transition: background 0.15s ease;
+  text-align: left;
 }
 
-.az-check-done { text-decoration: line-through; color: var(--text-muted); }
+.az-pretrip-add-trigger:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.az-pretrip-add-trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.az-pretrip-add-trigger-icon {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 8px;
+  border: 1.5px solid #d1d5db;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  transition: border-color 0.15s, color 0.15s;
+  margin-left: 30px; /* align with checkbox column */
+}
+
+.az-pretrip-add-trigger:hover .az-pretrip-add-trigger-icon {
+  border-color: #9ca3af;
+  color: #6b7280;
+}
+
+.az-pretrip-add-trigger-label {
+  font-size: 15px;
+  font-weight: 500;
+  color: #9ca3af;
+  transition: color 0.15s;
+}
+
+.az-pretrip-add-trigger:hover .az-pretrip-add-trigger-label {
+  color: #6b7280;
+}
+
+/* ── 限制提示 ── */
+.az-pretrip-limit-tip {
+  font-size: 12.5px;
+  color: #b45309;
+  padding: 12px 20px;
+  background: #fffbeb;
+  border-top: 1px solid #fef3c7;
+  font-weight: 500;
+}
 
 .az-empty-section { padding: 12px 14px; color: var(--text-muted); font-size: 13px; }
 
 /* ── BUDGET ── */
 .az-budget-body { padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
-
 .az-budget-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 
 .az-budget-input {
@@ -650,30 +847,31 @@ input, textarea { font-family: var(--font); }
 
 .az-budget-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
 .az-budget-bar { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
-
 .az-budget-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); }
 .az-over { color: #ef4444 !important; font-weight: 600; }
 .az-under { color: #10b981 !important; }
 
-/* ── ADD ITEM BUTTON ── */
+/* ── ADD ITEM BUTTON (itinerary tab) ── */
 .az-add-item-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   background: none;
   border: none;
   color: var(--text-secondary);
   font-size: 13px;
-  padding: 6px 14px;
+  font-weight: 500;
+  padding: 8px 12px;
   cursor: pointer;
-  transition: color var(--transition);
+  transition: color var(--transition), background var(--transition);
+  border-radius: var(--radius-sm);
 }
 
-.az-add-item-btn:hover { color: var(--text); }
+.az-add-item-btn:hover { color: var(--brand-teal); background: var(--bg); }
 
 .az-add-item-btn--day {
-  margin-top: 4px;
-  padding: 8px 0;
+  margin-top: 8px;
+  padding: 10px 0;
   width: 100%;
   justify-content: flex-start;
   font-weight: 500;
@@ -720,12 +918,7 @@ input, textarea { font-family: var(--font); }
 .az-day-tab-num { font-size: 11px; opacity: .7; }
 
 /* ── ITINERARY HEADING ── */
-.az-itinerary-heading {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 4px;
-}
+.az-itinerary-heading { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 
 /* ── DAY BLOCK ── */
 .az-day-block { display: flex; flex-direction: column; gap: 8px; }
@@ -747,7 +940,6 @@ input, textarea { font-family: var(--font); }
 }
 
 .az-day-theme { font-weight: 400; color: var(--text-secondary); }
-
 .az-day-block-meta { display: flex; align-items: center; gap: 8px; }
 .az-weather { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 3px; }
 
@@ -803,13 +995,7 @@ input, textarea { font-family: var(--font); }
   flex-shrink: 0;
 }
 
-.az-item-type-badge {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 20px;
-}
-
+.az-item-type-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; }
 .az-item-cost { font-size: 11.5px; color: var(--text-secondary); font-weight: 500; }
 
 /* ── EMPTY ── */
@@ -897,7 +1083,6 @@ input, textarea { font-family: var(--font); }
 .az-ai-msg--bot { background: var(--bg); color: var(--text); border-radius: 4px 12px 12px 12px; align-self: flex-start; }
 .az-ai-msg--user { background: var(--text); color: white; border-radius: 12px 4px 12px 12px; align-self: flex-end; }
 
-/* Typing indicator */
 .az-ai-typing { display: flex; gap: 4px; align-items: center; padding: 12px !important; }
 .az-ai-typing span {
   width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
@@ -911,7 +1096,6 @@ input, textarea { font-family: var(--font); }
   30% { transform: translateY(-4px); opacity: 1; }
 }
 
-/* Quick chips */
 .az-ai-quick {
   display: flex;
   flex-wrap: wrap;
@@ -1049,6 +1233,12 @@ input, textarea { font-family: var(--font); }
   .az-trip-panel { width: 340px; min-width: 300px; }
   .az-ai-panel { left: calc(var(--sidebar-w-collapsed) + 12px); width: 320px; }
   .az-hero-edit-grid { grid-template-columns: 1fr; }
+  .az-pretrip-title { font-size: 24px; }
+  .az-pretrip-header { align-items: flex-start; }
+  .az-pretrip-header-right { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .az-pretrip-row { grid-template-columns: 14px 24px 1fr auto; padding: 16px 14px; gap: 10px; }
+  .az-pretrip-text { font-size: 14px; }
+  .az-pretrip-add-trigger-icon { margin-left: 24px; }
 }
 
 @media (max-width: 640px) {

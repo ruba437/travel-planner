@@ -234,6 +234,7 @@ CREATE TABLE public.itinerary_checklist_items (
   itinerary_uuid character varying NOT NULL,
   item_text character varying NOT NULL,
   is_checked boolean DEFAULT false,
+  is_reminder boolean DEFAULT false,
   sort_order integer DEFAULT 0,
   createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
