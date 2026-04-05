@@ -86,7 +86,7 @@ function App() {
   const hasAppliedPrefill = useRef(false);
 
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
+    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。' },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -136,6 +136,60 @@ function App() {
       addInputRef.current.focus();
     }
   }, [isAddingItem]);
+
+  const fetchTravelTime = async (originItem, destItem, token, mode = 'TRANSIT') => {
+  if (!originItem || !destItem) return 15; // 找不到資料退回 15 分鐘
+
+  const getPayload = (item) => {
+    if (item.location && item.location.lat && item.location.lng) {
+      return { lat: item.location.lat, lng: item.location.lng };
+    }
+    if (item.name && typeof item.name === 'string' && item.name.trim() !== '') {
+      const name = item.name.trim();
+      if (['自由活動', '休息', '回飯店'].includes(name)) return null;
+      return name;
+    }
+    return null;
+  };
+
+  const originPayload = getPayload(originItem);
+  const destPayload = getPayload(destItem);
+
+  if (!originPayload || !destPayload) return 15; // 預設 15 分鐘
+
+  try {
+    const res = await fetch(`${API_BASE}/api/directions`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` 
+      },
+      body: JSON.stringify({
+        origin: originPayload,
+        destination: destPayload,
+        mode
+      })
+    });
+    
+    if (!res.ok) return 15; // 發生 400 錯誤等狀況，退回 15 分鐘
+    
+    const data = await res.json();
+    if (data.routes && data.routes.length > 0) {
+      const durationSeconds = data.routes[0].legs[0].duration.value;
+      const rawMinutes = Math.ceil(durationSeconds / 60);
+      
+      // 以 15 分鐘為單位進位
+      let roundedMinutes = Math.ceil(rawMinutes / 15) * 15;
+      if (roundedMinutes === 0) roundedMinutes = 15;
+
+      return roundedMinutes;
+    }
+  } catch (error) {
+    console.warn(`[交通時間計算] 無法取得時間: ${error.message}`);
+  }
+  
+  return 15; // 最終保底 15 分鐘
+};
 
   const loadItinerary = async (uuid) => {
     setIsLoadingItinerary(true);
@@ -286,17 +340,34 @@ function App() {
       if (!res.ok || data.error) throw new Error(data.error || '後端回傳錯誤');
       const safeContent = data.content || '行程已為您更新，請查看右側地圖與列表。';
       setMessages([...newHistory, { role: 'assistant', content: safeContent }]);
+      
       if (data.plan) {
-        if (data.plan.days && Array.isArray(data.plan.days)) {
-          data.plan.days = data.plan.days.map((day) => {
-            let baseTime = '09:00';
-            if (day.items && day.items.length > 0 && day.items[0].time) {
-              baseTime = day.items[0].time.split('~')[0];
-            }
-            return { ...day, items: recalculateDayTimes(day.items, baseTime) };
-          });
-        }
-        setPlan(data.plan);
+      if (data.plan.days && Array.isArray(data.plan.days)) {
+        data.plan.days = await Promise.all(
+          data.plan.days.map(async (day) => {
+            const validItems = (day.items || []).filter(item => {
+              if (!item.name) return false;
+              const blockList = ['捷運', '回到住宿', '休息', '搭乘', '前往', '步行至', '交通'];
+              const isBlocked = blockList.some(keyword => item.name.includes(keyword));
+              const isBracketTransit = item.name.startsWith('[') && (item.name.includes('至') || item.name.includes('回'));
+              return !isBlocked && !isBracketTransit; 
+            });
+
+            // 👉 1. 設定每日的起始時間 (保留日後可擴充的彈性)
+            // 如果 AI 有傳 startTime 就用，沒有的話就強制預設 09:00
+            const dayStartTime = day.startTime || '09:00';
+            const mode = day.transportMode || 'TRANSIT'; 
+            const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, token, mode);
+            return { 
+              ...day, 
+              startTime: dayStartTime, 
+              transportMode: mode, 
+              items: recalculatedItems 
+            };
+          })
+        );
+      }
+      setPlan(data.plan);
         if (data.plan.totalBudget) setTotalBudget(data.plan.totalBudget);
         setWeatherData(null);
       }
@@ -430,7 +501,7 @@ function App() {
     setPlan(newPlan);
   };
 
-  const handleAddLocationFromMap = (locationData) => {
+  const handleAddLocationFromMap = async (locationData) => {
     if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
       alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
       return;
@@ -439,12 +510,12 @@ function App() {
     const newPlan = { ...plan, days: [...plan.days] };
     const dayItems = [...(plan.days[targetDayIdx].items || [])];
     dayItems.push({ name: locationData.name, type: locationData.type || 'sight', time: '', cost: 0, note: `手動從地圖加入 (第 ${targetDayIdx + 1} 天)`, location: { lat: locationData.lat, lng: locationData.lng } });
-    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: recalculateDayTimes(dayItems, getTrueStartTime(targetDayIdx)) };
+    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: await recalculateDayTimesAsync(dayItems, getTrueStartTime(targetDayIdx)) };
     setPlan(newPlan);
     setActiveLocation({ day: targetDayIdx + 1, order: dayItems.length - 1 });
   };
 
-  const updateActivityTime = (dayIdx, itemIdx, newTime) => {
+  const updateActivityTime = async (dayIdx, itemIdx, newTime) => {
     if (!plan) return;
     const newPlan = { ...plan, days: [...plan.days] };
     const newItems = [...plan.days[dayIdx].items];
@@ -478,16 +549,24 @@ function App() {
             if (nextDuration <= 0) nextDuration = 120;
           }
         }
+        const mode = newPlan.days[dayIdx].transportMode || 'TRANSIT';
+        const travelTime = await fetchTravelTime(newItems[i - 1], nextItem, token, mode);
+
         const [currH, currM] = currentEndTime.split(':').map(Number);
-        const startDate = new Date(); startDate.setHours(currH, currM + 30, 0, 0);
+        const startDate = new Date(); 
+        startDate.setHours(currH, currM + travelTime, 0, 0); // 這裡替換掉原來的 30
+        
         const newStartStr = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
-        const endDate = new Date(startDate); endDate.setMinutes(endDate.getMinutes() + nextDuration);
+        const endDate = new Date(startDate); 
+        endDate.setMinutes(endDate.getMinutes() + nextDuration);
         const newEndStr = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+        
         nextItem.time = `${newStartStr}~${newEndStr}`;
         newItems[i] = nextItem;
         currentEndTime = newEndStr;
       }
     }
+    
     newPlan.days[dayIdx] = { ...plan.days[dayIdx], items: newItems };
     setPlan(newPlan);
   };
@@ -519,45 +598,78 @@ function App() {
     return normalizeTimeValue(plan?.startTime, DEFAULT_DAY_START_TIME);
   };
 
-  const recalculateDayTimes = (items, dayStartTime = '09:00') => {
+  const recalculateDayTimesAsync = async (items, dayStartTime = '09:00', token, mode = 'TRANSIT') => {
     if (!items || items.length === 0) return items;
+    
     let currentStartTime = dayStartTime;
-    return items.map((item) => {
+    const newItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = { ...items[i] };
+      
+      // 計算交通時間（第一個行程不用加上交通時間）
+      let travelTime = 0;
+      if (i > 0) {
+        const prevItem = newItems[i - 1];
+        travelTime = await fetchTravelTime(prevItem, item, token, mode);
+      }
+
+      // 將抵達時間往後推 travelTime 分鐘
+      if (i > 0) {
+        const [currH, currM] = currentStartTime.split(':').map(Number);
+        const arrivalDate = new Date(); 
+        arrivalDate.setHours(currH, currM + travelTime, 0, 0);
+        currentStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
+      }
+
+      // 計算停留時間 (預設 120 分鐘)
       let durationMinutes = 120;
       if (item.time && item.time.includes('~')) {
         const [oldStart, oldEnd] = item.time.split('~');
-        const [sH, sM] = oldStart.split(':').map(Number); const [eH, eM] = oldEnd.split(':').map(Number);
-        if (!isNaN(sH) && !isNaN(eH)) { durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); if (durationMinutes <= 0) durationMinutes = 120; }
+        const [sH, sM] = oldStart.split(':').map(Number); 
+        const [eH, eM] = oldEnd.split(':').map(Number);
+        if (!isNaN(sH) && !isNaN(eH)) { 
+          durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); 
+          if (durationMinutes <= 0) durationMinutes = 120; 
+        }
       }
-      const [currH, currM] = currentStartTime.split(':').map(Number);
-      const arrivalDate = new Date(); arrivalDate.setHours(currH, currM + 30, 0, 0);
-      const assignedStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
-      const [h, m] = assignedStartTime.split(':').map(Number);
-      const endDate = new Date(); endDate.setHours(h, m + durationMinutes, 0, 0);
-      const assignedEndTime = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+
+      const assignedStartTime = currentStartTime;
+      const [startH, startM] = assignedStartTime.split(':').map(Number);
+      const assignedEndDate = new Date(); 
+      assignedEndDate.setHours(startH, startM + durationMinutes, 0, 0);
+      const assignedEndTime = `${assignedEndDate.getHours().toString().padStart(2, '0')}:${assignedEndDate.getMinutes().toString().padStart(2, '0')}`;
+      
+      item.time = `${assignedStartTime}~${assignedEndTime}`;
+      newItems.push(item);
+      
+      // 下一個行程的起算時間
       currentStartTime = assignedEndTime;
-      return { ...item, time: `${assignedStartTime}~${assignedEndTime}` };
-    });
+    }
+    
+    return newItems;
   };
 
-  const onDragEnd = (result) => {
+  const onDragEnd = async (result) => {
     const { source, destination } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
     const newPlan = { ...plan };
     const sourceDayIdx = parseInt(source.droppableId.split('-')[1], 10);
     const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
-    const destDayStartTime = getTrueStartTime(destDayIdx);
-    const sourceDayStartTime = getTrueStartTime(sourceDayIdx);
+    const destDayStartTime = newPlan.days[destDayIdx].startTime || '09:00';
+    const sourceDayStartTime = newPlan.days[sourceDayIdx].startTime || '09:00';
     const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
     const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
     const [movedItem] = sourceItems.splice(source.index, 1);
+    const sourceMode = newPlan.days[sourceDayIdx].transportMode || 'TRANSIT';
+    const destMode = newPlan.days[destDayIdx].transportMode || 'TRANSIT';
     destItems.splice(destination.index, 0, movedItem);
     if (sourceDayIdx === destDayIdx) {
-      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, destDayStartTime);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token, sourceMode);
     } else {
-      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, sourceDayStartTime);
-      newPlan.days[destDayIdx].items = recalculateDayTimes(destItems, destDayStartTime);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token, sourceMode);
+      newPlan.days[destDayIdx].items = await recalculateDayTimesAsync(destItems, destDayStartTime, token, destMode);
     }
     setPlan(newPlan);
   };
@@ -606,7 +718,7 @@ function App() {
     setIsEditingHero(false);
   };
 
-  const handleHeroEditSave = () => {
+  const handleHeroEditSave = async () => {
     if (!plan) {
       setIsEditingHero(false);
       return;
@@ -614,9 +726,25 @@ function App() {
     const nextTripName = tripNameInput.trim();
     const nextStartDate = tripStartDateInput || null;
     const nextStartTime = normalizeTimeValue(tripStartTimeInput, normalizeTimeValue(plan.startTime, DEFAULT_DAY_START_TIME));
-    const nextDays = Array.isArray(plan.days)
-      ? plan.days.map((day) => ({ ...day, items: recalculateDayTimes(day.items || [], nextStartTime) }))
-      : plan.days;
+    
+    // 2. 處理非同步的 days 計算
+    let nextDays = plan.days;
+    
+    if (Array.isArray(plan.days)) {
+      nextDays = await Promise.all(
+        plan.days.map(async (day) => {
+          // 👉 取得該天專屬的出發時間，如果沒有才退回行程預設時間或 09:00
+          const dayStartTime = day.startTime || nextStartTime || '09:00';
+          
+          const recalculatedItems = await recalculateDayTimesAsync(day.items || [], dayStartTime, token);
+          return { 
+            ...day, 
+            startTime: dayStartTime, 
+            items: recalculatedItems 
+          };
+        })
+      );
+    }
 
     setPlan({
       ...plan,
@@ -910,6 +1038,22 @@ function App() {
     } finally {
       setIsChecklistSyncing(false);
     }
+  };
+
+  const handleTransportModeChange = async (dayIdx, newMode) => {
+    if (!plan) return;
+    const newPlan = { ...plan, days: [...plan.days] };
+    const day = newPlan.days[dayIdx];
+
+    // 1. 更新該天的交通方式
+    day.transportMode = newMode;
+
+    // 2. 依照新的交通方式，重新計算整天的行程時間
+    const dayStartTime = day.startTime || '09:00';
+    day.items = await recalculateDayTimesAsync(day.items || [], dayStartTime, token, newMode);
+
+    // 3. 更新畫面
+    setPlan(newPlan);
   };
 
   return (
@@ -1362,6 +1506,22 @@ function App() {
                                   </svg>
                                 </button>
                               </div>
+                            </div>
+
+                            <div className="day-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <h3 className="az-day-title">Day {dayIdx + 1} {day.date ? `(${day.date})` : ''}</h3>
+                              
+                              {/* 👉 交通方式切換下拉選單 */}
+                              <select 
+                                value={day.transportMode || 'TRANSIT'} 
+                                onChange={(e) => handleTransportModeChange(dayIdx, e.target.value)}
+                                style={{ padding: '4px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '14px' }}
+                              >
+                                <option value="TRANSIT">🚆 大眾運輸</option>
+                                <option value="DRIVING">🚗 開車</option>
+                                <option value="WALKING">🚶 步行</option>
+                                <option value="BICYCLING">🚲 騎車</option>
+                              </select>
                             </div>
 
                             <Droppable droppableId={`day-${dayIdx}`}>
