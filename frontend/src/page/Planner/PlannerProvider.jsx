@@ -5,8 +5,8 @@ import { useAuth } from '../Authentication/AuthContext';
 // 建立 Context
 const PlannerContext = createContext();
 
-// 常數定義 (從原 App.jsx 搬移)
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+// 常數定義
+export const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const DEFAULT_DAY_START_TIME = '09:00';
 const CHECKLIST_LIMIT = 10;
 
@@ -47,74 +47,145 @@ export const PlannerProvider = ({ children }) => {
   const [packingItems, setPackingItems] = useState([]);
   const [tripNote, setTripNote] = useState('');
   const [isChecklistSyncing, setIsChecklistSyncing] = useState(false);
-
-  // Refs
-  const autoSaveTimerRef = useRef(null);
-  const lastSavedKeyRef = useRef('');
-  const hasAppliedPrefill = useRef(false);
+  const [autoApprove, setAutoApprove] = useState(false);
 
   // --- 核心邏輯 (Functions) ---
 
-  // 1. 取得交通時間
+  // 1. 取得交通時間 (🚀 強化防禦：防止 400 錯誤)
   const fetchTravelTime = useCallback(async (originItem, destItem, mode = 'TRANSIT') => {
     if (!originItem || !destItem) return 15;
+    
     const getPayload = (item) => {
-      if (item.location?.lat && item.location?.lng) return { lat: item.location.lat, lng: item.location.lng };
-      if (item.name?.trim()) {
-        const name = item.name.trim();
-        if (['自由活動', '休息', '回飯店'].includes(name)) return null;
-        return name;
+      // 優先檢查是否有經緯度物件
+      if (item.location?.lat && item.location?.lng) {
+        return { lat: item.location.lat, lng: item.location.lng };
       }
-      return null;
+      // 若無座標，檢查名稱是否有效
+      const name = item.name?.trim();
+      if (!name || ['自由活動', '休息', '回飯店', '交通', '捷運', '搭乘'].some(k => name.includes(k))) {
+        return null;
+      }
+      return name;
     };
+
     const origin = getPayload(originItem);
     const dest = getPayload(destItem);
+
+    // 💡 如果起點或終點資料不全，直接回傳預設 15 分鐘，不發送 API 請求
     if (!origin || !dest) return 15;
+
+    // 額外座標檢查
+    if (typeof origin === 'object' && (!origin.lat || !origin.lng)) return 15;
+    if (typeof dest === 'object' && (!dest.lat || !dest.lng)) return 15;
 
     try {
       const res = await fetch(`${API_BASE}/api/directions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 
+          'Content-Type': 'application/json', 
+          Authorization: `Bearer ${token}` 
+        },
         body: JSON.stringify({ origin, destination: dest, mode })
       });
-      if (!res.ok) return 15;
+      
+      if (!res.ok) return 15; // 即使 API 回傳 400/500 也保底 15 分鐘
+
       const data = await res.json();
       if (data.routes?.length > 0) {
         const durationSeconds = data.routes[0].legs[0].duration.value;
+        // 以 15 分鐘為單位進位
         return Math.ceil(Math.ceil(durationSeconds / 60) / 15) * 15 || 15;
       }
-    } catch (e) { console.warn(e); }
+    } catch (e) { 
+      console.warn("Direction calculation skipped:", e.message); 
+    }
     return 15;
   }, [token]);
 
-  // 2. 重新計算全天時間
+  // 2. 重新計算全天時間 (非同步處理)
   const recalculateDayTimesAsync = useCallback(async (items, dayStartTime = '09:00', mode = 'TRANSIT') => {
     if (!items || items.length === 0) return items;
-    let currentStartTime = dayStartTime;
+    let currentStartTime = normalizeTimeValue(dayStartTime);
     const newItems = [];
+
     for (let i = 0; i < items.length; i++) {
       const item = { ...items[i] };
-      let travelTime = i > 0 ? await fetchTravelTime(newItems[i - 1], item, mode) : 0;
+      
+      // 計算交通時間 (從第二個景點開始算)
+      let travelTime = 0;
       if (i > 0) {
-        const [currH, currM] = currentStartTime.split(':').map(Number);
-        const arrivalDate = new Date();
-        arrivalDate.setHours(currH, currM + travelTime, 0, 0);
-        currentStartTime = `${String(arrivalDate.getHours()).padStart(2, '0')}:${String(arrivalDate.getMinutes()).padStart(2, '0')}`;
+        travelTime = await fetchTravelTime(newItems[i - 1], item, mode);
       }
-      let durationMinutes = 120; // 預設停留 2 小時
-      const assignedStartTime = currentStartTime;
-      const [startH, startM] = assignedStartTime.split(':').map(Number);
+
+      // 將當前起始時間加上交通時間
+      const [currH, currM] = currentStartTime.split(':').map(Number);
+      const arrivalDate = new Date();
+      arrivalDate.setHours(currH, currM + travelTime, 0, 0);
+      const startTimeStr = `${String(arrivalDate.getHours()).padStart(2, '0')}:${String(arrivalDate.getMinutes()).padStart(2, '0')}`;
+
+      // 停留時間預設 120 分鐘
+      let durationMinutes = 120;
+      const [startH, startM] = startTimeStr.split(':').map(Number);
       const assignedEndDate = new Date();
       assignedEndDate.setHours(startH, startM + durationMinutes, 0, 0);
-      const assignedEndTime = `${String(assignedEndDate.getHours()).padStart(2, '0')}:${String(assignedEndDate.getMinutes()).padStart(2, '0')}`;
-      item.time = `${assignedStartTime}~${assignedEndTime}`;
+      const endTimeStr = `${String(assignedEndDate.getHours()).padStart(2, '0')}:${String(assignedEndDate.getMinutes()).padStart(2, '0')}`;
+      
+      item.time = `${startTimeStr}~${endTimeStr}`;
       newItems.push(item);
-      currentStartTime = assignedEndTime;
+      
+      // 更新下一個景點的起算點
+      currentStartTime = endTimeStr;
     }
     return newItems;
   }, [fetchTravelTime]);
 
-  // 3. 儲存行程
+  // 3. AI 發送訊息與行程同步
+  const handleSend = async (quickText) => {
+    const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
+    if (!text || isSending) return;
+    
+    const newHistory = [...messages, { role: 'user', content: text }];
+    setMessages(newHistory);
+    setInput('');
+    setIsSending(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ messages: newHistory, currentPlan: plan })
+      });
+      
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'AI 請求失敗');
+
+      if (data.plan) {
+        const nextPlan = { ...data.plan };
+        if (nextPlan.days && Array.isArray(nextPlan.days)) {
+          // 對 AI 回傳的每一天進行過濾與時間重算
+          nextPlan.days = await Promise.all(
+            nextPlan.days.map(async (day) => {
+              const validItems = (day.items || []).filter(item => item && item.name?.trim());
+              const dayStartTime = day.startTime || '09:00';
+              const mode = day.transportMode || 'TRANSIT';
+              
+              const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, mode);
+              return { ...day, items: recalculatedItems };
+            })
+          );
+        }
+        setPlan(nextPlan);
+      }
+      setMessages(prev => [...prev, { role: 'assistant', content: data.content || '行程已根據您的需求更新。' }]);
+    } catch (e) {
+      console.error("AI Chat Error:", e);
+      setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，系統目前忙碌中，請稍後再試。' }]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // 4. 儲存行程邏輯
   const saveItinerary = useCallback(async ({ silent = false } = {}) => {
     if (!plan) return false;
     setIsSaving(true);
@@ -151,34 +222,8 @@ export const PlannerProvider = ({ children }) => {
     } finally { setIsSaving(false); }
   }, [plan, totalBudget, packingItems, tripNote, itineraryUuid, token, navigate]);
 
-  // 4. AI 發送訊息
-  const handleSend = async (quickText) => {
-    const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
-    if (!text || isSending) return;
-    const newHistory = [...messages, { role: 'user', content: text }];
-    setMessages(newHistory);
-    setInput('');
-    setIsSending(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ messages: newHistory, currentPlan: plan })
-      });
-      const data = await res.json();
-      if (data.plan) {
-        // 自動重新計算時間邏輯...
-        setPlan(data.plan);
-      }
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content || '行程已更新' }]);
-    } catch (e) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，系統出錯了。' }]);
-    } finally { setIsSending(false); }
-  };
-
   // --- 提供給子組件的 Context Value ---
   const value = {
-    // States
     plan, setPlan,
     messages, setMessages,
     input, setInput,
@@ -196,18 +241,16 @@ export const PlannerProvider = ({ children }) => {
     isLoadingItinerary,
     activeLocation, setActiveLocation,
     weatherData,
-
-    // Functions
     handleSend,
     saveItinerary,
     recalculateDayTimesAsync,
     fetchTravelTime,
+    autoApprove, setAutoApprove,
   };
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 };
 
-// 自定義 Hook 方便調用
 export const usePlanner = () => {
   const context = useContext(PlannerContext);
   if (!context) throw new Error('usePlanner must be used within a PlannerProvider');

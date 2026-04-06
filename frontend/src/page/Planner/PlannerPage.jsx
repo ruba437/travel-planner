@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import { PlannerProvider, usePlanner } from './PlannerProvider';
 
-// 匯入子區段 (Segments) - 這些檔案我們稍後會逐一建立
+// 匯入子區段 (Segments)
 import NavigationSidebar from './segments/NavigationSidebar';
 import TripHeroHeader from './segments/TripHeroHeader';
 import DayTabNavigator from './segments/DayTabNavigator';
@@ -10,15 +11,14 @@ import PrepChecklist from './segments/PrepChecklist';
 import ExpenseTracker from './segments/ExpenseTracker';
 import AiAssistantPanel from './segments/AiAssistantPanel';
 
-// 匯入共用組件
+// 匯入共用組件 (路徑對應 src/components/MapView.jsx)
 import MapView from '../../components/MapView';
 
-// 匯入樣式
+// 匯入樣式 (路徑對應 src/page/Planner/PlannerStyles.css)
 import './PlannerStyles.css';
 
 /**
- * PlannerContent: 真正持有 UI 佈局的組件
- * 必須包裹在 PlannerProvider 內才能使用 usePlanner()
+ * PlannerContent: 持有 UI 佈局與自動發送邏輯
  */
 const PlannerContent = () => {
   const { 
@@ -33,15 +33,84 @@ const PlannerContent = () => {
     saveMsg,
     isLoadingItinerary,
     plan,
+    setPlan,
     activeLocation,
     setActiveLocation,
-    setActiveDayIdx
+    setActiveDayIdx,
+    recalculateDayTimesAsync,
+    token,
+    // 從 Provider 取得自動發送需要的狀態
+    handleSend,
+    setInput
   } = usePlanner();
 
-  // 處理地圖加入景點的轉發邏輯
-  const handleAddLocation = (data) => {
-    // 這裡的邏輯可以留在這，或移入 Provider
-    console.log("Map Add Location:", data);
+  const location = useLocation();
+  const { uuid: itineraryUuidParam } = useParams();
+  const hasAppliedPrefill = useRef(false); // 用於確保自動發送只執行一次
+
+  // ── 🚀 自動處理首頁傳來的 AI 請求 ──
+  useEffect(() => {
+    // 防呆：如果是載入舊行程 (UUID)，或是這趟載入已經處理過預填，就停止
+    if (itineraryUuidParam || hasAppliedPrefill.current) return;
+
+    const prefill = location?.state?.prefill;
+    if (!prefill) return;
+
+    const { startLocation, startDate, endDate, autoSend, prompt } = prefill;
+    if (!startLocation || !startDate || !endDate) return;
+
+    // 標記為已處理，防止 React StrictMode 渲染兩次導致發送兩次
+    hasAppliedPrefill.current = true;
+    
+    if (prompt) {
+      setInput(prompt); // 將文字填入對話框
+      
+      if (autoSend) {
+        // 自動打開 AI 面板，並延遲發送確保 Context 初始化完成
+        setShowAiPanel(true);
+        console.log("偵測到首頁 AI 智慧規劃請求，正在自動發送中...");
+        
+        const timer = setTimeout(() => {
+          handleSend(prompt);
+        }, 500);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [location, itineraryUuidParam, handleSend, setInput, setShowAiPanel]);
+
+  // ── 處理從地圖點擊「加入行程」的邏輯 ──
+  const handleAddLocation = async (locationData) => {
+    if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
+      alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
+      return;
+    }
+    
+    const targetDayIdx = locationData.targetDayIndex;
+    const newPlan = { ...plan, days: [...plan.days] };
+    const dayItems = [...(plan.days[targetDayIdx].items || [])];
+    
+    const newItem = { 
+      name: locationData.name, 
+      type: locationData.type || 'sight', 
+      time: '', 
+      cost: 0, 
+      note: `手動從地圖加入`, 
+      location: { lat: locationData.lat, lng: locationData.lng } 
+    };
+    
+    dayItems.push(newItem);
+    const dayStartTime = plan.days[targetDayIdx].startTime || '09:00';
+    const updatedItems = await recalculateDayTimesAsync(dayItems, dayStartTime, token);
+    
+    newPlan.days[targetDayIdx] = { 
+      ...plan.days[targetDayIdx], 
+      items: updatedItems 
+    };
+    
+    setPlan(newPlan);
+    setActiveDayIdx(targetDayIdx);
+    setActiveLocation({ day: targetDayIdx + 1, order: updatedItems.length - 1 });
   };
 
   return (
@@ -80,7 +149,7 @@ const PlannerContent = () => {
           </button>
 
           <div className="az-topbar-status">
-            {isAutoSaving || isSaving ? '保存中...' : ''}
+            {(isAutoSaving || isSaving) && <span className="az-status-text">保存中...</span>}
             {saveMsg && (
               <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>
                 {saveMsg}
@@ -90,22 +159,20 @@ const PlannerContent = () => {
 
           <div className="az-topbar-spacer" />
 
-          <button className="az-topbar-icon-btn" title="導出行程">
+          <button className="az-topbar-icon-btn" title="查看導航">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16 10,8"/>
             </svg>
           </button>
         </header>
 
-        {/* 內容包裹區 (行程編輯 + 地圖) */}
+        {/* 內容包裹區 */}
         <div className="az-content-wrap">
           
           {/* ── 左側行程面板 ── */}
           <div className="az-trip-panel">
-            {/* 行程封面與標題 */}
             <TripHeroHeader />
 
-            {/* 功能標籤切換 */}
             <div className="az-tabs">
               <button 
                 className={`az-tab ${activeTab === 'info' ? 'az-tab--active' : ''}`} 
@@ -121,7 +188,6 @@ const PlannerContent = () => {
               </button>
             </div>
 
-            {/* 標籤內容區 */}
             <div className="az-tab-content">
               {activeTab === 'info' ? (
                 <>
@@ -159,7 +225,6 @@ const PlannerContent = () => {
 
 /**
  * PlannerPage: 導出組件
- * 使用 Provider 包裹 Content，確保 Context 生效
  */
 const PlannerPage = () => {
   return (
