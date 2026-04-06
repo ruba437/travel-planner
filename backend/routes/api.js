@@ -268,13 +268,33 @@ router.get('/users/:userId/saved', optionalAuth, async (req, res) => {
 //  PUBLIC GUIDES  (backed by public itineraries)
 // ════════════════════════════════════════════════════════════
 
-function safeParseItineraryData(rawValue) {
-  if (!rawValue) return null;
-  if (typeof rawValue === 'object') return rawValue;
+// <<<<<<< HEAD
+// function safeParseItineraryData(rawValue) {
+//   if (!rawValue) return null;
+//   if (typeof rawValue === 'object') return rawValue;
+//   try {
+//     return JSON.parse(rawValue);
+//   } catch (_e) {
+//     return null;
+// =======
+// GET /api/trending          — top destinations
+// GET /api/trending          — top destinations
+router.get('/trending', async (req, res) => {
   try {
-    return JSON.parse(rawValue);
-  } catch (_e) {
-    return null;
+    const limit = Math.min(Number(req.query.limit) || 12, 50);
+    const { rows } = await pool.query(
+      `SELECT id, city, country, score, cover_image
+       FROM   public.cities
+       WHERE  is_active = true
+       ORDER  BY score DESC NULLS LAST, updatedat DESC
+       LIMIT  $1`,
+      [limit]
+    );
+    ok(res, rows);
+  } catch (e) {
+    console.error(e);
+    err(res, 'Failed to fetch trending destinations');
+// >>>>>>> origin/feature/planner-refactor
   }
 }
 
@@ -686,18 +706,20 @@ router.get('/home/content', async (req, res) => {
     let destinations = [];
     try {
       const { rows } = await pool.query(
-        `SELECT city, cover_image
+        // 👇 這裡補上 score 欄位
+        `SELECT city, country, cover_image, score 
          FROM cities
          WHERE is_active = true
-         ORDER BY score DESC, updatedat DESC
+         ORDER BY score DESC NULLS LAST, updatedat DESC
          LIMIT $1`,
         [destinationLimit]
       );
       destinations = rows.map((row) => ({
         city: row.city,
         country: row.country || '',
-        tripCount: Number(row.trip_count) || 0,
+        tripCount: 0,
         coverImage: row.cover_image || '',
+        score: Number(row.score) || 0, // 確保轉換為數字
       }));
     } catch (err) {
       if (err.code !== '42P01' && err.code !== '42703') throw err;
