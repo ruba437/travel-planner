@@ -79,7 +79,7 @@ export const PlannerProvider = ({ children }) => {
     if (typeof dest === 'object' && (!dest.lat || !dest.lng)) return 15;
 
     try {
-      const res = await fetch(`${API_BASE}/api/directions`, {
+      const res = await fetch(`${API_BASE}/api/places/directions`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 

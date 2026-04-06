@@ -140,7 +140,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange, onAddLoc
     setLoadingDetails(true);
     setPlaceDetails(null); 
 
-    fetch(`${API_BASE}/api/place-details?placeId=${selectedMarker.placeId}`, {
+    fetch(`${API_BASE}/api/places/details?placeId=${selectedMarker.placeId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -445,7 +445,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange, onAddLoc
     directionsAbortRef.current = controller;
     const reqId = ++directionsReqIdRef.current;
     try {
-      const res = await fetch(`${API_BASE}/api/directions`, {
+      const res = await fetch(`${API_BASE}/api/places/directions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         signal: controller.signal,
