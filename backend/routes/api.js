@@ -361,25 +361,37 @@ function toHHmm(value) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+const CHECKLIST_LIMIT = 10;
+const CHECKLIST_TEXT_MAX_LENGTH = 240;
+
+function normalizeChecklistItem(rawItem, fallbackSortOrder = 0) {
+  const text = String(rawItem?.text || '').trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
+  if (!text) return null;
+
+  const sortOrderValue = Number(rawItem?.sortOrder);
+  const sortOrder = Number.isFinite(sortOrderValue) ? Math.max(0, sortOrderValue) : fallbackSortOrder;
+
+  return {
+    id: Number.isFinite(Number(rawItem?.id)) ? Number(rawItem.id) : null,
+    text,
+    checked: Boolean(rawItem?.checked),
+    reminder: Boolean(rawItem?.reminder),
+    sortOrder,
+  };
+}
+
 function normalizeChecklistItems(rawItems) {
   if (!Array.isArray(rawItems)) return [];
   return rawItems
-    .map((item, idx) => {
-      const text = String(item?.text || '').trim();
-      if (!text) return null;
-      return {
-        text,
-        checked: Boolean(item?.checked),
-        sortOrder: Number.isFinite(Number(item?.sortOrder)) ? Number(item.sortOrder) : idx,
-      };
-    })
-    .filter(Boolean);
+    .map((item, idx) => normalizeChecklistItem(item, idx))
+    .filter(Boolean)
+    .slice(0, CHECKLIST_LIMIT);
 }
 
 async function readChecklistItemsByUuid(clientOrPool, uuid) {
   try {
     const { rows } = await clientOrPool.query(
-      `SELECT id, item_text, is_checked, sort_order
+      `SELECT id, item_text, is_checked, is_reminder, sort_order
        FROM itinerary_checklist_items
        WHERE itinerary_uuid = $1
        ORDER BY sort_order ASC, id ASC`,
@@ -389,9 +401,26 @@ async function readChecklistItemsByUuid(clientOrPool, uuid) {
       id: row.id,
       text: row.item_text,
       checked: Boolean(row.is_checked),
+      reminder: Boolean(row.is_reminder),
       sortOrder: Number(row.sort_order) || 0,
     }));
   } catch (e) {
+    if (e.code === '42703') {
+      const { rows } = await clientOrPool.query(
+        `SELECT id, item_text, is_checked, sort_order
+         FROM itinerary_checklist_items
+         WHERE itinerary_uuid = $1
+         ORDER BY sort_order ASC, id ASC`,
+        [uuid]
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        text: row.item_text,
+        checked: Boolean(row.is_checked),
+        reminder: false,
+        sortOrder: Number(row.sort_order) || 0,
+      }));
+    }
     if (e.code === '42P01') return null;
     throw e;
   }
@@ -405,19 +434,44 @@ async function replaceChecklistItems(client, uuid, rawItems) {
 
     const values = [];
     const placeholders = items.map((item, idx) => {
-      const base = idx * 4;
-      values.push(uuid, item.text, item.checked, item.sortOrder);
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+      const base = idx * 5;
+      values.push(uuid, item.text, item.checked, item.reminder, item.sortOrder);
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`;
     });
     await client.query(
-      `INSERT INTO itinerary_checklist_items (itinerary_uuid, item_text, is_checked, sort_order)
+      `INSERT INTO itinerary_checklist_items (itinerary_uuid, item_text, is_checked, is_reminder, sort_order)
        VALUES ${placeholders.join(', ')}`,
       values
     );
   } catch (e) {
+    if (e.code === '42703') {
+      await client.query('DELETE FROM itinerary_checklist_items WHERE itinerary_uuid = $1', [uuid]);
+      if (!items.length) return;
+
+      const values = [];
+      const placeholders = items.map((item, idx) => {
+        const base = idx * 4;
+        values.push(uuid, item.text, item.checked, item.sortOrder);
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+      });
+      await client.query(
+        `INSERT INTO itinerary_checklist_items (itinerary_uuid, item_text, is_checked, sort_order)
+         VALUES ${placeholders.join(', ')}`,
+        values
+      );
+      return;
+    }
     if (e.code === '42P01') return;
     throw e;
   }
+}
+
+async function itineraryBelongsToUser(clientOrPool, uuid, userId) {
+  const { rows } = await clientOrPool.query(
+    'SELECT 1 FROM itineraries WHERE uuid = $1 AND userid = $2 LIMIT 1',
+    [uuid, userId]
+  );
+  return rows.length > 0;
 }
 
 function normalizeGuideText(value) {
@@ -971,29 +1025,33 @@ router.post('/chat', async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
 
+  const city = currentPlan?.city || '依據對話判斷';
+  const daysCount = currentPlan?.days?.length ? `${currentPlan.days.length} 天` : '依據對話判斷';
+
   // 🔥 構建 System Prompt：調整為「主動型」助理
   let systemContent = `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
-【標準作業程序 (SOP)】：
-  1. **檢查必要資訊**：當使用者想規劃行程時，你必須確認擁有以下資訊：
-    - 目的地城市
-    - 旅遊天數
-    - **起始地點 (例如：機場、飯店、車站)**
-    - **第一天的出發時間 (例如：09:00)**
+    【目前的行程背景資訊】
+    - 目的地：${city}
+    - 旅遊天數：${daysCount} 天
+    - 出發與日期資訊：(請參考使用者的第一句對話)
 
-  2. **缺少資訊時的處理**：
-    - 如果使用者提供了「地點」和「天數」，但**沒提到**「起點」或「時間」，請**不要**呼叫 'update_itinerary'。
-    - 請用親切的語氣回覆：「沒問題！我可以幫您安排[地點]的[天數]行程。為了更精準規劃交通，請問您第一天的**出發地點**是哪裡？以及預計幾點**開始行程**呢？」
+    【行程規劃標準作業程序 (SOP)】：
+    系統已經透過前端介面獲取了上述的旅遊資訊，請依照以下最高指導原則進行對話與規劃：
+    一、 對話與互動邏輯
+    1. 【禁止確認已知資訊】：絕對不要再向使用者詢問「目的地在哪」、「去幾天」或「從哪裡出發/住宿地點」。
+    2. 【大方給予推薦】：當使用者單純詢問「推薦美食」、「推薦住宿」、「交通方式」或「景點介紹」時，請發揮在地專家的精神，**直接用文字給出豐富、具體的推薦名單與詳細介紹**。絕對禁止回答「我無法推薦」或「我只能規劃行程」。
+    3. 【保護現有行程 (⚠️極重要)】：在回答上述的「一般問答與推薦」時，**絕對不要呼叫 'update_itinerary' 工具**去覆蓋或修改使用者現有的行程！請單純用文字回覆即可。只有當使用者明確指示「請幫我把這些加入行程」或「幫我重新排行程」時，才可以使用工具。
+    4. 【直接給予規劃】：當使用者明確說「幫我排行程」或要求生成完整路線時，請直接呼叫 'update_itinerary' 工具生成行程，不要拖泥帶水。
 
-  3. **資訊齊全時的處理**：
-    - 只有當上述四項資訊都明確（或使用者在對話中補齊）時，才呼叫 'update_itinerary' 生成完整 JSON。
-
-  4. **時間區間預估與推算 (極重要)**：
-    - 取得第一天的出發時間後，請為後續**每一個景點或活動**推算合理的「開始與結束時間區間」(格式必須為 "HH:mm~HH:mm"，例如 "09:30~11:30")。
-    - 必須自動預測「景點合理停留時間 (例如大景點抓2-3小時，小景點1小時，用餐1.5小時)」與「交通移動時間」，確保時間連續且不重疊。
-    - 第2天以後的行程，如果使用者沒有特別指定，預設請從 "09:00" 開始安排。
-
-  5. **預設值處理**：
-    - 如果使用者回答「隨便」、「你決定」、「不用管起點」，此時再使用預設值（例如：台北市中心、09:00）並呼叫工具。`;
+    二、 行程生成規則 (⚠️極重要，攸關系統運作⚠️)
+    當你明確收到指令並呼叫 'update_itinerary' 工具時，必須嚴格遵守以下系統層級的限制：
+    1. 【嚴格限制地理範圍】：所有安排的景點、餐廳與活動，必須嚴格位於「${city}」這個城市或其合理的周邊通勤範圍內。絕對禁止產生跨越極遠縣市的行程（例如：台北的行程絕對不能出現南投、高雄的景點）。請在加入清單前，務必確認該地點的真實地理位置。
+    2. 【禁止生成交通與過渡節點】：前端系統具有「自動計算真實交通時間」的功能！行程清單 (items) 中 只能包含實際造訪的實體「景點」、「餐廳」或「店家」。
+      - ❌ 絕對禁止產生：「搭乘捷運」、「步行前往」、「交通時間」、「回到住宿休息」、「自由活動」等非實體地點項目。
+    3. 【停留時間設定】：請為每個實體景點評估合理的停留時間區間（格式為 "HH:mm~HH:mm"，例如 "09:30~11:30"）。
+      - 評估基準：大型景點 2-3 小時、小型景點 1 小時、用餐 1.5 小時。
+      - ⚠️ 注意：你只需要給出該景點的「停留時間」，絕對不需要在兩個景點之間手動預留交通空檔，系統會自己把後續時間往後推算。
+    4. 【每日統一出發時間】：每一天的第一個景點，請一律預設從 "09:00" 開始安排（除非使用者明確要求其他時間）。`;
 
   // 注入記憶
   if (currentPlan) {
@@ -1083,26 +1141,32 @@ router.get('/place-details', async (req, res) => {
 router.post('/directions', async (req, res) => {
   const { origin, destination, mode } = req.body || {};
   if (!origin || !destination) return res.status(400).json({ error: 'Missing params' });
+
   try {
+    // 判斷傳入的是物件還是字串
+    const originParam = typeof origin === 'string' ? origin : `${origin.lat},${origin.lng}`;
+    const destParam = typeof destination === 'string' ? destination : `${destination.lat},${destination.lng}`;
+
     const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
       params: {
-        origin: `${origin.lat},${origin.lng}`, destination: `${destination.lat},${destination.lng}`,
-        mode: (mode || 'TRANSIT').toLowerCase(), language: 'zh-TW', key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+        origin: originParam,
+        destination: destParam,
+        // 建議預設改為 TRANSIT (大眾運輸) 或 DRIVING
+        mode: (mode || 'TRANSIT').toLowerCase(), 
+        language: 'zh-TW',
+        key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
       },
     });
+
     const route = response.data.routes[0];
     const leg = route?.legs[0];
-    if (!leg) return res.status(400).json({ error: 'No route' });
-    res.json({
-      summary: {
-        distanceText: leg.distance?.text, durationText: leg.duration?.text,
-        steps: (leg.steps || []).map((s) => ({
-          instructionHtml: s.html_instructions, distanceText: s.distance?.text, durationText: s.duration?.text, travelMode: s.travel_mode,
-        })),
-      },
-      encodedPolyline: route.overview_polyline?.points, bounds: route.bounds,
-    });
-  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+    if (!leg) return res.status(400).json({ error: 'No routes found' });
+
+    res.json(response.data);
+  } catch (err) {
+    console.error('Directions API Error:', err.response?.data || err.message);
+    res.status(500).send('Failed');
+  }
 });
 
 router.post('/weather', async (req, res) => {
@@ -1122,6 +1186,239 @@ router.post('/weather', async (req, res) => {
     });
     res.json({ daily: weatherRes.data.daily });
   } catch (err) { res.json({ daily: null }); }
+});
+
+// ------------------ 行前清單 CRUD ------------------
+router.get('/itineraries/:uuid/checklist', async (req, res) => {
+  const { uuid } = req.params;
+  try {
+    const allowed = await itineraryBelongsToUser(pool, uuid, req.user.id);
+    if (!allowed) return res.status(404).json({ error: '行程不存在或無權限' });
+
+    const checklistItems = await readChecklistItemsByUuid(pool, uuid);
+    res.json({ checklistItems: checklistItems || [] });
+  } catch (err) {
+    console.error('Get checklist error:', err);
+    res.status(500).json({ error: '取得行前清單失敗' });
+  }
+});
+
+router.post('/itineraries/:uuid/checklist', async (req, res) => {
+  const { uuid } = req.params;
+  const normalizedItem = normalizeChecklistItem(req.body, 0);
+  if (!normalizedItem) return res.status(400).json({ error: '清單項目內容不可為空' });
+
+  try {
+    const allowed = await itineraryBelongsToUser(pool, uuid, req.user.id);
+    if (!allowed) return res.status(404).json({ error: '行程不存在或無權限' });
+
+    const countResult = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM itinerary_checklist_items WHERE itinerary_uuid = $1',
+      [uuid]
+    );
+    const count = Number(countResult.rows[0]?.count) || 0;
+    if (count >= CHECKLIST_LIMIT) {
+      return res.status(400).json({ error: `行前清單最多 ${CHECKLIST_LIMIT} 項` });
+    }
+
+    const sortOrder = Number.isFinite(Number(req.body?.sortOrder))
+      ? Math.max(0, Number(req.body.sortOrder))
+      : count;
+
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO itinerary_checklist_items (itinerary_uuid, item_text, is_checked, is_reminder, sort_order)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, item_text, is_checked, is_reminder, sort_order`,
+        [uuid, normalizedItem.text, normalizedItem.checked, normalizedItem.reminder, sortOrder]
+      );
+
+      const row = rows[0];
+      return res.status(201).json({
+        item: {
+          id: row.id,
+          text: row.item_text,
+          checked: Boolean(row.is_checked),
+          reminder: Boolean(row.is_reminder),
+          sortOrder: Number(row.sort_order) || 0,
+        },
+      });
+    } catch (e) {
+      if (e.code !== '42703') throw e;
+
+      const { rows } = await pool.query(
+        `INSERT INTO itinerary_checklist_items (itinerary_uuid, item_text, is_checked, sort_order)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, item_text, is_checked, sort_order`,
+        [uuid, normalizedItem.text, normalizedItem.checked, sortOrder]
+      );
+
+      const row = rows[0];
+      return res.status(201).json({
+        item: {
+          id: row.id,
+          text: row.item_text,
+          checked: Boolean(row.is_checked),
+          reminder: false,
+          sortOrder: Number(row.sort_order) || 0,
+        },
+      });
+    }
+  } catch (err) {
+    console.error('Create checklist item error:', err);
+    res.status(500).json({ error: '新增行前清單項目失敗' });
+  }
+});
+
+router.patch('/itineraries/:uuid/checklist/:itemId', async (req, res) => {
+  const { uuid, itemId } = req.params;
+  const itemIdNum = Number(itemId);
+  if (!Number.isFinite(itemIdNum) || itemIdNum <= 0) {
+    return res.status(400).json({ error: '項目識別碼格式錯誤' });
+  }
+
+  const hasText = Object.prototype.hasOwnProperty.call(req.body || {}, 'text');
+  const hasChecked = Object.prototype.hasOwnProperty.call(req.body || {}, 'checked');
+  const hasReminder = Object.prototype.hasOwnProperty.call(req.body || {}, 'reminder');
+  const hasSortOrder = Object.prototype.hasOwnProperty.call(req.body || {}, 'sortOrder');
+
+  if (!hasText && !hasChecked && !hasReminder && !hasSortOrder) {
+    return res.status(400).json({ error: '沒有可更新的欄位' });
+  }
+
+  const setClauses = [];
+  const values = [];
+
+  if (hasText) {
+    const text = String(req.body.text || '').trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
+    if (!text) return res.status(400).json({ error: '清單項目內容不可為空' });
+    values.push(text);
+    setClauses.push(`item_text = $${values.length}`);
+  }
+
+  if (hasChecked) {
+    values.push(Boolean(req.body.checked));
+    setClauses.push(`is_checked = $${values.length}`);
+  }
+
+  if (hasReminder) {
+    values.push(Boolean(req.body.reminder));
+    setClauses.push(`is_reminder = $${values.length}`);
+  }
+
+  if (hasSortOrder) {
+    const sortOrder = Number(req.body.sortOrder);
+    if (!Number.isFinite(sortOrder)) return res.status(400).json({ error: '排序值格式錯誤' });
+    values.push(Math.max(0, sortOrder));
+    setClauses.push(`sort_order = $${values.length}`);
+  }
+
+  values.push(uuid, req.user.id, itemIdNum);
+  const itineraryUuidIndex = values.length - 2;
+  const userIdIndex = values.length - 1;
+  const itemIdIndex = values.length;
+
+  const buildUpdateSql = (clauses, includeReminderColumn = true) => {
+    const safeClauses = includeReminderColumn
+      ? clauses
+      : clauses.filter((clause) => !clause.startsWith('is_reminder ='));
+
+    if (safeClauses.length === 0) return null;
+
+    return `UPDATE itinerary_checklist_items c
+            SET ${safeClauses.join(', ')},
+                updatedat = CURRENT_TIMESTAMP
+            FROM itineraries i
+            WHERE c.itinerary_uuid = i.uuid
+              AND i.uuid = $${itineraryUuidIndex}
+              AND i.userid = $${userIdIndex}
+              AND c.id = $${itemIdIndex}
+            RETURNING c.id, c.item_text, c.is_checked, c.is_reminder, c.sort_order`;
+  };
+
+  try {
+    let querySql = buildUpdateSql(setClauses, true);
+    if (!querySql) return res.status(400).json({ error: '沒有可更新的欄位' });
+
+    let result;
+    try {
+      result = await pool.query(querySql, values);
+    } catch (e) {
+      if (e.code !== '42703') throw e;
+
+      querySql = buildUpdateSql(setClauses, false);
+      if (!querySql) {
+        return res.status(400).json({ error: '目前資料庫尚未支援 reminder 欄位，請先更新資料表' });
+      }
+
+      result = await pool.query(
+        querySql.replace('c.is_reminder, ', ''),
+        values
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: '清單項目不存在或無權限' });
+      }
+
+      const row = result.rows[0];
+      return res.json({
+        item: {
+          id: row.id,
+          text: row.item_text,
+          checked: Boolean(row.is_checked),
+          reminder: false,
+          sortOrder: Number(row.sort_order) || 0,
+        },
+      });
+    }
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: '清單項目不存在或無權限' });
+    }
+
+    const row = result.rows[0];
+    return res.json({
+      item: {
+        id: row.id,
+        text: row.item_text,
+        checked: Boolean(row.is_checked),
+        reminder: Boolean(row.is_reminder),
+        sortOrder: Number(row.sort_order) || 0,
+      },
+    });
+  } catch (err) {
+    console.error('Update checklist item error:', err);
+    res.status(500).json({ error: '更新行前清單項目失敗' });
+  }
+});
+
+router.delete('/itineraries/:uuid/checklist/:itemId', async (req, res) => {
+  const { uuid, itemId } = req.params;
+  const itemIdNum = Number(itemId);
+  if (!Number.isFinite(itemIdNum) || itemIdNum <= 0) {
+    return res.status(400).json({ error: '項目識別碼格式錯誤' });
+  }
+
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM itinerary_checklist_items c
+       USING itineraries i
+       WHERE c.itinerary_uuid = i.uuid
+         AND i.uuid = $1
+         AND i.userid = $2
+         AND c.id = $3`,
+      [uuid, req.user.id, itemIdNum]
+    );
+
+    if (rowCount === 0) {
+      return res.status(404).json({ error: '清單項目不存在或無權限' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete checklist item error:', err);
+    res.status(500).json({ error: '刪除行前清單項目失敗' });
+  }
 });
 
 // ------------------ 行程 CRUD ------------------

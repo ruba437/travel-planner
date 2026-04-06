@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 import MapView from './MapView';
@@ -41,7 +41,9 @@ const TYPE_COLOR = {
 const WEEKDAYS_ZH = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 const MONTHS_ZH = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
 const DEFAULT_DAY_START_TIME = '09:00';
-const DEFAULT_CHECKLIST = [{ id: 1, text: '物品', checked: false }];
+const CHECKLIST_LIMIT = 10;
+const CHECKLIST_TEXT_MAX_LENGTH = 800;
+const DEFAULT_CHECKLIST = [];
 
 const normalizeTimeValue = (value, fallback = DEFAULT_DAY_START_TIME) => {
   const raw = String(value || '').trim();
@@ -55,6 +57,27 @@ const normalizeTimeValue = (value, fallback = DEFAULT_DAY_START_TIME) => {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 };
 
+const normalizeChecklistItems = (items) => {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item, idx) => {
+      const text = String(item?.text || '').trim();
+      if (!text) return null;
+      return {
+        id: item?.id ?? `local-${Date.now()}-${idx}`,
+        text,
+        checked: Boolean(item?.checked),
+        reminder: Boolean(item?.reminder),
+        sortOrder: Number.isFinite(Number(item?.sortOrder)) ? Number(item.sortOrder) : idx,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .slice(0, CHECKLIST_LIMIT)
+    .map((item, idx) => ({ ...item, sortOrder: idx }));
+};
+
 function App() {
   const { user, token, logout } = useAuth();
   const { uuid: itineraryUuidParam } = useParams();
@@ -63,7 +86,7 @@ function App() {
   const hasAppliedPrefill = useRef(false);
 
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。試試看：「我想去東京五天四夜，10月20號出發」' },
+    { role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。' },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -73,6 +96,7 @@ function App() {
   const [totalBudget, setTotalBudget] = useState(50000);
   const [itineraryUuid, setItineraryUuid] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const [isLoadingItinerary, setIsLoadingItinerary] = useState(false);
 
@@ -85,11 +109,18 @@ function App() {
   const [packingItems, setPackingItems] = useState(DEFAULT_CHECKLIST);
   const [tripNote, setTripNote] = useState('');
   const [newChecklistText, setNewChecklistText] = useState('');
+  const [isAddingItem, setIsAddingItem] = useState(false); // NEW: tracks if inline add row is open
   const [isEditingHero, setIsEditingHero] = useState(false);
   const [tripNameInput, setTripNameInput] = useState('');
   const [tripStartDateInput, setTripStartDateInput] = useState('');
   const [tripStartTimeInput, setTripStartTimeInput] = useState(DEFAULT_DAY_START_TIME);
+  const [editingChecklistId, setEditingChecklistId] = useState(null);
+  const [editingChecklistText, setEditingChecklistText] = useState('');
+  const [isChecklistSyncing, setIsChecklistSyncing] = useState(false);
+  const autoSaveTimerRef = useRef(null);
+  const lastSavedKeyRef = useRef('');
   const chatEndRef = useRef(null);
+  const addInputRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -98,6 +129,67 @@ function App() {
   useEffect(() => {
     if (itineraryUuidParam) loadItinerary(itineraryUuidParam);
   }, [itineraryUuidParam]);
+
+  // Auto-focus the add input when opened
+  useEffect(() => {
+    if (isAddingItem && addInputRef.current) {
+      addInputRef.current.focus();
+    }
+  }, [isAddingItem]);
+
+  const fetchTravelTime = async (originItem, destItem, token, mode = 'TRANSIT') => {
+  if (!originItem || !destItem) return 15; // 找不到資料退回 15 分鐘
+
+  const getPayload = (item) => {
+    if (item.location && item.location.lat && item.location.lng) {
+      return { lat: item.location.lat, lng: item.location.lng };
+    }
+    if (item.name && typeof item.name === 'string' && item.name.trim() !== '') {
+      const name = item.name.trim();
+      if (['自由活動', '休息', '回飯店'].includes(name)) return null;
+      return name;
+    }
+    return null;
+  };
+
+  const originPayload = getPayload(originItem);
+  const destPayload = getPayload(destItem);
+
+  if (!originPayload || !destPayload) return 15; // 預設 15 分鐘
+
+  try {
+    const res = await fetch(`${API_BASE}/api/directions`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` 
+      },
+      body: JSON.stringify({
+        origin: originPayload,
+        destination: destPayload,
+        mode
+      })
+    });
+    
+    if (!res.ok) return 15; // 發生 400 錯誤等狀況，退回 15 分鐘
+    
+    const data = await res.json();
+    if (data.routes && data.routes.length > 0) {
+      const durationSeconds = data.routes[0].legs[0].duration.value;
+      const rawMinutes = Math.ceil(durationSeconds / 60);
+      
+      // 以 15 分鐘為單位進位
+      let roundedMinutes = Math.ceil(rawMinutes / 15) * 15;
+      if (roundedMinutes === 0) roundedMinutes = 15;
+
+      return roundedMinutes;
+    }
+  } catch (error) {
+    console.warn(`[交通時間計算] 無法取得時間: ${error.message}`);
+  }
+  
+  return 15; // 最終保底 15 分鐘
+};
 
   const loadItinerary = async (uuid) => {
     setIsLoadingItinerary(true);
@@ -125,14 +217,7 @@ function App() {
         const serverChecklist = Array.isArray(data.checklistItems) ? data.checklistItems : null;
         const jsonChecklist = Array.isArray(loadedPlan.packingItems) ? loadedPlan.packingItems : null;
         const rawChecklist = serverChecklist || jsonChecklist || DEFAULT_CHECKLIST;
-        const normalizedChecklist = rawChecklist
-          .map((item, idx) => ({
-            id: item.id || Date.now() + idx,
-            text: String(item.text || '').trim(),
-            checked: Boolean(item.checked),
-          }))
-          .filter((item) => item.text.length > 0);
-        setPackingItems(normalizedChecklist.length > 0 ? normalizedChecklist : DEFAULT_CHECKLIST);
+        setPackingItems(normalizeChecklistItems(rawChecklist));
 
         if (mergedPlan.totalBudget) setTotalBudget(mergedPlan.totalBudget);
         setMessages([{ role: 'assistant', content: `已載入行程「${data.title || data.summary || ''}」，您可以繼續修改。` }]);
@@ -146,18 +231,19 @@ function App() {
     }
   };
 
-  const handleSave = async () => {
-    if (!plan) return;
+  const saveItinerary = useCallback(async ({ silent = false, syncChecklist = true } = {}) => {
+    if (!plan) return false;
     setIsSaving(true);
-    setSaveMsg(null);
+    if (!silent) setSaveMsg(null);
+
     const cleanedTripName = (plan.tripName || '').trim();
-    const checklistPayload = (packingItems || [])
-      .map((item, idx) => ({
-        id: item.id || `${Date.now()}-${idx}`,
-        text: String(item.text || '').trim(),
-        checked: Boolean(item.checked),
-      }))
-      .filter((item) => item.text.length > 0);
+    const checklistPayload = normalizeChecklistItems(packingItems).map((item, idx) => ({
+      id: item.id,
+      text: item.text,
+      checked: Boolean(item.checked),
+      reminder: Boolean(item.reminder),
+      sortOrder: idx,
+    }));
 
     const payload = {
       title: cleanedTripName || plan.summary || `${plan.city || ''}旅遊行程`,
@@ -176,6 +262,7 @@ function App() {
         totalBudget,
       },
     };
+
     try {
       let res;
       if (itineraryUuid) {
@@ -193,20 +280,47 @@ function App() {
       }
       if (!res.ok) throw new Error('保存失敗');
       const data = await res.json();
+      const targetUuid = data.uuid || itineraryUuid;
       if (data.uuid) {
         setItineraryUuid(data.uuid);
         navigate(`/planner/${data.uuid}`, { replace: true });
       }
-      setSaveMsg('已保存');
-      setTimeout(() => setSaveMsg(null), 2000);
+
+      if (syncChecklist && targetUuid) {
+        try {
+          setIsChecklistSyncing(true);
+          const checklistRes = await fetch(`${API_BASE}/api/itineraries/${targetUuid}/checklist`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (checklistRes.ok) {
+            const checklistData = await checklistRes.json();
+            if (Array.isArray(checklistData.checklistItems)) {
+              setPackingItems(normalizeChecklistItems(checklistData.checklistItems));
+            }
+          }
+        } catch (syncErr) {
+          console.error('Checklist refresh failed after save:', syncErr);
+        } finally {
+          setIsChecklistSyncing(false);
+        }
+      }
+
+      if (!silent) {
+        setSaveMsg('已保存');
+        setTimeout(() => setSaveMsg(null), 2000);
+      }
+      return true;
     } catch (err) {
       console.error(err);
-      setSaveMsg('保存失敗');
-      setTimeout(() => setSaveMsg(null), 3000);
+      if (!silent) {
+        setSaveMsg('保存失敗');
+        setTimeout(() => setSaveMsg(null), 3000);
+      }
+      return false;
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [plan, packingItems, tripNote, totalBudget, itineraryUuid, token, navigate]);
 
   const handleSend = async (quickText) => {
     const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
@@ -226,17 +340,34 @@ function App() {
       if (!res.ok || data.error) throw new Error(data.error || '後端回傳錯誤');
       const safeContent = data.content || '行程已為您更新，請查看右側地圖與列表。';
       setMessages([...newHistory, { role: 'assistant', content: safeContent }]);
+      
       if (data.plan) {
-        if (data.plan.days && Array.isArray(data.plan.days)) {
-          data.plan.days = data.plan.days.map((day) => {
-            let baseTime = '09:00';
-            if (day.items && day.items.length > 0 && day.items[0].time) {
-              baseTime = day.items[0].time.split('~')[0];
-            }
-            return { ...day, items: recalculateDayTimes(day.items, baseTime) };
-          });
-        }
-        setPlan(data.plan);
+      if (data.plan.days && Array.isArray(data.plan.days)) {
+        data.plan.days = await Promise.all(
+          data.plan.days.map(async (day) => {
+            const validItems = (day.items || []).filter(item => {
+              if (!item.name) return false;
+              const blockList = ['捷運', '回到住宿', '休息', '搭乘', '前往', '步行至', '交通'];
+              const isBlocked = blockList.some(keyword => item.name.includes(keyword));
+              const isBracketTransit = item.name.startsWith('[') && (item.name.includes('至') || item.name.includes('回'));
+              return !isBlocked && !isBracketTransit; 
+            });
+
+            // 👉 1. 設定每日的起始時間 (保留日後可擴充的彈性)
+            // 如果 AI 有傳 startTime 就用，沒有的話就強制預設 09:00
+            const dayStartTime = day.startTime || '09:00';
+            const mode = day.transportMode || 'TRANSIT'; 
+            const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, token, mode);
+            return { 
+              ...day, 
+              startTime: dayStartTime, 
+              transportMode: mode, 
+              items: recalculatedItems 
+            };
+          })
+        );
+      }
+      setPlan(data.plan);
         if (data.plan.totalBudget) setTotalBudget(data.plan.totalBudget);
         setWeatherData(null);
       }
@@ -279,6 +410,70 @@ function App() {
     }
   }, [plan]);
 
+  const autoSaveKey = useMemo(() => {
+    if (!plan) return '';
+    const checklistPayload = normalizeChecklistItems(packingItems).map((item, idx) => ({
+      id: item.id,
+      text: item.text,
+      checked: Boolean(item.checked),
+      reminder: Boolean(item.reminder),
+      sortOrder: idx,
+    }));
+
+    return JSON.stringify({
+      itineraryUuid: itineraryUuid || null,
+      tripName: (plan.tripName || '').trim(),
+      summary: plan.summary || '',
+      city: plan.city || '',
+      startDate: plan.startDate || null,
+      startTime: normalizeTimeValue(plan.startTime, DEFAULT_DAY_START_TIME),
+      days: plan.days || [],
+      tripNote: tripNote || '',
+      totalBudget: Number(totalBudget) || 0,
+      checklist: checklistPayload,
+    });
+  }, [plan, itineraryUuid, tripNote, totalBudget, packingItems]);
+
+  useEffect(() => {
+    if (!plan || !token || isLoadingItinerary || isChecklistSyncing || isSaving) return;
+    if (!autoSaveKey) return;
+
+    if (itineraryUuid && !lastSavedKeyRef.current) {
+      lastSavedKeyRef.current = autoSaveKey;
+      return;
+    }
+
+    if (autoSaveKey === lastSavedKeyRef.current) return;
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setIsAutoSaving(true);
+      const ok = await saveItinerary({ silent: true, syncChecklist: false });
+      if (ok) {
+        lastSavedKeyRef.current = autoSaveKey;
+        setSaveMsg('已保存');
+        setTimeout(() => setSaveMsg(null), 1200);
+      } else {
+        setSaveMsg('保存失敗');
+        setTimeout(() => setSaveMsg(null), 2500);
+      }
+      setIsAutoSaving(false);
+    }, 800);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [autoSaveKey, plan, token, itineraryUuid, isLoadingItinerary, isChecklistSyncing, isSaving, saveItinerary]);
+
+  useEffect(() => () => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+  }, []);
+
   const getWeatherForDay = (dayIndex) => {
     if (!weatherData || !weatherData.time) return null;
     const code = weatherData.weathercode[dayIndex];
@@ -306,7 +501,7 @@ function App() {
     setPlan(newPlan);
   };
 
-  const handleAddLocationFromMap = (locationData) => {
+  const handleAddLocationFromMap = async (locationData) => {
     if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
       alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
       return;
@@ -315,12 +510,12 @@ function App() {
     const newPlan = { ...plan, days: [...plan.days] };
     const dayItems = [...(plan.days[targetDayIdx].items || [])];
     dayItems.push({ name: locationData.name, type: locationData.type || 'sight', time: '', cost: 0, note: `手動從地圖加入 (第 ${targetDayIdx + 1} 天)`, location: { lat: locationData.lat, lng: locationData.lng } });
-    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: recalculateDayTimes(dayItems, getTrueStartTime(targetDayIdx)) };
+    newPlan.days[targetDayIdx] = { ...plan.days[targetDayIdx], items: await recalculateDayTimesAsync(dayItems, getTrueStartTime(targetDayIdx)) };
     setPlan(newPlan);
     setActiveLocation({ day: targetDayIdx + 1, order: dayItems.length - 1 });
   };
 
-  const updateActivityTime = (dayIdx, itemIdx, newTime) => {
+  const updateActivityTime = async (dayIdx, itemIdx, newTime) => {
     if (!plan) return;
     const newPlan = { ...plan, days: [...plan.days] };
     const newItems = [...plan.days[dayIdx].items];
@@ -354,22 +549,39 @@ function App() {
             if (nextDuration <= 0) nextDuration = 120;
           }
         }
+        const mode = newPlan.days[dayIdx].transportMode || 'TRANSIT';
+        const travelTime = await fetchTravelTime(newItems[i - 1], nextItem, token, mode);
+
         const [currH, currM] = currentEndTime.split(':').map(Number);
-        const startDate = new Date(); startDate.setHours(currH, currM + 30, 0, 0);
+        const startDate = new Date(); 
+        startDate.setHours(currH, currM + travelTime, 0, 0); // 這裡替換掉原來的 30
+        
         const newStartStr = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
-        const endDate = new Date(startDate); endDate.setMinutes(endDate.getMinutes() + nextDuration);
+        const endDate = new Date(startDate); 
+        endDate.setMinutes(endDate.getMinutes() + nextDuration);
         const newEndStr = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+        
         nextItem.time = `${newStartStr}~${newEndStr}`;
         newItems[i] = nextItem;
         currentEndTime = newEndStr;
       }
     }
+    
     newPlan.days[dayIdx] = { ...plan.days[dayIdx], items: newItems };
     setPlan(newPlan);
   };
 
   const totalSpent = plan ? plan.days.reduce((sum, day) => sum + (day.items || []).reduce((ds, item) => ds + (Number(item.cost) || 0), 0), 0) : 0;
   const remaining = totalBudget - totalSpent;
+  const checklistDoneCount = packingItems.filter((item) => item.checked).length;
+  const checklistUsageText = `${checklistDoneCount}/${CHECKLIST_LIMIT}`;
+  const checklistIsFull = packingItems.length >= CHECKLIST_LIMIT;
+  const checklistPendingCount = packingItems.length - checklistDoneCount;
+  const checklistAllChecked = packingItems.length > 0 && checklistDoneCount === packingItems.length;
+  const checklistHasCheckedItems = checklistDoneCount > 0;
+  const checklistProgressPercent = packingItems.length === 0
+    ? 0
+    : Math.round((checklistDoneCount / packingItems.length) * 100);
 
   const mapData = useMemo(() => {
     if (!plan) return null;
@@ -386,45 +598,78 @@ function App() {
     return normalizeTimeValue(plan?.startTime, DEFAULT_DAY_START_TIME);
   };
 
-  const recalculateDayTimes = (items, dayStartTime = '09:00') => {
+  const recalculateDayTimesAsync = async (items, dayStartTime = '09:00', token, mode = 'TRANSIT') => {
     if (!items || items.length === 0) return items;
+    
     let currentStartTime = dayStartTime;
-    return items.map((item) => {
+    const newItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = { ...items[i] };
+      
+      // 計算交通時間（第一個行程不用加上交通時間）
+      let travelTime = 0;
+      if (i > 0) {
+        const prevItem = newItems[i - 1];
+        travelTime = await fetchTravelTime(prevItem, item, token, mode);
+      }
+
+      // 將抵達時間往後推 travelTime 分鐘
+      if (i > 0) {
+        const [currH, currM] = currentStartTime.split(':').map(Number);
+        const arrivalDate = new Date(); 
+        arrivalDate.setHours(currH, currM + travelTime, 0, 0);
+        currentStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
+      }
+
+      // 計算停留時間 (預設 120 分鐘)
       let durationMinutes = 120;
       if (item.time && item.time.includes('~')) {
         const [oldStart, oldEnd] = item.time.split('~');
-        const [sH, sM] = oldStart.split(':').map(Number); const [eH, eM] = oldEnd.split(':').map(Number);
-        if (!isNaN(sH) && !isNaN(eH)) { durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); if (durationMinutes <= 0) durationMinutes = 120; }
+        const [sH, sM] = oldStart.split(':').map(Number); 
+        const [eH, eM] = oldEnd.split(':').map(Number);
+        if (!isNaN(sH) && !isNaN(eH)) { 
+          durationMinutes = (eH * 60 + eM) - (sH * 60 + sM); 
+          if (durationMinutes <= 0) durationMinutes = 120; 
+        }
       }
-      const [currH, currM] = currentStartTime.split(':').map(Number);
-      const arrivalDate = new Date(); arrivalDate.setHours(currH, currM + 30, 0, 0);
-      const assignedStartTime = `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')}`;
-      const [h, m] = assignedStartTime.split(':').map(Number);
-      const endDate = new Date(); endDate.setHours(h, m + durationMinutes, 0, 0);
-      const assignedEndTime = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+
+      const assignedStartTime = currentStartTime;
+      const [startH, startM] = assignedStartTime.split(':').map(Number);
+      const assignedEndDate = new Date(); 
+      assignedEndDate.setHours(startH, startM + durationMinutes, 0, 0);
+      const assignedEndTime = `${assignedEndDate.getHours().toString().padStart(2, '0')}:${assignedEndDate.getMinutes().toString().padStart(2, '0')}`;
+      
+      item.time = `${assignedStartTime}~${assignedEndTime}`;
+      newItems.push(item);
+      
+      // 下一個行程的起算時間
       currentStartTime = assignedEndTime;
-      return { ...item, time: `${assignedStartTime}~${assignedEndTime}` };
-    });
+    }
+    
+    return newItems;
   };
 
-  const onDragEnd = (result) => {
+  const onDragEnd = async (result) => {
     const { source, destination } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
     const newPlan = { ...plan };
     const sourceDayIdx = parseInt(source.droppableId.split('-')[1], 10);
     const destDayIdx = parseInt(destination.droppableId.split('-')[1], 10);
-    const destDayStartTime = getTrueStartTime(destDayIdx);
-    const sourceDayStartTime = getTrueStartTime(sourceDayIdx);
+    const destDayStartTime = newPlan.days[destDayIdx].startTime || '09:00';
+    const sourceDayStartTime = newPlan.days[sourceDayIdx].startTime || '09:00';
     const sourceItems = Array.from(newPlan.days[sourceDayIdx].items);
     const destItems = sourceDayIdx === destDayIdx ? sourceItems : Array.from(newPlan.days[destDayIdx].items);
     const [movedItem] = sourceItems.splice(source.index, 1);
+    const sourceMode = newPlan.days[sourceDayIdx].transportMode || 'TRANSIT';
+    const destMode = newPlan.days[destDayIdx].transportMode || 'TRANSIT';
     destItems.splice(destination.index, 0, movedItem);
     if (sourceDayIdx === destDayIdx) {
-      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, destDayStartTime);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token, sourceMode);
     } else {
-      newPlan.days[sourceDayIdx].items = recalculateDayTimes(sourceItems, sourceDayStartTime);
-      newPlan.days[destDayIdx].items = recalculateDayTimes(destItems, destDayStartTime);
+      newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(sourceItems, sourceDayStartTime, token, sourceMode);
+      newPlan.days[destDayIdx].items = await recalculateDayTimesAsync(destItems, destDayStartTime, token, destMode);
     }
     setPlan(newPlan);
   };
@@ -473,7 +718,7 @@ function App() {
     setIsEditingHero(false);
   };
 
-  const handleHeroEditSave = () => {
+  const handleHeroEditSave = async () => {
     if (!plan) {
       setIsEditingHero(false);
       return;
@@ -481,9 +726,25 @@ function App() {
     const nextTripName = tripNameInput.trim();
     const nextStartDate = tripStartDateInput || null;
     const nextStartTime = normalizeTimeValue(tripStartTimeInput, normalizeTimeValue(plan.startTime, DEFAULT_DAY_START_TIME));
-    const nextDays = Array.isArray(plan.days)
-      ? plan.days.map((day) => ({ ...day, items: recalculateDayTimes(day.items || [], nextStartTime) }))
-      : plan.days;
+    
+    // 2. 處理非同步的 days 計算
+    let nextDays = plan.days;
+    
+    if (Array.isArray(plan.days)) {
+      nextDays = await Promise.all(
+        plan.days.map(async (day) => {
+          // 👉 取得該天專屬的出發時間，如果沒有才退回行程預設時間或 09:00
+          const dayStartTime = day.startTime || nextStartTime || '09:00';
+          
+          const recalculatedItems = await recalculateDayTimesAsync(day.items || [], dayStartTime, token);
+          return { 
+            ...day, 
+            startTime: dayStartTime, 
+            items: recalculatedItems 
+          };
+        })
+      );
+    }
 
     setPlan({
       ...plan,
@@ -495,18 +756,304 @@ function App() {
     setIsEditingHero(false);
   };
 
-  const addChecklistItem = () => {
-    const text = newChecklistText.trim();
-    if (!text) return;
-    setPackingItems((prev) => [...prev, { id: Date.now(), text, checked: false }]);
-    setNewChecklistText('');
+  const isPersistedChecklistItem = (itemId) => itineraryUuid && Number.isFinite(Number(itemId));
+
+  const setChecklistError = (message) => {
+    setSaveMsg(message || '行前清單更新失敗');
+    setTimeout(() => setSaveMsg(null), 2500);
   };
 
-  const removeChecklistItem = (id) => {
-    setPackingItems((prev) => {
-      const next = prev.filter((item) => item.id !== id);
-      return next.length > 0 ? next : DEFAULT_CHECKLIST;
+  const requestChecklistApi = async (path = '', options = {}, targetUuid = itineraryUuid) => {
+    if (!targetUuid) throw new Error('請先儲存行程後再同步清單');
+
+    const res = await fetch(`${API_BASE}/api/itineraries/${targetUuid}/checklist${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
     });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '行前清單同步失敗');
+    return data;
+  };
+
+  const addChecklistItem = async () => {
+    const text = newChecklistText.trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
+    if (!text) {
+      setIsAddingItem(false);
+      return;
+    }
+    if (packingItems.length >= CHECKLIST_LIMIT) {
+      setChecklistError(`行前清單最多 ${CHECKLIST_LIMIT} 項`);
+      return;
+    }
+
+    const draftItem = {
+      id: `local-${Date.now()}`,
+      text,
+      checked: false,
+      reminder: false,
+      sortOrder: packingItems.length,
+    };
+
+    if (!itineraryUuid) {
+      setPackingItems((prev) => normalizeChecklistItems([...prev, draftItem]));
+      setNewChecklistText('');
+      setIsAddingItem(false);
+      return;
+    }
+
+    setIsChecklistSyncing(true);
+    try {
+      const data = await requestChecklistApi('', {
+        method: 'POST',
+        body: JSON.stringify({ text, checked: false, reminder: false, sortOrder: packingItems.length }),
+      });
+      setPackingItems((prev) => normalizeChecklistItems([...prev, data.item]));
+      setNewChecklistText('');
+      setIsAddingItem(false);
+    } catch (err) {
+      console.error(err);
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const cancelAddItem = () => {
+    setNewChecklistText('');
+    setIsAddingItem(false);
+  };
+
+  const toggleChecklistChecked = async (id) => {
+    let nextChecked = false;
+    setPackingItems((prev) => normalizeChecklistItems(
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        nextChecked = !item.checked;
+        return { ...item, checked: nextChecked };
+      })
+    ));
+
+    if (!isPersistedChecklistItem(id)) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      const data = await requestChecklistApi(`/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ checked: nextChecked }),
+      });
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => item.id === id ? { ...item, ...data.item } : item)
+      ));
+    } catch (err) {
+      console.error(err);
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => item.id === id ? { ...item, checked: !nextChecked } : item)
+      ));
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const toggleChecklistReminder = async (id) => {
+    let nextReminder = false;
+    setPackingItems((prev) => normalizeChecklistItems(
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        nextReminder = !item.reminder;
+        return { ...item, reminder: nextReminder };
+      })
+    ));
+
+    if (!isPersistedChecklistItem(id)) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      const data = await requestChecklistApi(`/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reminder: nextReminder }),
+      });
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => item.id === id ? { ...item, ...data.item } : item)
+      ));
+    } catch (err) {
+      console.error(err);
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => item.id === id ? { ...item, reminder: !nextReminder } : item)
+      ));
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const removeChecklistItem = async (id) => {
+    const removed = packingItems.find((item) => item.id === id);
+    if (!removed) return;
+
+    setPackingItems((prev) => normalizeChecklistItems(prev.filter((item) => item.id !== id)));
+
+    if (!isPersistedChecklistItem(id)) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      await requestChecklistApi(`/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error(err);
+      setPackingItems((prev) => normalizeChecklistItems([...prev, removed]));
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const startEditChecklist = (id, text) => {
+    setEditingChecklistId(id);
+    setEditingChecklistText(text);
+  };
+
+  const saveEditChecklist = async (id) => {
+    const text = editingChecklistText.trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
+    const originalText = packingItems.find((item) => item.id === id)?.text || '';
+
+    if (!text) {
+      setEditingChecklistId(null);
+      setEditingChecklistText('');
+      await removeChecklistItem(id);
+      return;
+    }
+
+    setPackingItems((prev) => normalizeChecklistItems(
+      prev.map((item) => item.id === id ? { ...item, text } : item)
+    ));
+    setEditingChecklistId(null);
+    setEditingChecklistText('');
+
+    if (!isPersistedChecklistItem(id)) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      const data = await requestChecklistApi(`/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ text }),
+      });
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => item.id === id ? { ...item, ...data.item } : item)
+      ));
+    } catch (err) {
+      console.error(err);
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => item.id === id ? { ...item, text: originalText } : item)
+      ));
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const cancelEditChecklist = () => {
+    setEditingChecklistId(null);
+    setEditingChecklistText('');
+  };
+
+  const toggleAllChecklistChecked = async () => {
+    if (packingItems.length === 0) return;
+
+    const prevItems = packingItems;
+    const nextChecked = !checklistAllChecked;
+    setPackingItems(normalizeChecklistItems(
+      prevItems.map((item) => ({ ...item, checked: nextChecked }))
+    ));
+
+    const persistedIds = prevItems
+      .map((item) => item.id)
+      .filter((itemId) => isPersistedChecklistItem(itemId));
+
+    if (persistedIds.length === 0) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      const patchResults = await Promise.all(
+        persistedIds.map((itemId) => requestChecklistApi(`/${itemId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ checked: nextChecked }),
+        }))
+      );
+
+      const serverMap = new Map(
+        patchResults
+          .map((result) => result?.item)
+          .filter(Boolean)
+          .map((item) => [String(item.id), item])
+      );
+
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((item) => {
+          const serverItem = serverMap.get(String(item.id));
+          return serverItem ? { ...item, ...serverItem } : item;
+        })
+      ));
+    } catch (err) {
+      console.error(err);
+      setPackingItems(normalizeChecklistItems(prevItems));
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const clearCompletedChecklistItems = async () => {
+    if (!checklistHasCheckedItems) return;
+
+    const prevItems = packingItems;
+    const completedItems = prevItems.filter((item) => item.checked);
+    const keepItems = prevItems.filter((item) => !item.checked);
+
+    if (editingChecklistId && completedItems.some((item) => item.id === editingChecklistId)) {
+      cancelEditChecklist();
+    }
+
+    setPackingItems(normalizeChecklistItems(keepItems));
+
+    const persistedDeleteIds = completedItems
+      .map((item) => item.id)
+      .filter((itemId) => isPersistedChecklistItem(itemId));
+
+    if (persistedDeleteIds.length === 0) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      await Promise.all(
+        persistedDeleteIds.map((itemId) => requestChecklistApi(`/${itemId}`, { method: 'DELETE' }))
+      );
+    } catch (err) {
+      console.error(err);
+      setPackingItems(normalizeChecklistItems(prevItems));
+      setChecklistError(err.message);
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const handleTransportModeChange = async (dayIdx, newMode) => {
+    if (!plan) return;
+    const newPlan = { ...plan, days: [...plan.days] };
+    const day = newPlan.days[dayIdx];
+
+    // 1. 更新該天的交通方式
+    day.transportMode = newMode;
+
+    // 2. 依照新的交通方式，重新計算整天的行程時間
+    const dayStartTime = day.startTime || '09:00';
+    day.items = await recalculateDayTimesAsync(day.items || [], dayStartTime, token, newMode);
+
+    // 3. 更新畫面
+    setPlan(newPlan);
   };
 
   return (
@@ -590,16 +1137,12 @@ function App() {
       <div className="az-main">
         {/* TOP BAR */}
         <header className="az-topbar">
-          
-          
           <button className="az-topbar-icon-btn" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
               <line x1="9" y1="3" x2="9" y2="21"></line>
             </svg>
           </button>
-
-          
 
           <button className={`az-topbar-btn ${showAiPanel ? 'az-topbar-btn--active' : ''}`} onClick={() => setShowAiPanel(!showAiPanel)}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -608,13 +1151,9 @@ function App() {
             AI 助手
           </button>
 
-          <button className="az-topbar-btn az-topbar-btn--primary" onClick={handleSave} disabled={!plan || isSaving}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
-              <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
-            </svg>
-            {isSaving ? '保存中...' : itineraryUuid ? '更新行程' : '發佈為指南'}
-          </button>
+
+            {isAutoSaving || isSaving ? '保存中...' : ''}
+            {saveMsg && <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>{saveMsg}</span>}
 
           <div className="az-topbar-spacer" />
 
@@ -629,7 +1168,6 @@ function App() {
             </svg>
           </button>
 
-          {saveMsg && <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>{saveMsg}</span>}
         </header>
 
         {/* CONTENT AREA */}
@@ -650,7 +1188,7 @@ function App() {
                   {tripTitle}
                   <button className="az-hero-edit-btn" onClick={openHeroEditor} aria-label="編輯行程資訊">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                      <path d="M11 4H4a2 2 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                       <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                     </svg>
                   </button>
@@ -706,54 +1244,195 @@ function App() {
             {/* ── INFO TAB ── */}
             {activeTab === 'info' && (
               <div className="az-tab-content">
-                <textarea
-                  className="az-notes-input"
-                  placeholder="請輸入旅程備註..."
-                  value={tripNote}
-                  onChange={(e) => setTripNote(e.target.value)}
-                />
-
-                <div className="az-section">
-                  <div className="az-section-header">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6,9 12,15 18,9"/></svg>
-                    <span>行前準備清單</span>
-                  </div>
-                  <div className="az-checklist">
-                    {packingItems.map(item => (
-                      <label key={item.id} className="az-check-row">
-                        <input type="checkbox" checked={item.checked} onChange={() => setPackingItems(prev => prev.map(p => p.id === item.id ? { ...p, checked: !p.checked } : p))} />
-                        <span className={item.checked ? 'az-check-done' : ''}>{item.text}</span>
-                        <button type="button" className="az-check-delete" onClick={() => removeChecklistItem(item.id)} aria-label="刪除項目">✕</button>
-                      </label>
-                    ))}
-                    <div className="az-check-add-row">
-                      <input
-                        className="az-check-input"
-                        type="text"
-                        value={newChecklistText}
-                        onChange={(e) => setNewChecklistText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addChecklistItem();
-                          }
-                        }}
-                        placeholder="新增行前項目，例如：護照、轉接頭"
-                      />
-                      <button className="az-add-item-btn" onClick={addChecklistItem}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        新增項目
-                      </button>
+                <div className="az-pretrip-card">
+                  <div className="az-pretrip-header">
+                    <h3 className="az-pretrip-title">旅行準備</h3>
+                    <div className="az-pretrip-header-right">
+                      <span className="az-pretrip-count">{checklistDoneCount}/{packingItems.length}</span>
                     </div>
                   </div>
-                </div>
 
-                <div className="az-section">
-                  <div className="az-section-header">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6,9 12,15 18,9"/></svg>
-                    <span>主要運輸安排</span>
+                  <div className="az-pretrip-progress-wrap">
+                    <div className="az-pretrip-progress">
+                      <div className="az-pretrip-progress-bar" style={{ width: `${checklistProgressPercent}%` }} />
+                    </div>
+                    <span className="az-pretrip-progress-text">已完成 {checklistDoneCount} 項，待辦 {checklistPendingCount} 項</span>
                   </div>
-                  <div className="az-empty-section">尚無運輸安排</div>
+
+                  {/* ── CHECKLIST LIST (matches screenshot style) ── */}
+                  <div className="az-pretrip-list">
+                    {packingItems.length === 0 && !isAddingItem && (
+                      <div className="az-pretrip-empty">尚未新增項目，先加入第一個行前準備吧。</div>
+                    )}
+
+                    {packingItems.map((item) => (
+                      <div key={item.id} className={`az-pretrip-row${item.checked ? ' az-pretrip-row--done' : ''}`}>
+                        {/* Drag handle */}
+                        <div className="az-pretrip-handle" aria-hidden="true">
+                          <span /><span /><span /><span /><span /><span />
+                        </div>
+
+                        {/* Checkbox */}
+                        <input
+                          type="checkbox"
+                          className="az-pretrip-checkbox"
+                          checked={item.checked}
+                          onChange={() => toggleChecklistChecked(item.id)}
+                          disabled={isChecklistSyncing}
+                        />
+
+                        {/* Content */}
+                        <div className="az-pretrip-content">
+                          {editingChecklistId === item.id ? (
+                            <textarea
+                              className="az-pretrip-edit-input"
+                              value={editingChecklistText}
+                              onChange={(e) => setEditingChecklistText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                  e.preventDefault();
+                                  saveEditChecklist(item.id);
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  cancelEditChecklist();
+                                }
+                              }}
+                              autoFocus
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className={`az-pretrip-text${item.checked ? ' is-done' : ''}`}
+                              onDoubleClick={() => startEditChecklist(item.id, item.text)}
+                              title="雙擊可編輯"
+                            >
+                              {item.text}
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="az-pretrip-actions">
+                          {editingChecklistId === item.id ? (
+                            <>
+                              <button
+                                type="button"
+                                className="az-pretrip-action az-pretrip-action--save"
+                                onClick={() => saveEditChecklist(item.id)}
+                                disabled={isChecklistSyncing}
+                                aria-label="儲存"
+                                title="儲存 (Ctrl+Enter)"
+                              >✓</button>
+                              <button
+                                type="button"
+                                className="az-pretrip-action az-pretrip-action--delete"
+                                onClick={cancelEditChecklist}
+                                disabled={isChecklistSyncing}
+                                aria-label="取消"
+                                title="取消 (Esc)"
+                              >✕</button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className={`az-pretrip-action az-pretrip-action--bell${item.reminder ? ' is-active' : ''}`}
+                                onClick={() => toggleChecklistReminder(item.id)}
+                                disabled={isChecklistSyncing}
+                                aria-label={item.reminder ? '取消提醒' : '開啟提醒'}
+                                title={item.reminder ? '取消提醒' : '開啟提醒'}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M15 17h5l-1.4-1.4C18.2 15.2 18 14.7 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5"/>
+                                  <path d="M9 17a3 3 0 0 0 6 0"/>
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                className="az-pretrip-action az-pretrip-action--delete"
+                                onClick={() => removeChecklistItem(item.id)}
+                                disabled={isChecklistSyncing}
+                                aria-label="刪除項目"
+                                title="刪除"
+                              >✕</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* ── INLINE ADD ROW (shown when isAddingItem) ── */}
+                    {isAddingItem && (
+                      <div className="az-pretrip-row az-pretrip-row--adding">
+                        <div className="az-pretrip-handle" aria-hidden="true">
+                          <span /><span /><span /><span /><span /><span />
+                        </div>
+                        <input
+                          type="checkbox"
+                          className="az-pretrip-checkbox"
+                          disabled
+                          style={{ opacity: 0.3 }}
+                        />
+                        <div className="az-pretrip-content" style={{ flex: 1 }}>
+                          <textarea
+                            ref={addInputRef}
+                            className="az-pretrip-edit-input az-pretrip-edit-input--new"
+                            value={newChecklistText}
+                            onChange={(e) => setNewChecklistText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                e.preventDefault();
+                                addChecklistItem();
+                              }
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                cancelAddItem();
+                              }
+                            }}
+                            placeholder="輸入清單項目..."
+                            rows={2}
+                          />
+                        </div>
+                        <div className="az-pretrip-actions">
+                          <button
+                            type="button"
+                            className="az-pretrip-action az-pretrip-action--save"
+                            onClick={addChecklistItem}
+                            disabled={isChecklistSyncing || !newChecklistText.trim()}
+                            title="新增 (Ctrl+Enter)"
+                          >✓</button>
+                          <button
+                            type="button"
+                            className="az-pretrip-action az-pretrip-action--delete"
+                            onClick={cancelAddItem}
+                            title="取消 (Esc)"
+                          >✕</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── ADD ITEM TRIGGER ROW (always visible at bottom) ── */}
+                    {!checklistIsFull && !isAddingItem && (
+                      <button
+                        type="button"
+                        className="az-pretrip-add-trigger"
+                        onClick={() => setIsAddingItem(true)}
+                        disabled={isChecklistSyncing}
+                      >
+                        <span className="az-pretrip-add-trigger-icon">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                          </svg>
+                        </span>
+                        <span className="az-pretrip-add-trigger-label">Add item</span>
+                      </button>
+                    )}
+
+                    {checklistIsFull && (
+                      <div className="az-pretrip-limit-tip">已達上限 {CHECKLIST_LIMIT} 項，請先刪除不需要的項目。</div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Budget */}
@@ -807,7 +1486,6 @@ function App() {
 
                     <h2 className="az-itinerary-heading">行程</h2>
 
-                    {/* All days rendered, filtered to active */}
                     <DragDropContext onDragEnd={onDragEnd}>
                       {plan.days.map((day, dayIdx) => {
                         if (dayIdx !== activeDayIdx) return null;
@@ -828,6 +1506,22 @@ function App() {
                                   </svg>
                                 </button>
                               </div>
+                            </div>
+
+                            <div className="day-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <h3 className="az-day-title">Day {dayIdx + 1} {day.date ? `(${day.date})` : ''}</h3>
+                              
+                              {/* 👉 交通方式切換下拉選單 */}
+                              <select 
+                                value={day.transportMode || 'TRANSIT'} 
+                                onChange={(e) => handleTransportModeChange(dayIdx, e.target.value)}
+                                style={{ padding: '4px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '14px' }}
+                              >
+                                <option value="TRANSIT">🚆 大眾運輸</option>
+                                <option value="DRIVING">🚗 開車</option>
+                                <option value="WALKING">🚶 步行</option>
+                                <option value="BICYCLING">🚲 騎車</option>
+                              </select>
                             </div>
 
                             <Droppable droppableId={`day-${dayIdx}`}>
@@ -950,7 +1644,6 @@ function App() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* Quick actions */}
           <div className="az-ai-quick">
             {['行程多一點', '行程少一點', '推薦住宿', '推薦美食'].map((q, i) => (
               <button key={i} className="az-quick-chip" onClick={() => handleSend(q)} disabled={isSending}>{q}</button>

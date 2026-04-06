@@ -188,10 +188,14 @@ CREATE TABLE IF NOT EXISTS public.itinerary_checklist_items (
   itinerary_uuid character varying NOT NULL REFERENCES public.itineraries(uuid) ON DELETE CASCADE,
   item_text character varying NOT NULL,
   is_checked boolean DEFAULT false,
+  is_reminder boolean DEFAULT false,
   sort_order integer DEFAULT 0,
   createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE public.itinerary_checklist_items
+  ADD COLUMN IF NOT EXISTS is_reminder boolean DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS itinerary_checklist_items_uuid_order_idx
   ON public.itinerary_checklist_items (itinerary_uuid, sort_order, id);
