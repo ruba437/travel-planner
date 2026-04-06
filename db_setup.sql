@@ -52,55 +52,6 @@
 --   CONSTRAINT users_pkey PRIMARY KEY (id)
 -- );
 
--- CREATE TABLE public.trending_destinations (
---   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
---   city character varying NOT NULL,
---   country character varying,
---   trip_count integer DEFAULT 0,
---   score numeric(10,2) DEFAULT 0,
---   cover_image text,
---   is_active boolean DEFAULT true,
---   createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
---   updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP
--- );
-
--- CREATE INDEX trending_destinations_score_idx
---   ON public.trending_destinations (score DESC, trip_count DESC, updatedat DESC);
-
--- CREATE TABLE public.travel_guides (
---   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
---   city character varying,
---   country character varying,
---   title character varying NOT NULL,
---   summary text,
---   body text,
---   cover_image text,
---   author_name character varying,
---   author_username character varying,
---   author_avatar text,
---   slug character varying,
---   guide_code character varying,
---   trip_days integer,
---   trip_nights integer,
---   tags text[] DEFAULT '{}',
---   view_count integer DEFAULT 0,
---   is_published boolean DEFAULT true,
---   publishedat timestamp without time zone,
---   createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
---   updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP
--- );
-
--- CREATE INDEX travel_guides_published_idx
---   ON public.travel_guides (is_published, publishedat DESC, updatedat DESC);
--- CREATE UNIQUE INDEX travel_guides_slug_uidx
---   ON public.travel_guides (slug)
---   WHERE slug IS NOT NULL;
--- CREATE UNIQUE INDEX travel_guides_guide_code_uidx
---   ON public.travel_guides (guide_code)
---   WHERE guide_code IS NOT NULL;
-
-
-
 -- -- ============================================================
 -- -- Aizzie-style City Guide — schema additions
 -- -- ============================================================
@@ -161,10 +112,6 @@
 --   savedat   timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
 --   UNIQUE (userid, city_id)
 -- );
-
-
--- WARNING: This schema is for context only and is not meant to be run.
--- Table order and constraints may not be valid for execution.
 
 
 -- WARNING: This schema is for context only and is not meant to be run.
@@ -240,29 +187,6 @@ CREATE TABLE public.itinerary_checklist_items (
   updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT itinerary_checklist_items_pkey PRIMARY KEY (id),
   CONSTRAINT itinerary_checklist_items_itinerary_uuid_fkey FOREIGN KEY (itinerary_uuid) REFERENCES public.itineraries(uuid) ON DELETE CASCADE
-);
-CREATE TABLE public.travel_guides (
-  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
-  city character varying,
-  country character varying,
-  title character varying NOT NULL,
-  summary text,
-  body text,
-  cover_image text,
-  author_name character varying,
-  author_username character varying,
-  author_avatar text,
-  slug character varying,
-  guide_code character varying,
-  trip_days integer,
-  trip_nights integer,
-  tags text[] DEFAULT '{}'::text[],
-  view_count integer DEFAULT 0,
-  is_published boolean DEFAULT true,
-  publishedat timestamp without time zone,
-  createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-  updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT travel_guides_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.user_saved_cities (
   id integer GENERATED ALWAYS AS IDENTITY NOT NULL,

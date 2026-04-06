@@ -265,53 +265,160 @@ router.get('/users/:userId/saved', optionalAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-//  TRENDING DESTINATIONS  (existing table — extra endpoints)
+//  PUBLIC GUIDES  (backed by public itineraries)
 // ════════════════════════════════════════════════════════════
 
-// GET /api/trending          — top destinations
-router.get('/trending', async (req, res) => {
+function safeParseItineraryData(rawValue) {
+  if (!rawValue) return null;
+  if (typeof rawValue === 'object') return rawValue;
   try {
-    const limit = Math.min(Number(req.query.limit) || 12, 50);
-    const { rows } = await pool.query(
-      `SELECT id, city, country, trip_count, score, cover_image
-       FROM   public.trending_destinations
-       WHERE  is_active = true
-       ORDER  BY score DESC, trip_count DESC
-       LIMIT  $1`,
-      [limit]
-    );
-    ok(res, rows);
-  } catch (e) {
-    console.error(e);
-    err(res, 'Failed to fetch trending destinations');
+    return JSON.parse(rawValue);
+  } catch (_e) {
+    return null;
   }
-});
+}
 
-// ════════════════════════════════════════════════════════════
-//  TRAVEL GUIDES  (existing table — extra endpoints)
-// ════════════════════════════════════════════════════════════
+function toGuideTripInfo(itineraryData) {
+  const days = Array.isArray(itineraryData?.days) ? itineraryData.days : [];
+  const dayCount = days.length || null;
+  return {
+    days: dayCount,
+    nights: dayCount ? Math.max(dayCount - 1, 0) : null,
+  };
+}
+
+function buildGuideBody(row, itineraryData) {
+  const lines = [];
+  const summary = String(row.summary || '').trim();
+  const note = String(row.note || '').trim();
+
+  if (summary) lines.push(summary);
+  if (note && note !== summary) lines.push(note);
+
+  const days = Array.isArray(itineraryData?.days) ? itineraryData.days : [];
+  days.forEach((day, index) => {
+    const dayNumber = Number(day?.day) || index + 1;
+    const title = String(day?.title || `第 ${dayNumber} 天`).trim();
+    lines.push(`${title}`);
+
+    const items = Array.isArray(day?.items) ? day.items : [];
+    items.forEach((item) => {
+      const time = String(item?.time || '').trim();
+      const name = String(item?.name || '').trim() || '未命名項目';
+      const itemNote = String(item?.note || '').trim();
+      lines.push(`- ${[time, name].filter(Boolean).join(' ')}${itemNote ? `：${itemNote}` : ''}`);
+    });
+  });
+
+  return lines.join('\n');
+}
+
+function mapGuideListRow(row) {
+  const itineraryData = safeParseItineraryData(row.itinerarydata);
+
+  return {
+    id: `guide-${row.uuid}`,
+    slug: row.uuid,
+    title: row.title || row.summary || '未命名指南',
+    summary: row.summary || '',
+    city: row.city || '',
+    authorName: row.displayname || row.email || '匿名旅人',
+    authorUsername: row.username || null,
+    coverImage: row.cover_image || '',
+    publishedAt: toISODate(row.updatedat || row.createdat || row.startdate),
+    guideCode: null,
+    tripInfo: toGuideTripInfo(itineraryData),
+  };
+}
+
+function mapGuideDetailRow(row) {
+  const itineraryData = safeParseItineraryData(row.itinerarydata);
+
+  return {
+    id: `guide-${row.uuid}`,
+    slug: row.uuid,
+    guideCode: null,
+    city: row.city || '',
+    country: '',
+    title: row.title || row.summary || '未命名指南',
+    summary: row.summary || '',
+    body: buildGuideBody(row, itineraryData),
+    coverImage: '',
+    tags: Array.isArray(itineraryData?.tags) ? itineraryData.tags : [],
+    tripInfo: toGuideTripInfo(itineraryData),
+    author: {
+      displayName: row.displayname || row.email || '匿名旅人',
+      username: row.username || null,
+      avatar: row.profilephoto || '',
+    },
+    publishedAt: toISODate(row.updatedat || row.createdat || row.startdate),
+    viewCount: 0,
+  };
+}
+
+async function fetchPublicGuideRows(limit, { city = '', keyword = '' } = {}) {
+  const params = [];
+  let sql = `SELECT i.uuid, i.title, i.summary, i.city, i.startdate, i.note, i.itinerarydata,
+                    i.createdat, i.updatedat,
+                    u.displayname, u.email, u.username, u.profilephoto
+             FROM itineraries i
+             JOIN users u ON u.id = i.userid
+             WHERE i.ispublic = true`;
+
+  if (city) {
+    params.push(`%${city}%`);
+    sql += ` AND i.city ILIKE $${params.length}`;
+  }
+
+  if (keyword) {
+    params.push(`%${keyword}%`);
+    sql += ` AND (i.title ILIKE $${params.length} OR i.summary ILIKE $${params.length})`;
+  }
+
+  params.push(limit);
+  sql += ` ORDER BY i.updatedat DESC, i.createdat DESC LIMIT $${params.length}`;
+
+  const { rows } = await pool.query(sql, params);
+  return rows;
+}
+
+async function getPublicGuideBySlug(slugFromPath) {
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(slugFromPath);
+    } catch (_e) {
+      return slugFromPath;
+    }
+  })();
+
+  const { rows } = await pool.query(
+    `SELECT i.uuid, i.title, i.summary, i.city, i.startdate, i.note, i.itinerarydata,
+            i.createdat, i.updatedat,
+            u.displayname, u.email, u.username, u.profilephoto
+     FROM itineraries i
+     JOIN users u ON u.id = i.userid
+     WHERE i.ispublic = true AND i.uuid = $1
+     LIMIT 1`,
+    [decoded]
+  );
+
+  if (rows.length > 0) return mapGuideDetailRow(rows[0]);
+
+  const fallbackRows = await fetchPublicGuideRows(200);
+  const normalizedTarget = String(decoded || '').trim().toLowerCase();
+  const matchRow = fallbackRows.find((row) => String(row.uuid).toLowerCase() === normalizedTarget || String(row.title || '').trim().toLowerCase() === normalizedTarget);
+  return matchRow ? mapGuideDetailRow(matchRow) : null;
+}
 
 // GET /api/guides?city=Tokyo&limit=10
 router.get('/guides', async (req, res) => {
   try {
-    const { city, limit = 10 } = req.query;
-    const params = [];
-    let where = `WHERE is_published = true`;
-    if (city) {
-      params.push(city);
-      where += ` AND lower(city) = lower($${params.length})`;
-    }
-    params.push(Number(limit));
-    const { rows } = await pool.query(
-      `SELECT id, city, country, title, summary, cover_image, author_name,
-              slug, trip_days, trip_nights, tags, view_count, publishedat
-       FROM   public.travel_guides
-       ${where}
-       ORDER  BY publishedat DESC NULLS LAST
-       LIMIT  $${params.length}`,
-      params
-    );
-    ok(res, rows);
+    const limit = Math.min(Number(req.query.limit) || 10, 48);
+    const city = String(req.query.city || '').trim();
+    const keyword = String(req.query.q || '').trim();
+    const rows = await fetchPublicGuideRows(limit, { city, keyword });
+    const guides = rows.length > 0 ? rows.map(mapGuideListRow) : fallbackGuides.slice(0, limit);
+    ok(res, guides);
   } catch (e) {
     console.error(e);
     err(res, 'Failed to fetch guides');
@@ -321,14 +428,9 @@ router.get('/guides', async (req, res) => {
 // GET /api/guides/:slug
 router.get('/guides/:slug', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT * FROM public.travel_guides WHERE slug = $1 AND is_published = true LIMIT 1`,
-      [req.params.slug]
-    );
-    if (!rows.length) return err(res, 'Guide not found', 404);
-    // bump view count (fire-and-forget)
-    pool.query(`UPDATE public.travel_guides SET view_count = view_count + 1 WHERE id = $1`, [rows[0].id]);
-    ok(res, rows[0]);
+    const guide = await getPublicGuideBySlug(req.params.slug);
+    if (!guide) return err(res, 'Guide not found', 404);
+    ok(res, guide);
   } catch (e) {
     console.error(e);
     err(res, 'Failed to fetch guide');
@@ -473,85 +575,6 @@ async function itineraryBelongsToUser(clientOrPool, uuid, userId) {
   return rows.length > 0;
 }
 
-function normalizeGuideText(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[/?#%]+/g, '')
-    .replace(/-+/g, '-');
-}
-
-function parseGuideSlug(raw) {
-  let decoded = raw;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch (_) {
-    decoded = raw;
-  }
-
-  const match = decoded.match(/-([A-Za-z0-9]{4,16})$/);
-  const guideCode = match ? match[1] : null;
-  const baseSlug = match ? decoded.slice(0, -(guideCode.length + 1)) : decoded;
-
-  return {
-    decoded,
-    guideCode,
-    baseSlug,
-  };
-}
-
-function buildGuideSlug(row) {
-  if (row.slug) return row.slug;
-  const base = normalizeGuideText(row.city || row.title || `guide-${row.id || 'x'}`);
-  if (row.guide_code) return `${base}-${row.guide_code}`;
-  return base;
-}
-
-function mapGuideListRow(row) {
-  return {
-    id: `guide-${row.id}`,
-    slug: buildGuideSlug(row),
-    title: row.title,
-    summary: row.summary || '',
-    city: row.city || '',
-    authorName: row.author_name || '匿名旅人',
-    authorUsername: row.author_username || null,
-    coverImage: row.cover_image || '',
-    publishedAt: toISODate(row.publishedat),
-    guideCode: row.guide_code || null,
-  };
-}
-
-function mapGuideDetailRow(row) {
-  let tags = [];
-  if (Array.isArray(row.tags)) tags = row.tags;
-  if (!Array.isArray(tags)) tags = [];
-
-  return {
-    id: `guide-${row.id}`,
-    slug: buildGuideSlug(row),
-    guideCode: row.guide_code || null,
-    city: row.city || '',
-    country: row.country || '',
-    title: row.title || '未命名指南',
-    summary: row.summary || '',
-    body: row.body || '',
-    coverImage: row.cover_image || '',
-    tags,
-    tripInfo: {
-      days: Number(row.trip_days) || null,
-      nights: Number(row.trip_nights) || null,
-    },
-    author: {
-      displayName: row.author_name || '匿名旅人',
-      username: row.author_username || null,
-      avatar: row.author_avatar || '',
-    },
-    publishedAt: toISODate(row.publishedat),
-    viewCount: Number(row.view_count) || 0,
-  };
-}
-
 const fallbackDestinations = [
   { city: '東京', country: '日本', tripCount: 0, coverImage: '' },
   { city: '大阪', country: '日本', tripCount: 0, coverImage: '' },
@@ -616,61 +639,14 @@ const fallbackBuddies = [
   },
 ];
 
-const fallbackGuideDetail = {
-  id: 'guide-fallback-ALQ8',
-  slug: '中國內蒙古自治區呼倫貝爾市-ALQ8',
-  guideCode: 'ALQ8',
-  city: '中國內蒙古自治區呼倫貝爾市',
-  country: '中國',
-  title: '中國內蒙古自治區呼倫貝爾市',
-  summary: '草原、濕地與邊境風景兼具，適合想要慢節奏與自然景觀的旅行者。',
-  body: '建議以海拉爾為移動樞紐，安排莫日格勒河、額爾古納濕地與滿洲里邊境風光。可依季節調整交通方式，並保留彈性時間。',
-  coverImage: '',
-  tags: ['草原', '自然風景', '慢旅行'],
-  tripInfo: { days: 5, nights: 4 },
-  author: {
-    displayName: 'reanna.sun',
-    username: 'reanna.sun',
-    avatar: '',
-  },
-  publishedAt: null,
-  viewCount: 0,
-};
-
 router.get('/guides', async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 12, 48);
   const city = String(req.query.city || '').trim();
   const keyword = String(req.query.q || '').trim();
 
   try {
-    let sql = `SELECT id, city, country, title, summary, cover_image, author_name, author_username, slug, guide_code, publishedat
-               FROM travel_guides
-               WHERE is_published = true`;
-    const params = [];
-
-    if (city) {
-      params.push(`%${city}%`);
-      sql += ` AND city ILIKE $${params.length}`;
-    }
-    if (keyword) {
-      params.push(`%${keyword}%`);
-      sql += ` AND (title ILIKE $${params.length} OR summary ILIKE $${params.length})`;
-    }
-    params.push(limit);
-    sql += ` ORDER BY publishedat DESC, updatedat DESC LIMIT $${params.length}`;
-
-    let rows = [];
-    try {
-      const result = await pool.query(sql, params);
-      rows = result.rows;
-    } catch (err) {
-      if (err.code !== '42P01' && err.code !== '42703') throw err;
-    }
-
-    const guides = rows.length > 0
-      ? rows.map(mapGuideListRow)
-      : fallbackGuides.slice(0, limit);
-
+    const rows = await fetchPublicGuideRows(limit, { city, keyword });
+    const guides = rows.length > 0 ? rows.map(mapGuideListRow) : fallbackGuides.slice(0, limit);
     return res.json({ guides });
   } catch (err) {
     console.error('Get guides error:', err);
@@ -678,53 +654,11 @@ router.get('/guides', async (req, res) => {
   }
 });
 
-async function getGuideDetailBySlug(slugFromPath, expectedUsername = null) {
-  const parsed = parseGuideSlug(slugFromPath);
-  const decodedSlug = parsed.decoded;
-  const baseSlug = parsed.baseSlug;
-  const guideCode = parsed.guideCode;
-
-  try {
-    const usernameFilter = expectedUsername ? 'AND (author_username = $4 OR author_name = $4)' : '';
-    const values = expectedUsername
-      ? [decodedSlug, guideCode, baseSlug, expectedUsername]
-      : [decodedSlug, guideCode, baseSlug];
-
-    const { rows } = await pool.query(
-      `SELECT id, city, country, title, summary, body, cover_image,
-              author_name, author_username, author_avatar,
-              slug, guide_code, trip_days, trip_nights, tags, view_count,
-              publishedat, updatedat
-       FROM travel_guides
-       WHERE is_published = true
-         AND (slug = $1 OR guide_code = $2 OR slug = $3)
-         ${usernameFilter}
-       ORDER BY publishedat DESC, updatedat DESC
-       LIMIT 1`,
-      values
-    );
-
-    if (rows.length > 0) {
-      return mapGuideDetailRow(rows[0]);
-    }
-  } catch (err) {
-    if (err.code !== '42P01' && err.code !== '42703') throw err;
-  }
-
-  return null;
-}
-
 router.get('/guides/:guideSlug', async (req, res) => {
   try {
-    const detail = await getGuideDetailBySlug(req.params.guideSlug);
-    if (detail) return res.json({ guide: detail });
-
-    const parsed = parseGuideSlug(req.params.guideSlug);
-    if (parsed.guideCode === 'ALQ8' || parsed.decoded === fallbackGuideDetail.slug) {
-      return res.json({ guide: fallbackGuideDetail });
-    }
-
-    return res.status(404).json({ error: '找不到該指南' });
+    const guide = await getPublicGuideBySlug(req.params.guideSlug);
+    if (!guide) return res.status(404).json({ error: '找不到該指南' });
+    return res.json({ guide });
   } catch (err) {
     console.error('Get guide detail error:', err);
     return res.status(500).json({ error: '取得指南詳情失敗' });
@@ -732,17 +666,10 @@ router.get('/guides/:guideSlug', async (req, res) => {
 });
 
 router.get('/u/:username/guide/:guideSlug', async (req, res) => {
-  const { username, guideSlug } = req.params;
   try {
-    const detail = await getGuideDetailBySlug(guideSlug, username);
-    if (detail) return res.json({ guide: detail });
-
-    const parsed = parseGuideSlug(guideSlug);
-    if ((username === 'reanna.sun' || username === 'reanna.sun444') && (parsed.guideCode === 'ALQ8' || parsed.decoded === fallbackGuideDetail.slug)) {
-      return res.json({ guide: fallbackGuideDetail });
-    }
-
-    return res.status(404).json({ error: '找不到該用戶的指南' });
+    const guide = await getPublicGuideBySlug(req.params.guideSlug);
+    if (!guide) return res.status(404).json({ error: '找不到該用戶的指南' });
+    return res.json({ guide });
   } catch (err) {
     console.error('Get user guide detail error:', err);
     return res.status(500).json({ error: '取得用戶指南詳情失敗' });
@@ -800,44 +727,10 @@ router.get('/home/content', async (req, res) => {
 
     let guides = [];
     try {
-      const { rows } = await pool.query(
-        `SELECT id, title, summary, city, author_name, author_username, cover_image, slug, guide_code, publishedat
-         FROM travel_guides
-         WHERE is_published = true
-         ORDER BY publishedat DESC, updatedat DESC
-         LIMIT $1`,
-        [guideLimit]
-      );
-      guides = rows.map(mapGuideListRow);
+      const rows = await fetchPublicGuideRows(guideLimit);
+      guides = rows.length > 0 ? rows.map(mapGuideListRow) : fallbackGuides.slice(0, guideLimit);
     } catch (err) {
       if (err.code !== '42P01' && err.code !== '42703') throw err;
-    }
-
-    if (guides.length === 0) {
-      const { rows } = await pool.query(
-        `SELECT i.uuid, i.title, i.summary, i.city, i.updatedat, u.displayname, u.email
-         FROM itineraries i
-         JOIN users u ON u.id = i.userid
-         WHERE i.ispublic = true
-         ORDER BY i.updatedat DESC
-         LIMIT $1`,
-        [guideLimit]
-      );
-      guides = rows.map((row) => ({
-        id: row.uuid,
-        slug: row.uuid,
-        guideCode: null,
-        title: row.title || `${row.city || '旅程'} 行程指南`,
-        summary: row.summary || '這份公開行程可以作為你的規劃起點。',
-        city: row.city || '',
-        authorName: row.displayname || row.email || '匿名旅人',
-        authorUsername: null,
-        coverImage: '',
-        publishedAt: toISODate(row.updatedat),
-      }));
-    }
-
-    if (guides.length === 0) {
       guides = fallbackGuides.slice(0, guideLimit);
     }
 

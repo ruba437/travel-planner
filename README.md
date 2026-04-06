@@ -72,10 +72,10 @@ cd backend
 psql "$DATABASE_URL" -f home_content_setup.sql
 ```
 
-這會建立以下資料表並插入基本 seed：
+<!-- 這會建立以下資料表並插入基本 seed：
 
-- `trending_destinations`
-- `travel_guides`
+- `itineraries`
+- `itinerary_checklist_items` -->
 
 ## 🔌 新增公開 API
 
