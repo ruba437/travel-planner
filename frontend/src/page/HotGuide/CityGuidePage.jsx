@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
+import '../../styles/sidebar-shared.css';
 import './CityGuidePage.css';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';

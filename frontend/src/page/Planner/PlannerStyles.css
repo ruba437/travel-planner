@@ -7,8 +7,17 @@
 :root {
   --brand-orange: #FF6934;
   --brand-teal: #0CBFB0;
-  --sidebar-w: 220px;
+  --sidebar-w: 240px;
   --sidebar-w-collapsed: 60px;
+  --az-sidebar-width: 240px;
+  --az-sidebar-collapsed-width: 60px;
+  --az-sidebar-bg: var(--surface);
+  --az-sidebar-border: var(--border);
+  --az-sidebar-hover-bg: var(--bg);
+  --az-sidebar-text: var(--text);
+  --az-sidebar-text-muted: var(--text-secondary);
+  --az-sidebar-text-subtle: var(--text-muted);
+  --az-sidebar-transition: var(--transition);
   --topbar-h: 52px;
   --radius: 10px;
   --radius-sm: 6px;
@@ -50,156 +59,8 @@ input, textarea { font-family: var(--font); }
 
 /* ════════════════════════════════════════════
    SIDEBAR
+   Shared in src/styles/sidebar-shared.css
    ════════════════════════════════════════════ */
-.az-sidebar {
-  width: var(--sidebar-w);
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  transition: width var(--transition);
-  overflow: hidden;
-  z-index: 10;
-}
-
-.az-sidebar--collapsed { width: var(--sidebar-w-collapsed); }
-
-.az-sidebar-inner {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 16px 0 12px;
-}
-
-.az-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px 20px;
-  overflow: hidden;
-}
-
-.az-logo-texts {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.az-logo-name {
-  font-size: 15.5px;
-  font-weight: 700;
-  color: #1a1a1a;
-  letter-spacing: -0.3px;
-}
-
-.az-logo-icon {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  background: #f97316;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 17px;
-  color: white;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.az-beta-badge {
-  font-size: 9px;
-  font-weight: 700;
-  background: #E8F4F2;
-  color: var(--brand-teal);
-  padding: 2px 6px;
-  border-radius: 20px;
-  letter-spacing: 0.04em;
-}
-
-.az-nav {
-  padding: 10px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.az-nav-spacer { flex: 1; }
-
-.az-feedback {
-  margin: 0 8px;
-  margin-bottom: 4px;
-}
-
-.az-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 13.5px;
-  font-weight: 500;
-  text-align: left;
-  white-space: nowrap;
-  transition: background var(--transition), color var(--transition);
-  width: 100%;
-}
-
-.az-nav-item:hover { background: var(--bg); color: var(--text); }
-.az-nav-item--active { background: var(--bg); color: var(--text); font-weight: 600; }
-
-.az-user-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px 4px;
-  margin: 0 8px;
-  overflow: hidden;
-  border-radius: 8px;
-  transition: background 0.12s;
-}
-
-.az-user-row:hover { background: #f3f4f6; }
-
-.az-avatar {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  border-radius: 50%;
-  background: #f97316;
-  color: white;
-  font-size: 14px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.az-user-info {
-  flex: 1;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.az-user-name { display: block; font-weight: 600; font-size: 12.5px; color: var(--text); }
-.az-user-email { display: block; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
-
-.az-user-chevron {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  padding: 2px;
-  flex-shrink: 0;
-}
-
 /* ════════════════════════════════════════════
    MAIN COLUMN
    ════════════════════════════════════════════ */
@@ -1229,9 +1090,8 @@ input, textarea { font-family: var(--font); }
    RESPONSIVE
    ════════════════════════════════════════════ */
 @media (max-width: 900px) {
-  .az-sidebar { width: var(--sidebar-w-collapsed); }
   .az-trip-panel { width: 340px; min-width: 300px; }
-  .az-ai-panel { left: calc(var(--sidebar-w-collapsed) + 12px); width: 320px; }
+  .az-ai-panel { left: calc(var(--sidebar-w) + 12px); width: 320px; }
   .az-hero-edit-grid { grid-template-columns: 1fr; }
   .az-pretrip-title { font-size: 24px; }
   .az-pretrip-header { align-items: flex-start; }

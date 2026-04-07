@@ -20,48 +20,7 @@
 }
 
 /* ===== SIDEBAR ===== */
-.cg-sidebar {
-  width: 240px;
-  min-width: 240px;
-  background: #ffffff;
-  border-right: 1px solid var(--cg-border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-  overflow: hidden;
-  z-index: 10;
-}
-
-.cg-logo {
-  font-weight: 700;
-  margin-bottom: 18px;
-}
-
-.cg-logo span {
-  font-size: 11px;
-  margin-left: 6px;
-  background: #e0f2fe;
-  color: #0369a1;
-  border-radius: 999px;
-  padding: 2px 6px;
-}
-
-.cg-nav {
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 9px 10px;
-  border-radius: 8px;
-  color: var(--cg-muted);
-  cursor: pointer;
-}
-
-.cg-nav.active,
-.cg-nav:hover {
-  color: var(--cg-accent);
-  background: var(--cg-accent-soft);
-}
+/* Shared in src/styles/sidebar-shared.css */
 
 .cg-main {
   flex: 1;
@@ -249,10 +208,6 @@
 }
 
 @media (max-width: 900px) {
-  .cg-sidebar {
-    display: none;
-  }
-
   .cg-content {
     padding: 16px;
   }

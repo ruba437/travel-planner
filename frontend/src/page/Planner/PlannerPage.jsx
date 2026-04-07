@@ -14,7 +14,8 @@ import AiAssistantPanel from './segments/AiAssistantPanel';
 // 匯入共用組件 (路徑對應 src/components/MapView.jsx)
 import MapView from '../../components/MapView';
 
-// 匯入樣式 (路徑對應 src/page/Planner/PlannerStyles.css)
+// 匯入共用 Sidebar 樣式與頁面樣式
+import '../../styles/sidebar-shared.css';
 import './PlannerStyles.css';
 
 /**

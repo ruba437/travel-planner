@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
+import '../../styles/sidebar-shared.css';
 import './HomePage.css';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
