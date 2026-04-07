@@ -4,11 +4,14 @@ import { usePlanner } from '../PlannerProvider';
 import { useAuth } from '../../Authentication/AuthContext';
 const NavigationSidebar = () => {
   const { logout, user } = useAuth();
-  const { sidebarCollapsed, setSidebarCollapsed } = usePlanner();
+  const { sidebarCollapsed } = usePlanner();
   const navigate = useNavigate();
   const location = useLocation();
   
   const currentPath = location?.pathname || '/';
+  const activeSection = new URLSearchParams(location?.search || '').get('section');
+  const isGuidesView = currentPath === '/' && activeSection === 'guides';
+  const isTripsView = currentPath === '/' && activeSection === 'trips';
 
   // 取得使用者名稱或 Email 的首字作為頭像
   const getUserInitial = () => {
@@ -33,7 +36,7 @@ const NavigationSidebar = () => {
         {/* ── 導航選單 ── */}
         <nav className="az-nav">
           <button
-            className={`az-nav-item${currentPath === '/' ? ' az-nav-item--active' : ''}`}
+            className={`az-nav-item${currentPath === '/' && !isGuidesView && !isTripsView ? ' az-nav-item--active' : ''}`}
             onClick={() => navigate('/')}
             title={sidebarCollapsed ? '首頁' : ''}
           >
@@ -45,8 +48,11 @@ const NavigationSidebar = () => {
           </button>
           
           <button
-            className={`az-nav-item${currentPath.startsWith('/planner') ? ' az-nav-item--active' : ''}`}
-            onClick={() => navigate('/planner')}
+            className={`az-nav-item${currentPath.startsWith('/planner') || isTripsView ? ' az-nav-item--active' : ''}`}
+            onClick={() => {
+              if (currentPath.startsWith('/planner')) return;
+              navigate('/?section=trips');
+            }}
             title={sidebarCollapsed ? '我的行程' : ''}
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -57,7 +63,11 @@ const NavigationSidebar = () => {
             {!sidebarCollapsed && <span>我的行程</span>}
           </button>
 
-          <button className="az-nav-item" title={sidebarCollapsed ? '旅遊指南' : ''}>
+          <button
+            className={`az-nav-item${isGuidesView ? ' az-nav-item--active' : ''}`}
+            onClick={() => navigate('/?section=guides')}
+            title={sidebarCollapsed ? '旅遊指南' : ''}
+          >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
             </svg>

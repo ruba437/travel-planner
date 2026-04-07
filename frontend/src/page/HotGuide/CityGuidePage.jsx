@@ -40,8 +40,8 @@ function ChevronUpDownIcon() { return <svg width="14" height="14" viewBox="0 0 2
 
 const NAV_ITEMS = [
   { key: 'home',   label: '首頁',    icon: HomeIcon,     path: '/' },
-  { key: 'trips',  label: '我的行程', icon: MapIcon,      path: '/trips' },
-  { key: 'guides', label: '旅遊指南', icon: BookIcon,     path: '/guides' },
+  { key: 'trips',  label: '我的行程', icon: MapIcon,      path: '/?section=trips' },
+  { key: 'guides', label: '旅遊指南', icon: BookIcon,     path: '/?section=guides' },
   { key: 'saved',  label: '收藏',    icon: BookmarkIcon, path: '/saved' },
 ];
 
@@ -126,6 +126,7 @@ export default function CityGuidePage() {
 
   const cityText   = useMemo(() => slugToCityText(city), [city]);
   const currentPath = location?.pathname || '/';
+  const activeSection = new URLSearchParams(location?.search || '').get('section');
 
   const getUserInitial = () => {
     const n = user?.displayName || user?.displayname || user?.email || '?';
@@ -196,7 +197,7 @@ export default function CityGuidePage() {
         { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
       );
       if (!res.ok) throw new Error('Save failed');
-    } catch (_e) {
+    } catch {
       // rollback
       setSavedSet(prev => {
         const next = new Set(prev);
@@ -239,14 +240,19 @@ export default function CityGuidePage() {
           </div>
 
           <nav className="az-nav">
-            {NAV_ITEMS.map(({ key, label, icon: Icon, path }) => (
+            {NAV_ITEMS.map(({ key, label, icon, path }) => (
               <button
                 key={key}
-                className={`az-nav-item${currentPath === path ? ' az-nav-item--active' : ''}`}
+                className={`az-nav-item${(
+                  (key === 'home' && currentPath === '/' && !['guides', 'trips'].includes(activeSection)) ||
+                  (key === 'trips' && ((currentPath === '/' && activeSection === 'trips') || currentPath.startsWith('/planner'))) ||
+                  (key === 'guides' && currentPath === '/' && activeSection === 'guides') ||
+                  (key === 'saved' && currentPath === path)
+                ) ? ' az-nav-item--active' : ''}`}
                 onClick={() => navigate(path)}
                 title={sidebarCollapsed ? label : ''}
               >
-                <Icon />
+                {icon()}
                 {!sidebarCollapsed && <span>{label}</span>}
               </button>
             ))}

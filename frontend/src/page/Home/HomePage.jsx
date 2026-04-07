@@ -61,8 +61,8 @@ function ChevronUpDownIcon() {
 
 const NAV_ITEMS = [
   { key: 'home', label: '首頁', icon: HomeIcon, path: '/' },
-  { key: 'trips', label: '我的行程', icon: MapIcon, path: '/trips' },
-  { key: 'guides', label: '旅遊指南', icon: BookIcon, path: '/guides' },
+  { key: 'trips', label: '我的行程', icon: MapIcon, path: '/?section=trips' },
+  { key: 'guides', label: '旅遊指南', icon: BookIcon, path: '/?section=guides' },
   { key: 'saved', label: '收藏', icon: BookmarkIcon, path: '/saved' },
 ];
 
@@ -102,7 +102,9 @@ export default function HomePage() {
         destinations: data.destinations || [],
         guides: data.guides || [],
       });
-    } catch { }
+    } catch {
+      return;
+    }
     finally { setContentLoading(false); }
   };
 
@@ -113,7 +115,9 @@ export default function HomePage() {
       if (!res.ok) throw new Error();
       const data = await res.json();
       setItineraries(data.itineraries || []);
-    } catch { }
+    } catch {
+      return;
+    }
     finally { setLoading(false); }
   };
 
@@ -149,6 +153,11 @@ export default function HomePage() {
   };
 
   const currentPath = location?.pathname || '/';
+  const sectionParam = new URLSearchParams(location?.search || '').get('section');
+  const activeSection = ['guides', 'trips'].includes(sectionParam) ? sectionParam : 'all';
+  const showTripsSection = activeSection === 'all' || activeSection === 'trips';
+  const showDestinationsSection = activeSection === 'all';
+  const showGuidesSection = activeSection === 'all' || activeSection === 'guides';
 
   const openPlannerModal = (mode) => {
     setPlannerMode(mode);
@@ -198,6 +207,14 @@ export default function HomePage() {
     });
     closePlannerModal();
   };
+  
+  const currentLabel = NAV_ITEMS.find(({ key, path }) =>
+    (key === 'home' && currentPath === '/' && activeSection === 'all') ||
+    (key === 'trips' && ((currentPath === '/' && activeSection === 'trips') || currentPath.startsWith('/planner'))) ||
+    (key === 'guides' && currentPath === '/' && activeSection === 'guides') ||
+    (key === 'saved' && currentPath === path)
+  )?.label || '首頁';
+
 
   return (
     <div className="az-root" onClick={() => setOpenMenu(null)}>
@@ -217,14 +234,19 @@ export default function HomePage() {
 
           {/* Nav */}
           <nav className="az-nav">
-            {NAV_ITEMS.map(({ key, label, icon: Icon, path }) => (
+            {NAV_ITEMS.map(({ key, label, icon, path }) => (
               <button
                 key={key}
-                className={`az-nav-item${currentPath === path ? ' az-nav-item--active' : ''}`}
+                className={`az-nav-item${(
+                  (key === 'home' && currentPath === '/' && activeSection === 'all') ||
+                  (key === 'trips' && ((currentPath === '/' && activeSection === 'trips') || currentPath.startsWith('/planner'))) ||
+                  (key === 'guides' && currentPath === '/' && activeSection === 'guides') ||
+                  (key === 'saved' && currentPath === path)
+                ) ? ' az-nav-item--active' : ''}`}
                 onClick={() => navigate(path)}
                 title={sidebarCollapsed ? label : ''}
               >
-                <Icon />
+                {icon()}
                 {!sidebarCollapsed && <span>{label}</span>}
               </button>
             ))}
@@ -273,13 +295,13 @@ export default function HomePage() {
             >
               <SidebarIcon />
             </button>
-            <span className="az-topbar-title">首頁</span>
+            <span className="az-topbar-title">{currentLabel}</span>
           </div>
         </header>
 
         <div className="az-scroll">
           {/* My Trips */}
-          {token && (
+          {showTripsSection && (
             <section className="az-section">
               <div className="az-section-head">
                 <h2 className="az-h2">我的行程</h2>
@@ -347,85 +369,89 @@ export default function HomePage() {
           )}
 
           {/* Popular Destinations */}
-          <section className="az-section">
-            <h2 className="az-h2">熱門目的地</h2>
-            {contentLoading ? (
-              <div className="az-dest-grid">
-                {[1,2,3,4,5].map(i => <div key={i} className="az-dest-card az-skel" />)}
-              </div>
-            ) : (
-              <div className="az-dest-grid">
-                {homeContent.destinations.map((item, i) => (
-                  <div
-                    key={i}
-                    className="az-dest-card"
-                    onClick={() => {
-                      const citySlug = encodeURIComponent((item.city || '').trim().replace(/\s+/g, '-'));
-                      if (citySlug) navigate(`/city/${citySlug}/guide`);
-                    }}
-                  >
-                    <img
-                      src={getImg(item.city)}
-                      alt={item.city}
-                      className="az-dest-img"
-                      onError={e => { e.target.src = FALLBACK_IMG; }}
-                    />
-                    {/* 👇 這是我們全新升級的標籤區塊 */}
-                    <div className="az-dest-label">
-                      {item.country && <div className="az-dest-country">{item.country}</div>}
-                      <div className="az-dest-name-row">
-                        <span className="az-dest-city">{item.city}</span>
-                        {item.score > 0 && (
-                          <span className="az-dest-score">★ {item.score}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Guides */}
-          <section className="az-section">
-            <h2 className="az-h2">旅遊指南</h2>
-            {contentLoading ? (
-              <div className="az-guide-grid">
-                {[1,2,3,4,5].map(i => <div key={i} className="az-guide-card az-skel" />)}
-              </div>
-            ) : (
-              <div className="az-guide-grid">
-                {homeContent.guides.map((guide) => (
-                  <div
-                    key={guide.id}
-                    className="az-guide-card"
-                    onClick={() => {
-                      const username = guide.authorUsername || 'travel-planner';
-                      const slug = guide.slug || guide.id || '';
-                      if (slug) navigate(`/u/${encodeURIComponent(username)}/guide/${encodeURIComponent(slug)}`);
-                    }}
-                  >
-                    <div className="az-guide-imgwrap">
+          {showDestinationsSection && (
+            <section className="az-section">
+              <h2 className="az-h2">熱門目的地</h2>
+              {contentLoading ? (
+                <div className="az-dest-grid">
+                  {[1,2,3,4,5].map(i => <div key={i} className="az-dest-card az-skel" />)}
+                </div>
+              ) : (
+                <div className="az-dest-grid">
+                  {homeContent.destinations.map((item, i) => (
+                    <div
+                      key={i}
+                      className="az-dest-card"
+                      onClick={() => {
+                        const citySlug = encodeURIComponent((item.city || '').trim().replace(/\s+/g, '-'));
+                        if (citySlug) navigate(`/city/${citySlug}/guide`);
+                      }}
+                    >
                       <img
-                        src={getImg(guide.city)}
-                        alt={guide.city || ''}
-                        className="az-guide-img"
+                        src={getImg(item.city)}
+                        alt={item.city}
+                        className="az-dest-img"
                         onError={e => { e.target.src = FALLBACK_IMG; }}
                       />
-                    </div>
-                    <div className="az-guide-body">
-                      {guide.city && <span className="az-guide-tag">{guide.city}</span>}
-                      <div className="az-guide-title">{guide.title}</div>
-                      <div className="az-guide-meta">
-                        <span>{guide.authorName}</span>
-                        {guide.publishedAt && <span>{fmt(guide.publishedAt)}</span>}
+                      {/* 👇 這是我們全新升級的標籤區塊 */}
+                      <div className="az-dest-label">
+                        {item.country && <div className="az-dest-country">{item.country}</div>}
+                        <div className="az-dest-name-row">
+                          <span className="az-dest-city">{item.city}</span>
+                          {item.score > 0 && (
+                            <span className="az-dest-score">★ {item.score}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Guides */}
+          {showGuidesSection && (
+            <section className="az-section">
+              <h2 className="az-h2">旅遊指南</h2>
+              {contentLoading ? (
+                <div className="az-guide-grid">
+                  {[1,2,3,4,5].map(i => <div key={i} className="az-guide-card az-skel" />)}
+                </div>
+              ) : (
+                <div className="az-guide-grid">
+                  {homeContent.guides.map((guide) => (
+                    <div
+                      key={guide.id}
+                      className="az-guide-card"
+                      onClick={() => {
+                        const username = guide.authorUsername || 'travel-planner';
+                        const slug = guide.slug || guide.id || '';
+                        if (slug) navigate(`/u/${encodeURIComponent(username)}/guide/${encodeURIComponent(slug)}`);
+                      }}
+                    >
+                      <div className="az-guide-imgwrap">
+                        <img
+                          src={getImg(guide.city)}
+                          alt={guide.city || ''}
+                          className="az-guide-img"
+                          onError={e => { e.target.src = FALLBACK_IMG; }}
+                        />
+                      </div>
+                      <div className="az-guide-body">
+                        {guide.city && <span className="az-guide-tag">{guide.city}</span>}
+                        <div className="az-guide-title">{guide.title}</div>
+                        <div className="az-guide-meta">
+                          <span>{guide.authorName}</span>
+                          {guide.publishedAt && <span>{fmt(guide.publishedAt)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           
 
