@@ -10,6 +10,29 @@ export const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:30
 const DEFAULT_DAY_START_TIME = '09:00';
 const CHECKLIST_LIMIT = 10;
 
+const normalizeChecklistItems = (items = []) => {
+  if (!Array.isArray(items)) return [];
+
+  return [...items]
+    .map((item, index) => {
+      const sortOrderValue = Number(item?.sortOrder);
+      return {
+        ...item,
+        sortOrder: Number.isFinite(sortOrderValue) ? Math.max(0, sortOrderValue) : index,
+      };
+    })
+    .sort((a, b) => {
+      const sortDiff = (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0);
+      if (sortDiff !== 0) return sortDiff;
+      return String(a.id).localeCompare(String(b.id));
+    })
+    .map((item, index) => ({
+      ...item,
+      sortOrder: index,
+    }))
+    .slice(0, CHECKLIST_LIMIT);
+};
+
 // 輔助函數：時間正規化
 const normalizeTimeValue = (value, fallback = DEFAULT_DAY_START_TIME) => {
   const raw = String(value || '').trim();
@@ -281,7 +304,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
           days,
           totalBudget: itineraryData.totalBudget || 50000,
         });
-        setPackingItems(loadedPackingItems);
+        setPackingItems(normalizeChecklistItems(loadedPackingItems));
         setTotalBudget(itineraryData.totalBudget || 50000);
         setTripNote(data.tripNote || itineraryData.tripNote || '');
         setItineraryUuid(data.uuid || itineraryUuidParam);
@@ -301,8 +324,9 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   }, [isPublicMode, itineraryUuidParam, token]);
 
   // 4. 儲存行程邏輯
-  const saveItinerary = useCallback(async ({ silent = false } = {}) => {
+  const saveItinerary = useCallback(async ({ silent = false, packingItems: packingItemsOverride } = {}) => {
     if (!plan) return false;
+    const nextPackingItems = normalizeChecklistItems(packingItemsOverride ?? packingItems);
     
     // 公開模式：調用保存公開行程的 API
     if (isPublicMode && publicGuideSlug) {
@@ -338,9 +362,9 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     setIsSaving(true);
     const payload = {
       title: plan.tripName || plan.city || '我的行程',
-      itineraryData: { ...plan, totalBudget, packingItems },
+      itineraryData: { ...plan, totalBudget, packingItems: nextPackingItems },
       tripNote,
-      checklistItems: packingItems,
+      checklistItems: nextPackingItems,
       startDate: plan.startDate,
       startTime: plan.startTime
     };
@@ -393,6 +417,9 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     recalculateDayTimesAsync,
     fetchTravelTime,
     autoApprove, setAutoApprove,
+    token,
+    isChecklistSyncing, setIsChecklistSyncing,
+    setSaveMsg,
     isPublicMode,
   };
 

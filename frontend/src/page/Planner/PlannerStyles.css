@@ -446,7 +446,7 @@ input, textarea { font-family: var(--font); }
 /* ── 清单行（项目）── */
 .az-pretrip-row {
   display: grid;
-  grid-template-columns: 16px 28px 1fr auto;
+  grid-template-columns: 28px 1fr auto;
   align-items: flex-start;
   gap: 14px;
   padding: 18px 20px;
@@ -458,11 +458,19 @@ input, textarea { font-family: var(--font); }
   transition: background 0.15s ease;
 }
 
+.az-pretrip-row--editing {
+  align-items: flex-start;
+}
+
 .az-pretrip-row:hover { background: #f8fafc; }
 
 .az-pretrip-row:last-child { border-bottom: none; }
 
 .az-pretrip-row--done { background: #fcfcfd; }
+
+.az-pretrip-row--editing {
+  background: #f0fdfa;
+}
 
 /* Adding row variant — no bottom border on hover artifact */
 .az-pretrip-row--adding {
@@ -471,27 +479,6 @@ input, textarea { font-family: var(--font); }
 }
 
 .az-pretrip-row--adding:hover { background: #f8fffe; }
-
-/* ── 拖拽手柄 ── */
-.az-pretrip-handle {
-  margin-top: 6px;
-  display: grid;
-  grid-template-columns: repeat(2, 4px);
-  grid-template-rows: repeat(3, 4px);
-  gap: 3px;
-  opacity: 0.55;
-  cursor: grab;
-}
-
-.az-pretrip-handle:active { cursor: grabbing; opacity: 0.75; }
-
-.az-pretrip-handle span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #c3c8d0;
-  display: block;
-}
 
 /* ── 复选框 ── */
 .az-pretrip-checkbox {
@@ -526,6 +513,12 @@ input, textarea { font-family: var(--font); }
 }
 
 .az-pretrip-checkbox:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.az-pretrip-checkbox--placeholder {
+  border-color: transparent;
+  background: transparent;
+  pointer-events: none;
+}
 
 /* ── 清单内容 ── */
 .az-pretrip-content {
@@ -1096,7 +1089,7 @@ input, textarea { font-family: var(--font); }
   .az-pretrip-title { font-size: 24px; }
   .az-pretrip-header { align-items: flex-start; }
   .az-pretrip-header-right { flex-direction: column; align-items: flex-end; gap: 6px; }
-  .az-pretrip-row { grid-template-columns: 14px 24px 1fr auto; padding: 16px 14px; gap: 10px; }
+  .az-pretrip-row { grid-template-columns: 24px 1fr auto; padding: 16px 14px; gap: 10px; }
   .az-pretrip-text { font-size: 14px; }
   .az-pretrip-add-trigger-icon { margin-left: 24px; }
 }

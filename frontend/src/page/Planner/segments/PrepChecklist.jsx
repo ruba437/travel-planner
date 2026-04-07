@@ -1,8 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlanner, API_BASE } from '../PlannerProvider';
 
 const CHECKLIST_LIMIT = 10;
 const CHECKLIST_TEXT_MAX_LENGTH = 800;
+
+const getChecklistSortOrder = (item, fallbackIndex = 0) => {
+  const sortOrderValue = Number(item?.sortOrder);
+  return Number.isFinite(sortOrderValue) ? Math.max(0, sortOrderValue) : fallbackIndex;
+};
+
+const sortChecklistItems = (items = []) => {
+  return [...items].sort((a, b) => {
+    const sortDiff = getChecklistSortOrder(a) - getChecklistSortOrder(b);
+    if (sortDiff !== 0) return sortDiff;
+    return String(a.id).localeCompare(String(b.id));
+  });
+};
+
+const normalizeChecklistItems = (items = []) => {
+  return sortChecklistItems(items).map((item, index) => ({
+    ...item,
+    sortOrder: index,
+  }));
+};
 
 const PrepChecklist = ({ isReadOnly = false }) => {
   const {
@@ -10,34 +30,69 @@ const PrepChecklist = ({ isReadOnly = false }) => {
     setPackingItems,
     itineraryUuid,
     token,
+    saveItinerary,
     isChecklistSyncing,
     setIsChecklistSyncing,
     setSaveMsg,
-    API_BASE // 確保 Provider 有匯出此常數，或在此處定義
   } = usePlanner();
 
-  // 內部 UI 狀態
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [newChecklistText, setNewChecklistText] = useState('');
   const [editingChecklistId, setEditingChecklistId] = useState(null);
   const [editingChecklistText, setEditingChecklistText] = useState('');
   const addInputRef = useRef(null);
+  const editInputRef = useRef(null);
 
-  // 自動對焦新增輸入框
+  const orderedPackingItems = useMemo(() => normalizeChecklistItems(packingItems), [packingItems]);
+
   useEffect(() => {
     if (isAddingItem && addInputRef.current) {
       addInputRef.current.focus();
     }
   }, [isAddingItem]);
 
-  // --- 內部輔助函數 ---
+  useEffect(() => {
+    if (editingChecklistId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingChecklistId]);
+
   const setChecklistError = (message) => {
     setSaveMsg(message || '行前清單更新失敗');
     setTimeout(() => setSaveMsg(null), 2500);
   };
 
+  const persistChecklistOrder = async (previousItems, nextItems) => {
+    if (!itineraryUuid) return true;
+
+    const previousById = new Map(previousItems.map((item) => [String(item.id), item]));
+    const changedItems = nextItems.filter((item) => {
+      if (String(item.id).startsWith('local-')) return false;
+      const previousItem = previousById.get(String(item.id));
+      return previousItem && previousItem.sortOrder !== item.sortOrder;
+    });
+
+    if (changedItems.length === 0) return true;
+
+    try {
+      for (const item of changedItems) {
+        await requestChecklistApi(`/${encodeURIComponent(item.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ sortOrder: item.sortOrder }),
+        });
+      }
+      return true;
+    } catch (error) {
+      const saved = await saveItinerary({ silent: true, packingItems: nextItems });
+      if (saved) return true;
+      throw error;
+    }
+  };
+
   const requestChecklistApi = async (path = '', options = {}) => {
     if (!itineraryUuid) throw new Error('請先儲存行程後再同步清單');
+    if (!token) throw new Error('登入資訊尚未就緒，請稍後再試');
     const res = await fetch(`${API_BASE}/api/itineraries/${itineraryUuid}/checklist${path}`, {
       ...options,
       headers: {
@@ -51,22 +106,25 @@ const PrepChecklist = ({ isReadOnly = false }) => {
     return data;
   };
 
-  // --- 操作邏輯 ---
   const addChecklistItem = async () => {
+    if (isReadOnly || isChecklistSyncing) return;
+
     const text = newChecklistText.trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
     if (!text) {
       setIsAddingItem(false);
       return;
     }
-    if (packingItems.length >= CHECKLIST_LIMIT) {
+
+    if (orderedPackingItems.length >= CHECKLIST_LIMIT) {
       setChecklistError(`行前清單最多 ${CHECKLIST_LIMIT} 項`);
       return;
     }
 
+    const nextSortOrder = orderedPackingItems.length;
+
     if (!itineraryUuid) {
-      // 離線模式
-      const draftItem = { id: `local-${Date.now()}`, text, checked: false, reminder: false, sortOrder: packingItems.length };
-      setPackingItems(prev => [...prev, draftItem]);
+      const draftItem = { id: `local-${Date.now()}`, text, checked: false, reminder: false, sortOrder: nextSortOrder };
+      setPackingItems(prev => normalizeChecklistItems([...prev, draftItem]));
       setNewChecklistText('');
       setIsAddingItem(false);
       return;
@@ -76,9 +134,9 @@ const PrepChecklist = ({ isReadOnly = false }) => {
     try {
       const data = await requestChecklistApi('', {
         method: 'POST',
-        body: JSON.stringify({ text, checked: false, reminder: false, sortOrder: packingItems.length }),
+        body: JSON.stringify({ text, checked: false, reminder: false, sortOrder: nextSortOrder }),
       });
-      setPackingItems(prev => [...prev, data.item]);
+      setPackingItems(prev => normalizeChecklistItems([...prev, data.item]));
       setNewChecklistText('');
       setIsAddingItem(false);
     } catch (err) {
@@ -89,11 +147,13 @@ const PrepChecklist = ({ isReadOnly = false }) => {
   };
 
   const toggleChecklistChecked = async (id) => {
-    const item = packingItems.find(i => i.id === id);
+    if (isReadOnly || isChecklistSyncing) return;
+
+    const item = orderedPackingItems.find((i) => String(i.id) === String(id));
     if (!item) return;
     const nextChecked = !item.checked;
 
-    setPackingItems(prev => prev.map(i => i.id === id ? { ...i, checked: nextChecked } : i));
+    setPackingItems((prev) => normalizeChecklistItems(prev.map((i) => (String(i.id) === String(id) ? { ...i, checked: nextChecked } : i))));
 
     if (!itineraryUuid || String(id).startsWith('local-')) return;
 
@@ -112,25 +172,78 @@ const PrepChecklist = ({ isReadOnly = false }) => {
   };
 
   const removeChecklistItem = async (id) => {
-    const removed = packingItems.find(i => i.id === id);
-    setPackingItems(prev => prev.filter(i => i.id !== id));
+    if (isReadOnly || isChecklistSyncing) return;
+
+    const previousItems = orderedPackingItems;
+    const nextItems = normalizeChecklistItems(previousItems.filter((item) => String(item.id) !== String(id)));
+    const removed = previousItems.find((item) => String(item.id) === String(id));
+
+    setPackingItems(nextItems);
 
     if (!itineraryUuid || String(id).startsWith('local-')) return;
 
     setIsChecklistSyncing(true);
     try {
       await requestChecklistApi(`/${id}`, { method: 'DELETE' });
+      try {
+        await persistChecklistOrder(previousItems, nextItems);
+      } catch (orderError) {
+        setChecklistError(orderError.message);
+      }
     } catch (err) {
-      setPackingItems(prev => [...prev, removed]);
+      if (removed) {
+        setPackingItems(previousItems);
+      }
       setChecklistError(err.message);
     } finally {
       setIsChecklistSyncing(false);
     }
   };
 
-  // --- 計算屬性 ---
-  const doneCount = packingItems.filter(i => i.checked).length;
-  const progressPercent = packingItems.length === 0 ? 0 : Math.round((doneCount / packingItems.length) * 100);
+  const startEditChecklistItem = (id, text) => {
+    if (isReadOnly || isChecklistSyncing) return;
+    setEditingChecklistId(id);
+    setEditingChecklistText(text);
+  };
+
+  const finishEditChecklistItem = async () => {
+    if (editingChecklistId === null) return;
+    const text = editingChecklistText.trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
+    if (!text) {
+      cancelEditChecklistItem();
+      return;
+    }
+
+    setPackingItems((prev) => normalizeChecklistItems(prev.map((i) => (String(i.id) === String(editingChecklistId) ? { ...i, text } : i))));
+    setEditingChecklistId(null);
+    setEditingChecklistText('');
+
+    if (!itineraryUuid || String(editingChecklistId).startsWith('local-')) return;
+
+    setIsChecklistSyncing(true);
+    try {
+      await requestChecklistApi(`/${encodeURIComponent(editingChecklistId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ text }),
+      });
+    } catch (err) {
+      setChecklistError(err.message);
+      const item = orderedPackingItems.find((i) => String(i.id) === String(editingChecklistId));
+      if (item) {
+        setPackingItems((prev) => normalizeChecklistItems(prev.map((i) => (String(i.id) === String(editingChecklistId) ? item : i))));
+      }
+    } finally {
+      setIsChecklistSyncing(false);
+    }
+  };
+
+  const cancelEditChecklistItem = () => {
+    setEditingChecklistId(null);
+    setEditingChecklistText('');
+  };
+
+  const doneCount = orderedPackingItems.filter((i) => i.checked).length;
+  const progressPercent = orderedPackingItems.length === 0 ? 0 : Math.round((doneCount / orderedPackingItems.length) * 100);
 
   return (
     <div className="az-pretrip-card">
@@ -149,36 +262,85 @@ const PrepChecklist = ({ isReadOnly = false }) => {
       </div>
 
       <div className="az-pretrip-list">
-        {packingItems.map((item) => (
-          <div key={item.id} className={`az-pretrip-row${item.checked ? ' az-pretrip-row--done' : ''}`}>
-            <input
-              type="checkbox"
-              className="az-pretrip-checkbox"
-              checked={item.checked}
-              onChange={() => toggleChecklistChecked(item.id)}
-              disabled={isReadOnly || isChecklistSyncing}
-            />
-            <div className="az-pretrip-content">
-              <span className={`az-pretrip-text${item.checked ? ' is-done' : ''}`}>
-                {item.text}
-              </span>
-            </div>
-            {!isReadOnly && (
-              <div className="az-pretrip-actions">
-                <button 
-                  className="az-pretrip-action az-pretrip-action--delete"
-                  onClick={() => removeChecklistItem(item.id)}
-                  disabled={isChecklistSyncing}
-                >✕</button>
+        {orderedPackingItems.length === 0 && isReadOnly && (
+          <div className="az-pretrip-empty">尚未建立旅行準備項目</div>
+        )}
+
+        {orderedPackingItems.map((item) => {
+          const isEditing = String(editingChecklistId) === String(item.id);
+          return (
+            <div
+              key={String(item.id)}
+              className={[
+                'az-pretrip-row',
+                item.checked ? 'az-pretrip-row--done' : '',
+                isEditing ? 'az-pretrip-row--editing' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              <input
+                type="checkbox"
+                className="az-pretrip-checkbox"
+                checked={item.checked}
+                onChange={() => toggleChecklistChecked(item.id)}
+                disabled={isReadOnly || isChecklistSyncing || isEditing}
+              />
+              <div className="az-pretrip-content">
+                {isEditing ? (
+                  <textarea
+                    ref={editInputRef}
+                    className="az-pretrip-edit-input"
+                    value={editingChecklistText}
+                    onChange={(e) => setEditingChecklistText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') finishEditChecklistItem();
+                      if (e.key === 'Escape') cancelEditChecklistItem();
+                    }}
+                  />
+                ) : (
+                  <span
+                    className={`az-pretrip-text${item.checked ? ' is-done' : ''}`}
+                    onDoubleClick={() => startEditChecklistItem(item.id, item.text)}
+                    style={{ cursor: isReadOnly ? 'default' : 'pointer' }}
+                  >
+                    {item.text}
+                  </span>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+              {!isReadOnly && !isEditing && (
+                <div className="az-pretrip-actions">
+                  <button
+                    className="az-pretrip-action az-pretrip-action--delete"
+                    onClick={() => removeChecklistItem(item.id)}
+                    disabled={isChecklistSyncing}
+                    type="button"
+                  >✕</button>
+                </div>
+              )}
+              {!isReadOnly && isEditing && (
+                <div className="az-pretrip-actions">
+                  <button
+                    className="az-pretrip-action az-pretrip-action--save"
+                    onClick={finishEditChecklistItem}
+                    disabled={isChecklistSyncing}
+                    type="button"
+                  >✓</button>
+                  <button
+                    className="az-pretrip-action az-pretrip-action--delete"
+                    onClick={cancelEditChecklistItem}
+                    disabled={isChecklistSyncing}
+                    type="button"
+                  >✕</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         {!isReadOnly && (
           <>
             {isAddingItem ? (
               <div className="az-pretrip-row az-pretrip-row--adding">
+                <div className="az-pretrip-checkbox az-pretrip-checkbox--placeholder" aria-hidden="true" />
                 <textarea
                   ref={addInputRef}
                   className="az-pretrip-edit-input"
@@ -191,13 +353,13 @@ const PrepChecklist = ({ isReadOnly = false }) => {
                   }}
                 />
                 <div className="az-pretrip-actions">
-                  <button onClick={addChecklistItem} className="az-pretrip-action--save">✓</button>
-                  <button onClick={() => setIsAddingItem(false)} className="az-pretrip-action--delete">✕</button>
+                  <button onClick={addChecklistItem} className="az-pretrip-action--save" type="button">✓</button>
+                  <button onClick={() => setIsAddingItem(false)} className="az-pretrip-action--delete" type="button">✕</button>
                 </div>
               </div>
             ) : (
-              packingItems.length < CHECKLIST_LIMIT && (
-                <button className="az-pretrip-add-trigger" onClick={() => setIsAddingItem(true)}>
+              orderedPackingItems.length < CHECKLIST_LIMIT && (
+                <button className="az-pretrip-add-trigger" onClick={() => setIsAddingItem(true)} type="button">
                   + 新增項目
                 </button>
               )
