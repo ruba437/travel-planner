@@ -1,12 +1,19 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePlanner } from '../PlannerProvider';
+import { useAuth } from '../../Authentication/AuthContext';
 
-const TripHeroHeader = () => {
+const TripHeroHeader = ({ isReadOnly = false }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const { 
     plan, 
     setPlan, 
     recalculateDayTimesAsync,
-    token 
+    token,
+    saveItinerary,
+    isSaving,
+    isPublicMode,
   } = usePlanner();
 
   // 內部編輯狀態 (原 App.jsx 內的 hero edit 邏輯)
@@ -79,6 +86,15 @@ const TripHeroHeader = () => {
     setIsEditingHero(false);
   };
 
+  // 處理保存公開行程
+  const handleSavePublic = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    await saveItinerary();
+  };
+
   // 計算標題與日期範圍顯示
   const tripTitle = plan?.tripName?.trim() || (plan?.summary || plan?.city ? `${plan?.city || ''}之旅` : '新的旅程');
   
@@ -104,12 +120,14 @@ const TripHeroHeader = () => {
       <div className="az-hero-content">
         <h1 className="az-hero-title">
           {tripTitle}
-          <button className="az-hero-edit-btn" onClick={openHeroEditor} aria-label="編輯行程資訊">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </button>
+          {!isReadOnly && (
+            <button className="az-hero-edit-btn" onClick={openHeroEditor} aria-label="編輯行程資訊">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+          )}
         </h1>
 
         {tripDateRange && (
@@ -120,6 +138,24 @@ const TripHeroHeader = () => {
             </svg>
             {tripDateRange}
             {plan?.startTime ? `・${normalizeTimeValue(plan.startTime)} 出發` : ''}
+          </div>
+        )}
+
+        {/* 公開模式下顯示作者資訊與保存按鈕 */}
+        {isReadOnly && plan?.sourceAuthor && (
+          <div className="az-hero-public-info">
+            <div className="az-hero-author">
+              <span className="az-hero-author-label">作者：</span>
+              <span className="az-hero-author-name">{plan.sourceAuthor.displayName}</span>
+            </div>
+            <button 
+              className="az-hero-save-btn"
+              onClick={handleSavePublic}
+              disabled={isSaving}
+              aria-label="保存到我的行程"
+            >
+              {isSaving ? '保存中...' : '🎒 保存到我的行程'}
+            </button>
           </div>
         )}
 

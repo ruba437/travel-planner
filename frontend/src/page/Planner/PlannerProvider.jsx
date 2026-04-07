@@ -21,14 +21,15 @@ const normalizeTimeValue = (value, fallback = DEFAULT_DAY_START_TIME) => {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 };
 
-export const PlannerProvider = ({ children }) => {
+export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const { user, token } = useAuth();
-  const { uuid: itineraryUuidParam } = useParams();
+  const { uuid: itineraryUuidParam, guideSlug: publicGuideSlug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
 
   // --- 狀態管理 (States) ---
   const [plan, setPlan] = useState(null);
+  const [isPublic, setIsPublic] = useState(isPublicMode);
   const [messages, setMessages] = useState([{ role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。' }]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -185,9 +186,155 @@ export const PlannerProvider = ({ children }) => {
     }
   };
 
+  // ========== 公開模式：載入公開行程 ==========
+  useEffect(() => {
+    if (!isPublicMode || !publicGuideSlug) return;
+    
+    setIsLoadingItinerary(true);
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/guides/${encodeURIComponent(publicGuideSlug)}/itinerary`,
+          { signal: controller.signal }
+        );
+
+        if (!res.ok) {
+          throw new Error(`無法載入公開行程：${res.status}`);
+        }
+
+        const data = await res.json();
+        if (!data.success || !data.data) {
+          throw new Error('公開行程資料格式錯誤');
+        }
+
+        const publicData = data.data;
+        const itineraryData = publicData.itineraryData || {};
+
+        const loadedPlan = {
+          tripName: publicData.title || '',
+          summary: publicData.summary || '',
+          city: publicData.city || '',
+          startDate: publicData.startDate || '',
+          startTime: publicData.startTime || '09:00',
+          note: publicData.note || '',
+          days: Array.isArray(itineraryData.days) ? itineraryData.days : [],
+          totalBudget: itineraryData.totalBudget || 50000,
+          tags: itineraryData.tags || [],
+          // 公開行程來源資訊
+          sourceAuthor: publicData.author,
+          downloadsCount: publicData.downloadsCount,
+          publishedAt: publicData.publishedAt,
+        };
+
+        setPlan(loadedPlan);
+        setItineraryUuid(publicData.uuid);
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.error('Load public itinerary error:', error);
+          alert('無法載入公開行程：' + error.message);
+        }
+      } finally {
+        setIsLoadingItinerary(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [isPublicMode, publicGuideSlug]);
+
+  // ========== 私有模式：載入既有行程 ==========
+  useEffect(() => {
+    if (isPublicMode || !itineraryUuidParam) return;
+
+    const controller = new AbortController();
+    setIsLoadingItinerary(true);
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/itineraries/${encodeURIComponent(itineraryUuidParam)}`, {
+          signal: controller.signal,
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `無法載入行程：${res.status}`);
+        }
+
+        const data = await res.json();
+        const itineraryData = data.itineraryData || {};
+        const days = Array.isArray(itineraryData.days) ? itineraryData.days : [];
+        const loadedPackingItems = Array.isArray(data.checklistItems) && data.checklistItems.length > 0
+          ? data.checklistItems
+          : Array.isArray(itineraryData.packingItems)
+            ? itineraryData.packingItems
+            : [];
+
+        setPlan({
+          ...itineraryData,
+          tripName: data.title || itineraryData.tripName || data.city || '我的行程',
+          summary: data.summary || itineraryData.summary || '',
+          city: data.city || itineraryData.city || '',
+          startDate: data.startDate || itineraryData.startDate || '',
+          startTime: data.startTime || itineraryData.startTime || '09:00',
+          days,
+          totalBudget: itineraryData.totalBudget || 50000,
+        });
+        setPackingItems(loadedPackingItems);
+        setTotalBudget(itineraryData.totalBudget || 50000);
+        setTripNote(data.tripNote || itineraryData.tripNote || '');
+        setItineraryUuid(data.uuid || itineraryUuidParam);
+        setMessages([{ role: 'assistant', content: '行程已載入，可以開始編輯。' }]);
+        setActiveDayIdx(0);
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.error('Load itinerary error:', error);
+          setSaveMsg(error.message || '載入行程失敗');
+        }
+      } finally {
+        setIsLoadingItinerary(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [isPublicMode, itineraryUuidParam, token]);
+
   // 4. 儲存行程邏輯
   const saveItinerary = useCallback(async ({ silent = false } = {}) => {
     if (!plan) return false;
+    
+    // 公開模式：調用保存公開行程的 API
+    if (isPublicMode && publicGuideSlug) {
+      setIsSaving(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/guides/${encodeURIComponent(publicGuideSlug)}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || '保存失敗');
+        }
+
+        const data = await res.json();
+        if (data.success && data.data?.newUuid) {
+          // 成功保存後導向可編輯的專有行程
+          navigate(`/planner/${data.data.newUuid}`, { replace: true });
+          return true;
+        }
+        throw new Error(data.error || '保存失敗');
+      } catch (e) {
+        console.error('Save public itinerary error:', e);
+        setSaveMsg('保存失敗：' + e.message);
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    }
+
+    // 私有模式：保存到使用者自己的行程
     setIsSaving(true);
     const payload = {
       title: plan.tripName || plan.city || '我的行程',
@@ -220,7 +367,7 @@ export const PlannerProvider = ({ children }) => {
       setSaveMsg('保存失敗');
       return false;
     } finally { setIsSaving(false); }
-  }, [plan, totalBudget, packingItems, tripNote, itineraryUuid, token, navigate]);
+  }, [plan, totalBudget, packingItems, tripNote, itineraryUuid, token, navigate, isPublicMode, publicGuideSlug]);
 
   // --- 提供給子組件的 Context Value ---
   const value = {
@@ -246,6 +393,7 @@ export const PlannerProvider = ({ children }) => {
     recalculateDayTimesAsync,
     fetchTravelTime,
     autoApprove, setAutoApprove,
+    isPublicMode,
   };
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;

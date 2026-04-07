@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { ok, err } = require('../utils/response');
-const { toISODate } = require('../utils/formatters');
+const { toHHmm } = require('../utils/formatters');
 const crypto = require('crypto');
 
 router.use(authMiddleware);
@@ -424,7 +424,7 @@ router.get('/:uuid', async (req, res) => {
       'SELECT * FROM itineraries WHERE uuid = $1 AND userid = $2',
       [uuid, req.user.id]
     );
-    if (rows.length === 0) return res.status(404).json({ error: '行程不存在' });
+    if (rows.length === 0) return res.status(404).json({ error: '行程未公開或不存在' });
     
     const row = rows[0];
     let itineraryData;

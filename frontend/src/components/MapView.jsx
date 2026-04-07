@@ -72,7 +72,7 @@ const translateType = (type) => {
   }
 };
 
-function MapView({ plan, activeLocation, onLocationChange, onDayChange, onAddLocation }) {
+function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isReadOnly = false }) {
   const { token } = useAuth();
   const [markers, setMarkers] = useState([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
@@ -629,7 +629,7 @@ function MapView({ plan, activeLocation, onLocationChange, onDayChange, onAddLoc
                   <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedMarker.name)}`} target="_blank" rel="noreferrer" style={{color: '#2563eb', textDecoration: 'none', display: 'block', marginBottom: '8px'}}>在 Google Maps 中開啟 →</a>
 
                   {/* 判斷是不是地圖上隨便點擊的景點 (isPoi)，如果是，就顯示加入按鈕 */}
-                  {selectedMarker.isPoi && (
+                  {!isReadOnly && selectedMarker.isPoi && (
                     <div style={{ marginBottom: '8px' }}>
                       {/* 如果還沒點擊「加入」，顯示加入按鈕 */}
                       {!showDaySelection && (

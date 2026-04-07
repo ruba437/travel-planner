@@ -4,7 +4,7 @@ import { usePlanner, API_BASE } from '../PlannerProvider';
 const CHECKLIST_LIMIT = 10;
 const CHECKLIST_TEXT_MAX_LENGTH = 800;
 
-const PrepChecklist = () => {
+const PrepChecklist = ({ isReadOnly = false }) => {
   const {
     packingItems,
     setPackingItems,
@@ -156,47 +156,53 @@ const PrepChecklist = () => {
               className="az-pretrip-checkbox"
               checked={item.checked}
               onChange={() => toggleChecklistChecked(item.id)}
-              disabled={isChecklistSyncing}
+              disabled={isReadOnly || isChecklistSyncing}
             />
             <div className="az-pretrip-content">
               <span className={`az-pretrip-text${item.checked ? ' is-done' : ''}`}>
                 {item.text}
               </span>
             </div>
-            <div className="az-pretrip-actions">
-              <button 
-                className="az-pretrip-action az-pretrip-action--delete"
-                onClick={() => removeChecklistItem(item.id)}
-                disabled={isChecklistSyncing}
-              >✕</button>
-            </div>
+            {!isReadOnly && (
+              <div className="az-pretrip-actions">
+                <button 
+                  className="az-pretrip-action az-pretrip-action--delete"
+                  onClick={() => removeChecklistItem(item.id)}
+                  disabled={isChecklistSyncing}
+                >✕</button>
+              </div>
+            )}
           </div>
         ))}
 
-        {isAddingItem ? (
-          <div className="az-pretrip-row az-pretrip-row--adding">
-            <textarea
-              ref={addInputRef}
-              className="az-pretrip-edit-input"
-              value={newChecklistText}
-              onChange={(e) => setNewChecklistText(e.target.value)}
-              placeholder="輸入清單項目..."
-              onKeyDown={(e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') addChecklistItem();
-                if (e.key === 'Escape') setIsAddingItem(false);
-              }}
-            />
-            <div className="az-pretrip-actions">
-              <button onClick={addChecklistItem} className="az-pretrip-action--save">✓</button>
-              <button onClick={() => setIsAddingItem(false)} className="az-pretrip-action--delete">✕</button>
-            </div>
-          </div>
-        ) : (
-          packingItems.length < CHECKLIST_LIMIT && (
-            <button className="az-pretrip-add-trigger" onClick={() => setIsAddingItem(true)}>
-              + 新增項目
-            </button>
-          )
+        {!isReadOnly && (
+          <>
+            {isAddingItem ? (
+              <div className="az-pretrip-row az-pretrip-row--adding">
+                <textarea
+                  ref={addInputRef}
+                  className="az-pretrip-edit-input"
+                  value={newChecklistText}
+                  onChange={(e) => setNewChecklistText(e.target.value)}
+                  placeholder="輸入清單項目..."
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') addChecklistItem();
+                    if (e.key === 'Escape') setIsAddingItem(false);
+                  }}
+                />
+                <div className="az-pretrip-actions">
+                  <button onClick={addChecklistItem} className="az-pretrip-action--save">✓</button>
+                  <button onClick={() => setIsAddingItem(false)} className="az-pretrip-action--delete">✕</button>
+                </div>
+              </div>
+            ) : (
+              packingItems.length < CHECKLIST_LIMIT && (
+                <button className="az-pretrip-add-trigger" onClick={() => setIsAddingItem(true)}>
+                  + 新增項目
+                </button>
+              )
+            )}
+          </>
         )}
       </div>
     </div>

@@ -20,7 +20,7 @@ import './PlannerStyles.css';
 /**
  * PlannerContent: 持有 UI 佈局與自動發送邏輯
  */
-const PlannerContent = () => {
+const PlannerContent = ({ isPublicMode = false }) => {
   const { 
     activeTab, 
     setActiveTab, 
@@ -124,7 +124,7 @@ const PlannerContent = () => {
       )}
 
       {/* ── 左側導航側邊欄 ── */}
-      <NavigationSidebar />
+      {!isPublicMode && <NavigationSidebar />}
 
       {/* ── 主要內容區 ── */}
       <div className="az-main">
@@ -138,18 +138,22 @@ const PlannerContent = () => {
             </svg>
           </button>
 
-          <button 
-            className={`az-topbar-btn ${showAiPanel ? 'az-topbar-btn--active' : ''}`} 
-            onClick={() => setShowAiPanel(!showAiPanel)}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
-            </svg>
-            AI 助手
-          </button>
+          {/* 公開模式隱藏 AI 按鈕 */}
+          {!isPublicMode && (
+            <button 
+              className={`az-topbar-btn ${showAiPanel ? 'az-topbar-btn--active' : ''}`} 
+              onClick={() => setShowAiPanel(!showAiPanel)}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+              </svg>
+              AI 助手
+            </button>
+          )}
 
           <div className="az-topbar-status">
-            {(isAutoSaving || isSaving) && <span className="az-status-text">保存中...</span>}
+            {isPublicMode && <span className="az-status-text" style={{ fontSize: '12px', color: '#999' }}>公開預覽模式</span>}
+            {!isPublicMode && (isAutoSaving || isSaving) && <span className="az-status-text">保存中...</span>}
             {saveMsg && (
               <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>
                 {saveMsg}
@@ -171,7 +175,7 @@ const PlannerContent = () => {
           
           {/* ── 左側行程面板 ── */}
           <div className="az-trip-panel">
-            <TripHeroHeader />
+            <TripHeroHeader isReadOnly={isPublicMode} />
 
             <div className="az-tabs">
               <button 
@@ -191,14 +195,14 @@ const PlannerContent = () => {
             <div className="az-tab-content">
               {activeTab === 'info' ? (
                 <>
-                  <PrepChecklist />
-                  <ExpenseTracker />
+                  <PrepChecklist isReadOnly={isPublicMode} />
+                  <ExpenseTracker isReadOnly={isPublicMode} />
                 </>
               ) : (
                 <>
-                  <DayTabNavigator />
+                  <DayTabNavigator isReadOnly={isPublicMode} />
                   <h2 className="az-itinerary-heading">行程詳情</h2>
-                  <ItineraryTimeline />
+                  <ItineraryTimeline isReadOnly={isPublicMode} />
                 </>
               )}
             </div>
@@ -210,15 +214,15 @@ const PlannerContent = () => {
               plan={plan}
               activeLocation={activeLocation}
               onLocationChange={setActiveLocation}
-              onDayChange={(day) => { if (day !== null) setActiveDayIdx(day - 1); }}
-              onAddLocation={handleAddLocation}
+              onAddLocation={isPublicMode ? null : handleAddLocation}
+              isReadOnly={isPublicMode}
             />
           </div>
         </div>
       </div>
 
-      {/* ── 浮動 AI 助手面板 ── */}
-      {showAiPanel && <AiAssistantPanel />}
+      {/* ── 浮動 AI 助手面板（公開模式不顯示） ── */}
+      {!isPublicMode && showAiPanel && <AiAssistantPanel />}
     </div>
   );
 };
@@ -226,10 +230,10 @@ const PlannerContent = () => {
 /**
  * PlannerPage: 導出組件
  */
-const PlannerPage = () => {
+const PlannerPage = ({ isPublicMode = false }) => {
   return (
-    <PlannerProvider>
-      <PlannerContent />
+    <PlannerProvider isPublicMode={isPublicMode}>
+      <PlannerContent isPublicMode={isPublicMode} />
     </PlannerProvider>
   );
 };

@@ -173,6 +173,7 @@ CREATE TABLE public.itineraries (
   createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   ispublic boolean DEFAULT false,
+  downloads_count integer DEFAULT 0,
   CONSTRAINT itineraries_pkey PRIMARY KEY (id),
   CONSTRAINT itineraries_userid_fkey FOREIGN KEY (userid) REFERENCES public.users(id)
 );
@@ -210,3 +211,21 @@ CREATE TABLE public.user_saved_pois (
 
 CREATE INDEX itinerary_checklist_items_uuid_order_idx
   ON public.itinerary_checklist_items (itinerary_uuid, sort_order, id);
+
+-- ============================================================
+-- Itinerary Downloads Tracking (for public itinerary cloning)
+-- ============================================================
+CREATE TABLE public.itinerary_downloads (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  itinerary_uuid character varying NOT NULL,
+  downloader_userid integer NOT NULL,
+  downloaded_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT itinerary_downloads_pkey PRIMARY KEY (id),
+  CONSTRAINT itinerary_downloads_itinerary_uuid_fkey FOREIGN KEY (itinerary_uuid) REFERENCES public.itineraries(uuid) ON DELETE CASCADE,
+  CONSTRAINT itinerary_downloads_downloader_userid_fkey FOREIGN KEY (downloader_userid) REFERENCES public.users(id) ON DELETE CASCADE,
+  CONSTRAINT itinerary_downloads_unique UNIQUE (itinerary_uuid, downloader_userid)
+);
+CREATE INDEX itinerary_downloads_itinerary_uuid_idx
+  ON public.itinerary_downloads (itinerary_uuid);
+CREATE INDEX itinerary_downloads_downloader_userid_idx
+  ON public.itinerary_downloads (downloader_userid);

@@ -37,7 +37,10 @@ createRoot(document.getElementById('root')).render(
           <Route path="/city/:city/guide" element={<CityGuidePage />} />
           <Route path="/u/:username/guide/:guideSlug" element={<GuideDetailPage />} />
           
-          {/* 行程規劃器 (重構後的進入點) */}
+          {/* 公開行程 Planner（只讀，無需登入） */}
+          <Route path="/guides/:guideSlug/planner" element={<PlannerPage isPublicMode />} />
+          
+          {/* 行程規劃器 (重構後的進入點，需登入) */}
           <Route path="/planner" element={<PrivateRoute><PlannerPage /></PrivateRoute>} />
           <Route path="/planner/:uuid" element={<PrivateRoute><PlannerPage /></PrivateRoute>} />
           

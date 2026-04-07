@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { usePlanner } from '../PlannerProvider';
 
-const ExpenseTracker = () => {
+const ExpenseTracker = ({ isReadOnly = false }) => {
   const { 
     plan, 
     totalBudget, 
@@ -56,6 +56,7 @@ const ExpenseTracker = () => {
             value={totalBudget} 
             onChange={handleBudgetChange}
             placeholder="設定預算..."
+            disabled={isReadOnly}
           />
         </div>
 

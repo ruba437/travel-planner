@@ -63,6 +63,11 @@ export default function GuideDetailPage() {
     return date.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
 
+  // 處理進入 Planner 檢視
+  const handleViewInPlanner = () => {
+    navigate(`/guides/${encodeURIComponent(guideSlug)}/planner`);
+  };
+
   // 1. 載入中狀態
   if (loading) {
     return (
@@ -100,31 +105,41 @@ export default function GuideDetailPage() {
         </button>
 
         <header className="guide-header">
-          <div className="guide-location">
-            {guide?.country ? `${guide.country}・` : ''}
-            {guide?.city || '未分類地區'}
+          <div className="guide-header-top">
+            <div>
+              <div className="guide-location">
+                {guide?.country ? `${guide.country}・` : ''}
+                {guide?.city || '未分類地區'}
+              </div>
+              <h1>{guide?.title || '未命名指南'}</h1>
+              <p className="guide-summary">{guide?.summary || '這份指南尚未提供摘要描述。'}</p>
+            </div>
+            <button 
+              type="button"
+              className="guide-planner-btn"
+              onClick={handleViewInPlanner}
+              title="用 Planner 檢視行程詳情"
+            >
+              📋 用 Planner 檢視
+            </button>
           </div>
-          <h1>{guide?.title || '未命名指南'}</h1>
-          <p className="guide-summary">{guide?.summary || '這份指南尚未提供摘要描述。'}</p>
         </header>
 
         <section className="guide-meta-grid">
           <div className="guide-meta-card">
             <div className="guide-meta-label">作者</div>
             <div className="guide-meta-value">{guide?.author?.displayName || '匿名旅人'}</div>
-            <div className="guide-meta-sub">@{guide?.author?.username || username || 'unknown'}</div>
           </div>
           <div className="guide-meta-card">
             <div className="guide-meta-label">旅程天數</div>
             <div className="guide-meta-value">
-              {guide?.tripInfo?.days || '--'} 天 {guide?.tripInfo?.nights || '--'} 夜
+              {guide?.tripInfo?.days || '--'} 天 {guide?.tripInfo?.nights ? `${guide?.tripInfo?.nights} 夜` : null}
             </div>
-            <div className="guide-meta-sub">代碼：{guide?.guideCode || 'N/A'}</div>
           </div>
           <div className="guide-meta-card">
             <div className="guide-meta-label">統計資訊</div>
             <div className="guide-meta-value">{formatDate(guide?.publishedAt)}</div>
-            <div className="guide-meta-sub">瀏覽次數：{guide?.viewCount || 0}</div>
+            {/* <div className="guide-meta-sub">瀏覽次數：{guide?.viewCount || 0}</div> */}
           </div>
         </section>
 

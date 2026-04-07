@@ -144,12 +144,61 @@ async function getPublicGuideBySlug(slugFromPath) {
   return matchRow ? mapItineraryToGuideDetailRow(matchRow) : null;
 }
 
+// ============================================================
+// For Planner: Map public itinerary to plan-ready format
+// ============================================================
+function mapItineraryToPlannerFormat(row) {
+  const itineraryData = safeParseItineraryData(row.itinerarydata);
+  
+  return {
+    uuid: row.uuid,
+    title: row.title || row.summary || '未命名行程',
+    summary: row.summary || '',
+    city: row.city || '',
+    startDate: row.startdate ? toISODate(row.startdate) : '',
+    startTime: row.starttime ? row.starttime.toString() : '09:00',
+    note: row.note || '',
+    itineraryData: itineraryData || {},
+    author: {
+      displayName: row.displayname || row.email || '匿名旅人',
+      username: row.username || null,
+    },
+    downloadsCount: Number(row.downloads_count) || 0,
+    publishedAt: toISODate(row.updatedat || row.createdat || row.startdate),
+  };
+}
+
+async function getPublicItineraryBySlug(slugFromPath) {
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(slugFromPath);
+    } catch (_e) {
+      return slugFromPath;
+    }
+  })();
+
+  const { rows } = await pool.query(
+    `SELECT i.id, i.uuid, i.userid, i.title, i.summary, i.city, i.startdate, i.starttime, i.note, i.itinerarydata,
+            i.downloads_count, i.createdat, i.updatedat,
+            u.displayname, u.email, u.username, u.profilephoto
+     FROM itineraries i
+     JOIN users u ON u.id = i.userid
+     WHERE i.ispublic = true AND i.uuid = $1
+     LIMIT 1`,
+    [decoded]
+  );
+
+  return rows.length > 0 ? { row: rows[0], formatted: mapItineraryToPlannerFormat(rows[0]) } : null;
+}
+
 module.exports = {
   safeParseItineraryData,
   toGuideTripInfo,
   buildGuideBody,
   mapItineraryToGuideRow,
   mapItineraryToGuideDetailRow,
+  mapItineraryToPlannerFormat,
   fetchPublicGuideRows,
-  getPublicGuideBySlug
+  getPublicGuideBySlug,
+  getPublicItineraryBySlug
 };

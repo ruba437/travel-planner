@@ -3,7 +3,7 @@ import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import { usePlanner } from '../PlannerProvider';
 import ActivityItemCard from './ActivityItemCard';
 
-const ItineraryTimeline = () => {
+const ItineraryTimeline = ({ isReadOnly = false }) => {
   const { 
     plan, 
     setPlan, 
@@ -71,10 +71,10 @@ const ItineraryTimeline = () => {
   const currentDay = plan.days[activeDayIdx];
 
   return (
-    <DragDropContext onDragEnd={onDragEnd}>
+    <DragDropContext onDragEnd={isReadOnly ? undefined : onDragEnd}>
       <div className="az-day-block">
         {/* 行程列表容器 */}
-        <Droppable droppableId={`day-${activeDayIdx}`}>
+        <Droppable droppableId={`day-${activeDayIdx}`} isDragDisabled={isReadOnly}>
           {(provided, snapshot) => (
             <div
               className={`az-items-list ${snapshot.isDraggingOver ? 'az-items-list--over' : ''}`}
@@ -87,6 +87,7 @@ const ItineraryTimeline = () => {
                   item={item} 
                   index={idx} 
                   dayIdx={activeDayIdx}
+                  isReadOnly={isReadOnly}
                 />
               ))}
               {provided.placeholder}
@@ -94,13 +95,15 @@ const ItineraryTimeline = () => {
           )}
         </Droppable>
 
-        {/* 新增按鈕 */}
-        <button className="az-add-item-btn az-add-item-btn--day" onClick={handleAddNewActivity}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          新增項目
-        </button>
+        {/* 新增按鈕 - 只讀模式下隱藏 */}
+        {!isReadOnly && (
+          <button className="az-add-item-btn az-add-item-btn--day" onClick={handleAddNewActivity}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            新增項目
+          </button>
+        )}
       </div>
     </DragDropContext>
   );
