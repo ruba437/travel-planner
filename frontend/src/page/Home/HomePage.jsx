@@ -63,7 +63,6 @@ const NAV_ITEMS = [
   { key: 'trips', label: '我的行程', icon: MapIcon, path: '/trips' },
   { key: 'guides', label: '旅遊指南', icon: BookIcon, path: '/guides' },
   { key: 'saved', label: '收藏', icon: BookmarkIcon, path: '/saved' },
-  { key: 'buddy', label: '尋找旅伴', icon: UsersIcon, path: '/buddy' },
 ];
 
 export default function HomePage() {
@@ -71,7 +70,7 @@ export default function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [itineraries, setItineraries] = useState([]);
-  const [homeContent, setHomeContent] = useState({ destinations: [], guides: [], buddyPosts: [], publicTrips: [] });
+  const [homeContent, setHomeContent] = useState({ destinations: [], guides: [] });
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
@@ -101,8 +100,6 @@ export default function HomePage() {
       setHomeContent({
         destinations: data.destinations || [],
         guides: data.guides || [],
-        buddyPosts: data.buddyPosts || [],
-        publicTrips: data.publicTrips || [],
       });
     } catch { }
     finally { setContentLoading(false); }
@@ -429,47 +426,9 @@ export default function HomePage() {
             )}
           </section>
 
-          {/* Buddy */}
-          {homeContent.buddyPosts.length > 0 && (
-            <section className="az-section">
-              <h2 className="az-h2">尋找旅伴</h2>
-              <div className="az-buddy-grid">
-                {homeContent.buddyPosts.map((buddy) => (
-                  <div key={buddy.id} className="az-buddy-card">
-                    <div className="az-buddy-city">{buddy.city || '未指定城市'}</div>
-                    <div className="az-buddy-date">
-                      {buddy.startDate && buddy.endDate
-                        ? `${fmt(buddy.startDate)} - ${fmt(buddy.endDate)}`
-                        : '日期待確認'}
-                    </div>
-                    <p className="az-buddy-note">{buddy.note || '正在尋找旅伴一起規劃旅程。'}</p>
-                    <div className="az-buddy-by">發起人：{buddy.displayName}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          
 
-          {/* Public Trips (logged-out) */}
-          {!token && homeContent.publicTrips.length > 0 && (
-            <section className="az-section">
-              <h2 className="az-h2">公開旅程</h2>
-              <div className="az-guide-grid">
-                {homeContent.publicTrips.map((trip) => (
-                  <div key={trip.uuid} className="az-guide-card" onClick={() => navigate('/login')}>
-                    <div className="az-guide-imgwrap">
-                      <img src={getImg(trip.city)} alt={trip.city || ''} className="az-guide-img" onError={e => { e.target.src = FALLBACK_IMG; }} />
-                    </div>
-                    <div className="az-guide-body">
-                      {trip.city && <span className="az-guide-tag">{trip.city}</span>}
-                      <div className="az-guide-title">{trip.title}</div>
-                      <div className="az-guide-meta"><span>{trip.authorName}</span></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+
         </div>
       </div>
 

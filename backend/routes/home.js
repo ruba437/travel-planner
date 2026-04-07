@@ -50,29 +50,9 @@ const fallbackGuides = [
   },
 ];
 
-const fallbackBuddies = [
-  {
-    id: 'buddy-fallback-1',
-    city: '台灣台北市',
-    startDate: null,
-    endDate: null,
-    note: '想找一起吃在地小吃、拍街景的旅伴。',
-    displayName: '旅人 A',
-  },
-  {
-    id: 'buddy-fallback-2',
-    city: '日本大阪',
-    startDate: null,
-    endDate: null,
-    note: '白天景點、晚上居酒屋，歡迎一起安排行程。',
-    displayName: '旅人 B',
-  },
-];
-
 router.get('/content', async (req, res) => {
   const destinationLimit = Math.min(Number(req.query.destinationLimit) || 8, 24);
   const guideLimit = Math.min(Number(req.query.guideLimit) || 6, 24);
-  const buddyLimit = Math.min(Number(req.query.buddyLimit) || 6, 24);
   const tripLimit = Math.min(Number(req.query.tripLimit) || 6, 24);
 
   try {
@@ -129,58 +109,10 @@ router.get('/content', async (req, res) => {
       guides = fallbackGuides.slice(0, guideLimit);
     }
 
-    // 3. 取得找旅伴資訊
-    let buddyPosts = [];
-    try {
-      const { rows } = await pool.query(
-        `SELECT id, city, start_date, end_date, note, display_name
-         FROM travel_buddy_posts
-         WHERE status = 'open'
-         ORDER BY createdat DESC
-         LIMIT $1`,
-        [buddyLimit]
-      );
-      buddyPosts = rows.map((row) => ({
-        id: `buddy-${row.id}`,
-        city: row.city || '',
-        startDate: toISODate(row.start_date),
-        endDate: toISODate(row.end_date),
-        note: row.note || '',
-        displayName: row.display_name || '匿名旅人',
-      }));
-    } catch (err) {
-      if (err.code !== '42P01' && err.code !== '42703') throw err;
-    }
-
-    if (buddyPosts.length === 0) buddyPosts = fallbackBuddies.slice(0, buddyLimit);
-
-    // 4. 取得公開行程
-    const publicTripsResult = await pool.query(
-      `SELECT i.uuid, i.title, i.summary, i.city, i.startdate, i.updatedat, u.displayname, u.email
-       FROM itineraries i
-       JOIN users u ON u.id = i.userid
-       WHERE i.ispublic = true
-       ORDER BY i.updatedat DESC
-       LIMIT $1`,
-      [tripLimit]
-    );
-
-    const publicTrips = publicTripsResult.rows.map((row) => ({
-      uuid: row.uuid,
-      title: row.title || row.summary || '公開旅程',
-      summary: row.summary || '',
-      city: row.city || '',
-      startDate: toISODate(row.startdate),
-      updatedAt: toISODate(row.updatedat),
-      authorName: row.displayname || row.email || '匿名旅人',
-    }));
-
     // 最終回傳
     return res.json({
       destinations,
       guides,
-      buddyPosts,
-      publicTrips,
     });
   } catch (err) {
     console.error('Get home content error:', err);

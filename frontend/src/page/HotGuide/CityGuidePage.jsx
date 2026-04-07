@@ -42,7 +42,6 @@ const NAV_ITEMS = [
   { key: 'trips',  label: '我的行程', icon: MapIcon,      path: '/trips' },
   { key: 'guides', label: '旅遊指南', icon: BookIcon,     path: '/guides' },
   { key: 'saved',  label: '收藏',    icon: BookmarkIcon, path: '/saved' },
-  { key: 'buddy',  label: '尋找旅伴', icon: UsersIcon,    path: '/buddy' },
 ];
 
 // ─── Skeleton ─────────────────────────────────────────────

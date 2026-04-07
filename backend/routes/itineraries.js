@@ -6,36 +6,6 @@ const { ok, err } = require('../utils/response');
 const { toISODate } = require('../utils/formatters');
 const crypto = require('crypto');
 
-router.get('/public', async (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 12, 48);
-  try {
-    const { rows } = await pool.query(
-      `SELECT i.uuid, i.title, i.summary, i.city, i.startdate, i.updatedat, u.displayname, u.email
-       FROM itineraries i
-       JOIN users u ON u.id = i.userid
-       WHERE i.ispublic = true
-       ORDER BY i.updatedat DESC
-       LIMIT $1`,
-      [limit]
-    );
-
-    return res.json({
-      itineraries: rows.map((row) => ({
-        uuid: row.uuid,
-        title: row.title || row.summary || '公開旅程',
-        summary: row.summary || '',
-        city: row.city || '',
-        startDate: toISODate(row.startdate),
-        updatedAt: toISODate(row.updatedat),
-        authorName: row.displayname || row.email || '匿名旅人',
-      })),
-    });
-  } catch (err) {
-    console.error('Get public itineraries error:', err);
-    return res.status(500).json({ error: '取得公開行程失敗' });
-  }
-});
-
 router.use(authMiddleware);
 
 const CHECKLIST_LIMIT = 10;
