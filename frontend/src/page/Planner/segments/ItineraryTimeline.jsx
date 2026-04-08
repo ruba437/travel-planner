@@ -8,9 +8,25 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     plan, 
     setPlan, 
     activeDayIdx, 
-    recalculateDayTimesAsync, 
-    token 
+    recalculateDayTimesAsync 
   } = usePlanner();
+
+  const handleDailyTravelModeChange = async (newMode) => {
+    if (!plan) return;
+    const newPlan = { ...plan };
+    
+    // 將選擇的交通方式存入該天資料中
+    newPlan.days[activeDayIdx].transportMode = newMode;
+    
+    // 使用新的交通方式重新計算當天時間
+    newPlan.days[activeDayIdx].items = await recalculateDayTimesAsync(
+      newPlan.days[activeDayIdx].items, 
+      newPlan.days[activeDayIdx].startTime, 
+      newMode
+    );
+    
+    setPlan(newPlan);
+  };
 
   // 處理拖拽結束邏輯
   const onDragEnd = async (result) => {
@@ -28,23 +44,27 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     const [movedItem] = sourceItems.splice(source.index, 1);
     destItems.splice(destination.index, 0, movedItem);
 
-    // 更新資料並重新計算時間
+    // 💡 取得當天的交通方式（若無則預設為 TRANSIT 大眾運輸）
+    const sourceMode = newPlan.days[sourceDayIdx].transportMode || 'TRANSIT';
+    const destMode = newPlan.days[destDayIdx].transportMode || 'TRANSIT';
+
+    // 更新資料並重新計算時間（將原本的 token 改為 mode）
     if (sourceDayIdx === destDayIdx) {
       newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(
         sourceItems, 
         newPlan.days[sourceDayIdx].startTime, 
-        token
+        sourceMode
       );
     } else {
       newPlan.days[sourceDayIdx].items = await recalculateDayTimesAsync(
         sourceItems, 
         newPlan.days[sourceDayIdx].startTime, 
-        token
+        sourceMode
       );
       newPlan.days[destDayIdx].items = await recalculateDayTimesAsync(
         destItems, 
         newPlan.days[destDayIdx].startTime, 
-        token
+        destMode
       );
     }
     setPlan(newPlan);
@@ -57,9 +77,12 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
 
     const newPlan = { ...plan };
     const dayItems = [...(plan.days[activeDayIdx].items || [])];
+    const currentMode = plan.days[activeDayIdx].transportMode || 'TRANSIT';
+
     dayItems.push({ name, type: 'sight', time: '', cost: 0 });
 
-    recalculateDayTimesAsync(dayItems, plan.days[activeDayIdx].startTime, token)
+    // 💡 將原本的 token 改為 currentMode
+    recalculateDayTimesAsync(dayItems, plan.days[activeDayIdx].startTime, currentMode)
       .then(updatedItems => {
         newPlan.days[activeDayIdx] = { ...plan.days[activeDayIdx], items: updatedItems };
         setPlan({ ...newPlan });
@@ -69,10 +92,38 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
   if (!plan?.days || plan.days.length === 0) return null;
 
   const currentDay = plan.days[activeDayIdx];
+  const currentMode = currentDay.transportMode || 'TRANSIT';
 
   return (
     <DragDropContext onDragEnd={isReadOnly ? undefined : onDragEnd}>
       <div className="az-day-block">
+        
+        {/* === 新增：單日交通方式選單 === */}
+        {!isReadOnly && (
+          <div className="az-daily-transport-selector" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', padding: '0 4px' }}>
+            <span style={{ fontSize: '0.9rem', color: '#6b7280', fontWeight: '500' }}>🚗 本日交通方式：</span>
+            <select 
+              value={currentMode}
+              onChange={(e) => handleDailyTravelModeChange(e.target.value)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                backgroundColor: '#f9fafb',
+                color: '#374151',
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              <option value="TRANSIT">🚇 大眾運輸</option>
+              <option value="DRIVING">🚗 開車包車</option>
+              <option value="WALKING">🚶 徒步漫遊</option>
+              <option value="BICYCLING">🚲 單車騎行</option>
+            </select>
+          </div>
+        )}
+
         {/* 行程列表容器 */}
         <Droppable droppableId={`day-${activeDayIdx}`} isDragDisabled={isReadOnly}>
           {(provided, snapshot) => (
