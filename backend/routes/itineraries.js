@@ -1004,8 +1004,16 @@ router.put('/:uuid', async (req, res) => {
       return res.status(404).json({ error: '行程不存在或無權限' });
     }
 
-    // 確保上方有這個輔助函式 replaceChecklistItems
-    await replaceChecklistItems(client, uuid, checklistItems || itineraryData?.packingItems || []);
+    // 避免每次 PUT 都重建 checklist 導致 item id 變動，讓前端後續 PATCH/DELETE 使用舊 id 時出現 404。
+    // 若有需要整批覆蓋 checklist（例如舊版客戶端），可明確帶 replaceChecklistItems=true。
+    const shouldReplaceChecklist =
+      Boolean(req.body?.replaceChecklistItems) &&
+      Array.isArray(checklistItems || itineraryData?.packingItems);
+
+    if (shouldReplaceChecklist) {
+      await replaceChecklistItems(client, uuid, checklistItems || itineraryData?.packingItems || []);
+    }
+
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err) {

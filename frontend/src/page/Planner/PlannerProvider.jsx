@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
 
 // 建立 Context
@@ -9,6 +9,7 @@ const PlannerContext = createContext();
 export const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const DEFAULT_DAY_START_TIME = '09:00';
 const CHECKLIST_LIMIT = 50;
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
 const normalizeChecklistItems = (items = []) => {
   if (!Array.isArray(items)) return [];
@@ -45,24 +46,23 @@ const normalizeTimeValue = (value, fallback = DEFAULT_DAY_START_TIME) => {
 };
 
 export const PlannerProvider = ({ children, isPublicMode = false }) => {
-  const { user, token } = useAuth();
+  const { token } = useAuth();
   const { uuid: itineraryUuidParam, guideSlug: publicGuideSlug } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
 
   // --- 狀態管理 (States) ---
   const [plan, setPlan] = useState(null);
-  const [isPublic, setIsPublic] = useState(isPublicMode);
   const [messages, setMessages] = useState([{ role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。' }]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [activeLocation, setActiveLocation] = useState(null);
-  const [weatherData, setWeatherData] = useState(null);
+  const [weatherData] = useState(null);
   const [totalBudget, setTotalBudget] = useState(50000);
   const [itineraryUuid, setItineraryUuid] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isLoadingItinerary, setIsLoadingItinerary] = useState(false);
   const [activeTab, setActiveTab] = useState('itinerary');
   const [activeDayIdx, setActiveDayIdx] = useState(0);
@@ -74,6 +74,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const [isAutoGeneratingChecklist, setIsAutoGeneratingChecklist] = useState(false);
   const [autoChecklistError, setAutoChecklistError] = useState(null);
   const [autoApprove, setAutoApprove] = useState(false);
+  const autoSaveTimerRef = useRef(null);
+  const lastSavedSnapshotRef = useRef('');
 
   // --- 核心邏輯 (Functions) ---
 
@@ -327,9 +329,44 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   }, [isPublicMode, itineraryUuidParam, token]);
 
   // 4. 儲存行程邏輯
+  const persistencePayload = useMemo(() => {
+    if (!plan) return null;
+
+    const nextPackingItems = normalizeChecklistItems(packingItems);
+    return {
+      title: plan.tripName || plan.city || '我的行程',
+      itineraryData: { ...plan, totalBudget, packingItems: nextPackingItems },
+      tripNote,
+      checklistItems: nextPackingItems,
+      startDate: plan.startDate,
+      startTime: plan.startTime,
+    };
+  }, [plan, totalBudget, packingItems, tripNote]);
+
+  const persistenceSnapshot = useMemo(() => {
+    if (!persistencePayload) return '';
+    return JSON.stringify(persistencePayload);
+  }, [persistencePayload]);
+
   const saveItinerary = useCallback(async ({ silent = false, packingItems: packingItemsOverride } = {}) => {
     if (!plan) return false;
     const nextPackingItems = normalizeChecklistItems(packingItemsOverride ?? packingItems);
+    const payload = {
+      ...(persistencePayload || {
+        title: plan.tripName || plan.city || '我的行程',
+        itineraryData: { ...plan, totalBudget, packingItems: nextPackingItems },
+        tripNote,
+        checklistItems: nextPackingItems,
+        startDate: plan.startDate,
+        startTime: plan.startTime,
+      }),
+      itineraryData: {
+        ...(persistencePayload?.itineraryData || plan),
+        totalBudget,
+        packingItems: nextPackingItems,
+      },
+      checklistItems: nextPackingItems,
+    };
     
     // 公開模式：調用保存公開行程的 API
     if (isPublicMode && publicGuideSlug) {
@@ -362,15 +399,10 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     }
 
     // 私有模式：保存到使用者自己的行程
-    setIsSaving(true);
-    const payload = {
-      title: plan.tripName || plan.city || '我的行程',
-      itineraryData: { ...plan, totalBudget, packingItems: nextPackingItems },
-      tripNote,
-      checklistItems: nextPackingItems,
-      startDate: plan.startDate,
-      startTime: plan.startTime
-    };
+    if (!silent) {
+      setIsSaving(true);
+    }
+
     try {
       const method = itineraryUuid ? 'PUT' : 'POST';
       const url = `${API_BASE}/api/itineraries${itineraryUuid ? `/${itineraryUuid}` : ''}`;
@@ -379,22 +411,117 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error('Save failed');
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Save failed');
+      }
+
       const data = await res.json();
       if (data.uuid && !itineraryUuid) {
         setItineraryUuid(data.uuid);
         navigate(`/planner/${data.uuid}`, { replace: true });
       }
+
+      lastSavedSnapshotRef.current = JSON.stringify(payload);
+      setHasUnsavedChanges(false);
+
       if (!silent) {
         setSaveMsg('已保存');
         setTimeout(() => setSaveMsg(null), 2000);
       }
       return true;
     } catch (e) {
-      setSaveMsg('保存失敗');
+      if (!silent) {
+        setSaveMsg('保存失敗：' + (e.message || '未知錯誤'));
+      }
       return false;
-    } finally { setIsSaving(false); }
-  }, [plan, totalBudget, packingItems, tripNote, itineraryUuid, token, navigate, isPublicMode, publicGuideSlug]);
+    } finally {
+      if (!silent) {
+        setIsSaving(false);
+      }
+    }
+  }, [plan, totalBudget, packingItems, tripNote, persistencePayload, itineraryUuid, token, navigate, isPublicMode, publicGuideSlug]);
+
+  useEffect(() => {
+    if (isPublicMode || isLoadingItinerary) return;
+    if (!persistencePayload || !persistenceSnapshot || !token) return;
+
+    if (itineraryUuid && !lastSavedSnapshotRef.current) {
+      lastSavedSnapshotRef.current = persistenceSnapshot;
+      setHasUnsavedChanges(false);
+      return;
+    }
+
+    const dirty = persistenceSnapshot !== lastSavedSnapshotRef.current;
+    setHasUnsavedChanges(dirty);
+
+    if (!dirty) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      if (isSaving || isAutoSaving || isChecklistSyncing || isAutoGeneratingChecklist) return;
+
+      setIsAutoSaving(true);
+      const success = await saveItinerary({ silent: true });
+      if (!success) {
+        setSaveMsg('自動保存失敗，將在下次變更時重試');
+      }
+      setIsAutoSaving(false);
+    }, AUTO_SAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [
+    saveItinerary,
+    persistencePayload,
+    persistenceSnapshot,
+    token,
+    itineraryUuid,
+    isPublicMode,
+    isLoadingItinerary,
+    isSaving,
+    isAutoSaving,
+    isChecklistSyncing,
+    isAutoGeneratingChecklist,
+  ]);
+
+  useEffect(() => {
+    if (isPublicMode || !hasUnsavedChanges) return;
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+      return '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isPublicMode, hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (isPublicMode) return;
+    if (itineraryUuidParam) return;
+    if (isLoadingItinerary) return;
+
+    if (!plan) {
+      lastSavedSnapshotRef.current = '';
+      setHasUnsavedChanges(false);
+    }
+  }, [isPublicMode, itineraryUuidParam, isLoadingItinerary, plan]);
 
   const generateChecklist = useCallback(async ({ silent = false, replaceExisting = false } = {}) => {
     if (!itineraryUuid || isPublicMode) return { success: false, skipped: true };
@@ -467,6 +594,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     saveMsg,
     isSaving,
     isAutoSaving,
+    hasUnsavedChanges,
     isLoadingItinerary,
     activeLocation, setActiveLocation,
     weatherData,

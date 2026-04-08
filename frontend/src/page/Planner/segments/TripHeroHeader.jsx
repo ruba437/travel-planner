@@ -1,19 +1,12 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { usePlanner } from '../PlannerProvider';
-import { useAuth } from '../../Authentication/AuthContext';
 
 const TripHeroHeader = ({ isReadOnly = false }) => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const { 
     plan, 
     setPlan, 
     recalculateDayTimesAsync,
     token,
-    saveItinerary,
-    isSaving,
-    isPublicMode,
   } = usePlanner();
 
   // 內部編輯狀態 (原 App.jsx 內的 hero edit 邏輯)
@@ -86,15 +79,6 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
     setIsEditingHero(false);
   };
 
-  // 處理保存公開行程
-  const handleSavePublic = async () => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-    await saveItinerary();
-  };
-
   // 計算標題與日期範圍顯示
   const tripTitle = plan?.tripName?.trim() || (plan?.summary || plan?.city ? `${plan?.city || ''}之旅` : '新的旅程');
   
@@ -141,21 +125,13 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
           </div>
         )}
 
-        {/* 公開模式下顯示作者資訊與保存按鈕 */}
+        {/* 公開模式下顯示作者資訊 */}
         {isReadOnly && plan?.sourceAuthor && (
           <div className="az-hero-public-info">
             <div className="az-hero-author">
               <span className="az-hero-author-label">作者：</span>
               <span className="az-hero-author-name">{plan.sourceAuthor.displayName}</span>
             </div>
-            <button 
-              className="az-hero-save-btn"
-              onClick={handleSavePublic}
-              disabled={isSaving}
-              aria-label="保存到我的行程"
-            >
-              {isSaving ? '保存中...' : '🎒 保存到我的行程'}
-            </button>
           </div>
         )}
 
@@ -184,7 +160,7 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
             </div>
             <div className="az-hero-edit-actions">
               <button className="az-hero-edit-action" onClick={handleHeroEditCancel}>取消</button>
-              <button className="az-hero-edit-action az-hero-edit-action--primary" onClick={handleHeroEditSave}>儲存</button>
+              <button className="az-hero-edit-action az-hero-edit-action--primary" onClick={handleHeroEditSave}>完成</button>
             </div>
           </div>
         )}

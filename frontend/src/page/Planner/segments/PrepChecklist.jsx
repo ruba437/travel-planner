@@ -119,6 +119,7 @@ const PrepChecklist = ({ isReadOnly = false }) => {
   const [editingChecklistText, setEditingChecklistText] = useState('');
   const addInputRef = useRef(null);
   const editInputRef = useRef(null);
+  const checklistSyncingRef = useRef(false);
 
   const orderedPackingItems = useMemo(() => normalizeChecklistItems(packingItems), [packingItems]);
 
@@ -138,6 +139,18 @@ const PrepChecklist = ({ isReadOnly = false }) => {
   const setChecklistError = (message) => {
     setSaveMsg(message || '行前清單更新失敗');
     setTimeout(() => setSaveMsg(null), 2500);
+  };
+
+  const beginChecklistSync = () => {
+    if (checklistSyncingRef.current) return false;
+    checklistSyncingRef.current = true;
+    setIsChecklistSyncing(true);
+    return true;
+  };
+
+  const endChecklistSync = () => {
+    checklistSyncingRef.current = false;
+    setIsChecklistSyncing(false);
   };
 
   const persistChecklistOrder = async (previousItems, nextItems) => {
@@ -184,7 +197,7 @@ const PrepChecklist = ({ isReadOnly = false }) => {
   };
 
   const addChecklistItem = async () => {
-    if (isReadOnly || isChecklistSyncing) return;
+    if (isReadOnly || isChecklistSyncing || checklistSyncingRef.current) return;
 
     const text = newChecklistText.trim().slice(0, CHECKLIST_TEXT_MAX_LENGTH);
     if (!text) {
@@ -207,7 +220,7 @@ const PrepChecklist = ({ isReadOnly = false }) => {
       return;
     }
 
-    setIsChecklistSyncing(true);
+    if (!beginChecklistSync()) return;
     try {
       const data = await requestChecklistApi('', {
         method: 'POST',
@@ -219,12 +232,12 @@ const PrepChecklist = ({ isReadOnly = false }) => {
     } catch (err) {
       setChecklistError(err.message);
     } finally {
-      setIsChecklistSyncing(false);
+      endChecklistSync();
     }
   };
 
   const toggleChecklistChecked = async (id) => {
-    if (isReadOnly || isChecklistSyncing) return;
+    if (isReadOnly || isChecklistSyncing || checklistSyncingRef.current) return;
 
     const item = orderedPackingItems.find((i) => String(i.id) === String(id));
     if (!item) return;
@@ -234,22 +247,24 @@ const PrepChecklist = ({ isReadOnly = false }) => {
 
     if (!itineraryUuid || String(id).startsWith('local-')) return;
 
-    setIsChecklistSyncing(true);
+    if (!beginChecklistSync()) return;
     try {
-      await requestChecklistApi(`/${id}`, {
+      await requestChecklistApi(`/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ checked: nextChecked }),
       });
     } catch (err) {
-      setPackingItems(prev => prev.map(i => i.id === id ? { ...i, checked: !nextChecked } : i));
+      setPackingItems((prev) => normalizeChecklistItems(
+        prev.map((i) => (String(i.id) === String(id) ? { ...i, checked: !nextChecked } : i))
+      ));
       setChecklistError(err.message);
     } finally {
-      setIsChecklistSyncing(false);
+      endChecklistSync();
     }
   };
 
   const removeChecklistItem = async (id) => {
-    if (isReadOnly || isChecklistSyncing) return;
+    if (isReadOnly || isChecklistSyncing || checklistSyncingRef.current) return;
 
     const previousItems = orderedPackingItems;
     const nextItems = normalizeChecklistItems(previousItems.filter((item) => String(item.id) !== String(id)));
@@ -259,9 +274,9 @@ const PrepChecklist = ({ isReadOnly = false }) => {
 
     if (!itineraryUuid || String(id).startsWith('local-')) return;
 
-    setIsChecklistSyncing(true);
+    if (!beginChecklistSync()) return;
     try {
-      await requestChecklistApi(`/${id}`, { method: 'DELETE' });
+      await requestChecklistApi(`/${encodeURIComponent(id)}`, { method: 'DELETE' });
       try {
         await persistChecklistOrder(previousItems, nextItems);
       } catch (orderError) {
@@ -273,12 +288,12 @@ const PrepChecklist = ({ isReadOnly = false }) => {
       }
       setChecklistError(err.message);
     } finally {
-      setIsChecklistSyncing(false);
+      endChecklistSync();
     }
   };
 
   const startEditChecklistItem = (id, text) => {
-    if (isReadOnly || isChecklistSyncing) return;
+    if (isReadOnly || isChecklistSyncing || checklistSyncingRef.current) return;
     setEditingChecklistId(id);
     setEditingChecklistText(text);
   };
@@ -297,7 +312,7 @@ const PrepChecklist = ({ isReadOnly = false }) => {
 
     if (!itineraryUuid || String(editingChecklistId).startsWith('local-')) return;
 
-    setIsChecklistSyncing(true);
+    if (!beginChecklistSync()) return;
     try {
       await requestChecklistApi(`/${encodeURIComponent(editingChecklistId)}`, {
         method: 'PATCH',
@@ -310,7 +325,7 @@ const PrepChecklist = ({ isReadOnly = false }) => {
         setPackingItems((prev) => normalizeChecklistItems(prev.map((i) => (String(i.id) === String(editingChecklistId) ? item : i))));
       }
     } finally {
-      setIsChecklistSyncing(false);
+      endChecklistSync();
     }
   };
 

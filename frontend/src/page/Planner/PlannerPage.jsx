@@ -31,6 +31,7 @@ const PlannerContent = ({ isPublicMode = false }) => {
     setShowAiPanel,
     isSaving,
     isAutoSaving,
+    hasUnsavedChanges,
     saveMsg,
     isLoadingItinerary,
     plan,
@@ -60,6 +61,32 @@ const PlannerContent = ({ isPublicMode = false }) => {
     const { startLocation, startDate, endDate, autoSend, prompt } = prefill;
     if (!startLocation || !startDate || !endDate) return;
 
+    const buildDraftPlan = () => {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const msPerDay = 24 * 60 * 60 * 1000;
+      const rawDayCount = Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
+      const dayCount = Number.isFinite(rawDayCount) && rawDayCount > 0 ? rawDayCount : 1;
+
+      return {
+        tripName: `${startLocation}之旅`,
+        summary: '',
+        city: startLocation,
+        startDate,
+        startTime: '09:00',
+        note: '',
+        days: Array.from({ length: dayCount }, (_, index) => ({
+          day: index + 1,
+          title: `第 ${index + 1} 天`,
+          startTime: '09:00',
+          transportMode: 'TRANSIT',
+          items: [],
+        })),
+        totalBudget: 50000,
+        tags: [],
+      };
+    };
+
     // 標記為已處理，防止 React StrictMode 渲染兩次導致發送兩次
     hasAppliedPrefill.current = true;
     
@@ -78,7 +105,11 @@ const PlannerContent = ({ isPublicMode = false }) => {
         return () => clearTimeout(timer);
       }
     }
-  }, [location, itineraryUuidParam, handleSend, setInput, setShowAiPanel]);
+
+    if (!autoSend) {
+      setPlan((prevPlan) => prevPlan || buildDraftPlan());
+    }
+  }, [location, itineraryUuidParam, handleSend, setInput, setShowAiPanel, setPlan]);
 
   // ── 處理從地圖點擊「加入行程」的邏輯 ──
   const handleAddLocation = async (locationData) => {
@@ -155,6 +186,9 @@ const PlannerContent = ({ isPublicMode = false }) => {
           <div className="az-topbar-status">
             {isPublicMode && <span className="az-status-text" style={{ fontSize: '12px', color: '#999' }}>公開預覽模式</span>}
             {!isPublicMode && (isAutoSaving || isSaving) && <span className="az-status-text">保存中...</span>}
+            {!isPublicMode && !isAutoSaving && !isSaving && hasUnsavedChanges && (
+              <span className="az-status-text">保存中...</span>
+            )}
             {saveMsg && (
               <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>
                 {saveMsg}
