@@ -380,6 +380,29 @@ input, textarea { font-family: var(--font); }
   gap: 10px;
 }
 
+.az-pretrip-regenerate-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.az-pretrip-regenerate-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #9ca3af;
+  color: #111827;
+}
+
+.az-pretrip-regenerate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .az-pretrip-title {
   font-size: 28px;
   line-height: 1.1;
@@ -552,6 +575,18 @@ input, textarea { font-family: var(--font); }
   opacity: 0.9;
 }
 
+.az-pretrip-text-link {
+  color: #0369a1;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.az-pretrip-text-link:hover {
+  color: #0c4a6e;
+}
+
 /* 编辑输入框（共用于 edit existing & new item） */
 .az-pretrip-edit-input {
   width: 100%;
@@ -678,6 +713,27 @@ input, textarea { font-family: var(--font); }
   background: #fffbeb;
   border-top: 1px solid #fef3c7;
   font-weight: 500;
+}
+
+.az-pretrip-retry-btn {
+  margin-top: 10px;
+  width: 100%;
+  border: 1px solid #f59e0b;
+  background: #ffffff;
+  color: #92400e;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.az-pretrip-retry-btn:hover:not(:disabled) {
+  background: #fff7ed;
+}
+
+.az-pretrip-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .az-empty-section { padding: 12px 14px; color: var(--text-muted); font-size: 13px; }

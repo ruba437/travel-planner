@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlanner, API_BASE } from '../PlannerProvider';
 
-const CHECKLIST_LIMIT = 10;
+const CHECKLIST_LIMIT = 50;
 const CHECKLIST_TEXT_MAX_LENGTH = 800;
 
 const getChecklistSortOrder = (item, fallbackIndex = 0) => {
@@ -24,6 +24,79 @@ const normalizeChecklistItems = (items = []) => {
   }));
 };
 
+const CHECKLIST_MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+const CHECKLIST_URL_RE = /(https?:\/\/[\w.-]+(?:\/[\w\-./?%&=+#~:]*)?)/g;
+
+const renderChecklistTextWithLinks = (text) => {
+  const content = String(text || '');
+  if (!content) return null;
+  CHECKLIST_MARKDOWN_LINK_RE.lastIndex = 0;
+  CHECKLIST_URL_RE.lastIndex = 0;
+
+  const segments = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = CHECKLIST_MARKDOWN_LINK_RE.exec(content)) !== null) {
+    const [fullMatch, label, url] = match;
+    const matchIndex = match.index;
+
+    if (matchIndex > lastIndex) {
+      segments.push({ type: 'text', value: content.slice(lastIndex, matchIndex) });
+    }
+
+    segments.push({ type: 'link', label: label.trim() || url, url });
+    lastIndex = matchIndex + fullMatch.length;
+  }
+
+  if (lastIndex < content.length) {
+    segments.push({ type: 'text', value: content.slice(lastIndex) });
+  }
+
+  const expanded = [];
+  for (const segment of segments) {
+    if (segment.type === 'link') {
+      expanded.push(segment);
+      continue;
+    }
+
+    const textValue = segment.value;
+    let textLastIndex = 0;
+    let textMatch;
+    while ((textMatch = CHECKLIST_URL_RE.exec(textValue)) !== null) {
+      const [url] = textMatch;
+      const urlIndex = textMatch.index;
+      if (urlIndex > textLastIndex) {
+        expanded.push({ type: 'text', value: textValue.slice(textLastIndex, urlIndex) });
+      }
+      expanded.push({ type: 'link', label: url, url });
+      textLastIndex = urlIndex + url.length;
+    }
+    if (textLastIndex < textValue.length) {
+      expanded.push({ type: 'text', value: textValue.slice(textLastIndex) });
+    }
+    CHECKLIST_URL_RE.lastIndex = 0;
+  }
+
+  return expanded.map((segment, idx) => {
+    if (segment.type === 'link') {
+      return (
+        <a
+          key={`link-${idx}`}
+          className="az-pretrip-text-link"
+          href={segment.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {segment.label}
+        </a>
+      );
+    }
+    return <React.Fragment key={`text-${idx}`}>{segment.value}</React.Fragment>;
+  });
+};
+
 const PrepChecklist = ({ isReadOnly = false }) => {
   const {
     packingItems,
@@ -34,6 +107,10 @@ const PrepChecklist = ({ isReadOnly = false }) => {
     isChecklistSyncing,
     setIsChecklistSyncing,
     setSaveMsg,
+    isAutoGeneratingChecklist,
+    autoChecklistError,
+    setAutoChecklistError,
+    generateChecklist,
   } = usePlanner();
 
   const [isAddingItem, setIsAddingItem] = useState(false);
@@ -245,11 +322,41 @@ const PrepChecklist = ({ isReadOnly = false }) => {
   const doneCount = orderedPackingItems.filter((i) => i.checked).length;
   const progressPercent = orderedPackingItems.length === 0 ? 0 : Math.round((doneCount / orderedPackingItems.length) * 100);
 
+  const handleRetryAutoGenerate = async () => {
+    if (isReadOnly || isChecklistSyncing || isAutoGeneratingChecklist) return;
+    const result = await generateChecklist({ silent: false, autoTriggered: false });
+    if (result.success) {
+      setAutoChecklistError(null);
+    }
+  };
+
+  const handleRegenerateChecklist = async () => {
+    if (isReadOnly || isChecklistSyncing || isAutoGeneratingChecklist || !itineraryUuid) return;
+    const result = await generateChecklist({
+      silent: false,
+      autoTriggered: false,
+      replaceExisting: true,
+    });
+    if (result.success) {
+      setAutoChecklistError(null);
+    }
+  };
+
   return (
     <div className="az-pretrip-card">
       <div className="az-pretrip-header">
         <h3 className="az-pretrip-title">旅行準備</h3>
         <div className="az-pretrip-header-right">
+          {!isReadOnly && (
+            <button
+              className="az-pretrip-regenerate-btn"
+              onClick={handleRegenerateChecklist}
+              disabled={isChecklistSyncing || isAutoGeneratingChecklist || !itineraryUuid}
+              type="button"
+            >
+              {isAutoGeneratingChecklist ? '生成中...' : '重新生成'}
+            </button>
+          )}
           <span className="az-pretrip-count">{doneCount}/{packingItems.length}</span>
         </div>
       </div>
@@ -262,6 +369,20 @@ const PrepChecklist = ({ isReadOnly = false }) => {
       </div>
 
       <div className="az-pretrip-list">
+        {!isReadOnly && autoChecklistError && (
+          <div className="az-pretrip-limit-tip">
+            {autoChecklistError}
+            <button
+              className="az-pretrip-retry-btn"
+              onClick={handleRetryAutoGenerate}
+              disabled={isChecklistSyncing || isAutoGeneratingChecklist || !itineraryUuid}
+              type="button"
+            >
+              {isAutoGeneratingChecklist ? '生成中...' : '重試 AI 產生準備清單'}
+            </button>
+          </div>
+        )}
+
         {orderedPackingItems.length === 0 && isReadOnly && (
           <div className="az-pretrip-empty">尚未建立旅行準備項目</div>
         )}
@@ -302,7 +423,7 @@ const PrepChecklist = ({ isReadOnly = false }) => {
                     onDoubleClick={() => startEditChecklistItem(item.id, item.text)}
                     style={{ cursor: isReadOnly ? 'default' : 'pointer' }}
                   >
-                    {item.text}
+                    {renderChecklistTextWithLinks(item.text)}
                   </span>
                 )}
               </div>

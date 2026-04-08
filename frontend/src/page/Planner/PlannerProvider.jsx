@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
 
@@ -8,7 +8,7 @@ const PlannerContext = createContext();
 // 常數定義
 export const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const DEFAULT_DAY_START_TIME = '09:00';
-const CHECKLIST_LIMIT = 10;
+const CHECKLIST_LIMIT = 50;
 
 const normalizeChecklistItems = (items = []) => {
   if (!Array.isArray(items)) return [];
@@ -71,6 +71,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const [packingItems, setPackingItems] = useState([]);
   const [tripNote, setTripNote] = useState('');
   const [isChecklistSyncing, setIsChecklistSyncing] = useState(false);
+  const [isAutoGeneratingChecklist, setIsAutoGeneratingChecklist] = useState(false);
+  const [autoChecklistError, setAutoChecklistError] = useState(null);
   const [autoApprove, setAutoApprove] = useState(false);
 
   // --- 核心邏輯 (Functions) ---
@@ -393,6 +395,61 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     } finally { setIsSaving(false); }
   }, [plan, totalBudget, packingItems, tripNote, itineraryUuid, token, navigate, isPublicMode, publicGuideSlug]);
 
+  const generateChecklist = useCallback(async ({ silent = false, replaceExisting = false } = {}) => {
+    if (!itineraryUuid || isPublicMode) return { success: false, skipped: true };
+    if (!token) {
+      const message = '登入資訊尚未就緒，請稍後再試';
+      setAutoChecklistError(message);
+      if (!silent) {
+        setSaveMsg(message);
+        setTimeout(() => setSaveMsg(null), 2500);
+      }
+      return { success: false, error: message };
+    }
+
+    setIsChecklistSyncing(true);
+    setIsAutoGeneratingChecklist(true);
+    setAutoChecklistError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/itineraries/${encodeURIComponent(itineraryUuid)}/generate-checklist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ currentPlan: plan, replaceExisting }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '生成行前清單失敗');
+
+      const nextItems = normalizeChecklistItems(Array.isArray(data.checklistItems) ? data.checklistItems : []);
+      setPackingItems(nextItems);
+
+      if (!silent) {
+        const nextMessage = replaceExisting
+          ? `已重新生成 ${nextItems.length} 項旅行準備`
+          : (data.addedCount > 0 ? `已補齊 ${data.addedCount} 項旅行準備` : '目前清單已齊全');
+        setSaveMsg(nextMessage);
+        setTimeout(() => setSaveMsg(null), 2200);
+      }
+
+      return { success: true, addedCount: Number(data.addedCount) || 0, checklistItems: nextItems };
+    } catch (error) {
+      const message = error?.message || '生成行前清單失敗';
+      setAutoChecklistError(message);
+      if (!silent) {
+        setSaveMsg(message);
+        setTimeout(() => setSaveMsg(null), 3000);
+      }
+      return { success: false, error: message };
+    } finally {
+      setIsChecklistSyncing(false);
+      setIsAutoGeneratingChecklist(false);
+    }
+  }, [itineraryUuid, isPublicMode, token, plan]);
+
   // --- 提供給子組件的 Context Value ---
   const value = {
     plan, setPlan,
@@ -419,6 +476,10 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     autoApprove, setAutoApprove,
     token,
     isChecklistSyncing, setIsChecklistSyncing,
+    isAutoGeneratingChecklist,
+    autoChecklistError,
+    setAutoChecklistError,
+    generateChecklist,
     setSaveMsg,
     isPublicMode,
   };
