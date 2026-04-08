@@ -140,7 +140,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
       // 計算交通時間 (從第二個景點開始算)
       let travelTime = 0;
       if (i > 0) {
-        travelTime = await fetchTravelTime(newItems[i - 1], item, mode);
+        const itemMode = newItems[i - 1].travelMode || mode;
+        travelTime = await fetchTravelTime(newItems[i - 1], item, itemMode);
       }
 
       // 將當前起始時間加上交通時間
