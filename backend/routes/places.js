@@ -71,7 +71,7 @@ router.post('/directions', async (req, res) => {
 
     const route = response.data.routes[0];
     const leg = route?.legs[0];
-    if (!leg) return res.status(200).json({ fallback: true, message: 'No routes found, using default time' });
+    if (!leg) return res.status(200).json({ error: 'No routes found' });
 
     res.json(response.data);
   } catch (err) {

@@ -252,9 +252,9 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
         map: mapRef, 
       });
       line.addListener('click', () => {
+        // 1. 設定目前選中的線段
         setSelectedSegmentId(seg.id); 
         setSelectedSegment(seg);
-        handleSegmentClick(seg);
       });
       segmentsRef.current.push(line);
     });
@@ -444,6 +444,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     const controller = new AbortController();
     directionsAbortRef.current = controller;
     const reqId = ++directionsReqIdRef.current;
+    
     try {
       const res = await fetch(`${API_BASE}/api/places/directions`, {
         method: 'POST',
@@ -457,20 +458,39 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       });
       const data = await res.json();
       if (reqId !== directionsReqIdRef.current) return;
-      if (data.encodedPolyline && window.google?.maps?.geometry?.encoding) {
-        const decoded = window.google.maps.geometry.encoding.decodePath(data.encodedPolyline);
-        setRoutePath(decoded.map((p) => ({ lat: p.lat(), lng: p.lng() })));
-      } else {
+
+      // 💡 1. 修正防呆保護：檢查 Google 原生欄位 data.routes
+      if (!res.ok || data.error || !data.routes || data.routes.length === 0) {
+        console.warn('找不到路線');
+        setSelectedSegmentInfo({ 
+          segment, 
+          error: data.error_message || data.error || 'Google Maps 找不到這段路的交通路線 🥲' 
+        });
         setRoutePath(null);
+        return;
       }
-      if (data.bounds && mapRef && window.google) {
+
+      // 取得 Google 第一條路線與路段資訊
+      const route = data.routes[0];
+      const leg = route.legs[0];
+
+      // 💡 2. 畫線：正確讀取 Google 的 overview_polyline.points 並解碼成 Array
+      if (route.overview_polyline && route.overview_polyline.points && window.google?.maps?.geometry?.encoding) {
+        const decoded = window.google.maps.geometry.encoding.decodePath(route.overview_polyline.points);
+        setRoutePath(decoded.map((p) => ({ lat: p.lat(), lng: p.lng() })));
+      }
+
+      // 💡 3. 調整地圖視野
+      if (route.bounds && mapRef && window.google) {
         const bounds = new window.google.maps.LatLngBounds();
-        bounds.extend(data.bounds.northeast);
-        bounds.extend(data.bounds.southwest);
+        bounds.extend(route.bounds.northeast);
+        bounds.extend(route.bounds.southwest);
         mapRef.fitBounds(bounds);
       }
-      if (data.error) setSelectedSegmentInfo({ segment, error: data.error_message || data.error });
-      else setSelectedSegmentInfo({ segment, summary: data.summary });
+      
+      // 💡 4. 顯示文字資訊卡：把 leg 的資訊與 segment 合併傳進去
+      setSelectedSegmentInfo({ ...leg, segment });
+
     } catch (err) {
       if (err?.name === 'AbortError') return;
       console.error(err);
@@ -481,9 +501,13 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
   }
 
   const renderRouteCard = () => {
+    // 💡 我們的資訊現在不是存在 summary，而是直接在 selectedSegmentInfo 裡面 (因為它就是 leg 本身)
     const seg = selectedSegmentInfo?.segment || selectedSegment;
-    const summary = selectedSegmentInfo?.summary;
     const err = selectedSegmentInfo?.error;
+    const distanceText = selectedSegmentInfo?.distance?.text;
+    const durationText = selectedSegmentInfo?.duration?.text;
+    const steps = selectedSegmentInfo?.steps || [];
+
     if (!seg && !loadingDirections) return null;
     return (
       <div style={{
@@ -521,12 +545,16 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
             ))}
           </div>
         )}
-        {loadingDirections ? <div>正在取得交通方式…</div> : err ? <div>{err}</div> : summary ? (
+        
+        {/* 💡 這裡把 summary 判斷改成判斷 distanceText 是否存在 */}
+        {loadingDirections ? <div>正在取得交通方式…</div> : err ? <div>{err}</div> : distanceText ? (
           <div style={{ maxHeight: 120, overflowY: 'auto' }}>
-            <div style={{marginBottom:4}}>距離：{summary.distanceText} · 時間：{summary.durationText}</div>
-            {(summary.steps || []).map((s, i) => (
+            <div style={{marginBottom:4}}>距離：{distanceText} · 時間：{durationText}</div>
+            
+            {/* 💡 這裡把轉彎指示改用 step.html_instructions */}
+            {steps.map((s, i) => (
               <div key={i} style={{ marginBottom: 4, paddingBottom: 4, borderBottom: '1px dashed #666' }}>
-                <div dangerouslySetInnerHTML={{ __html: s.instructionHtml }} />
+                <div dangerouslySetInnerHTML={{ __html: s.instructions || s.html_instructions }} />
               </div>
             ))}
           </div>
