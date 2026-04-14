@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
 
 // 建立 Context
@@ -49,6 +49,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const { token } = useAuth();
   const { uuid: itineraryUuidParam, guideSlug: publicGuideSlug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // --- 狀態管理 (States) ---
   const [plan, setPlan] = useState(null);
@@ -171,12 +172,22 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   // 3. AI 發送訊息與行程同步
   const handleSend = async (quickText) => {
     const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
-    if (!text || isSending) return;
+    if (!text || (isSending && !quickText)) {
+      console.warn("🛑 handleSend 被攔截", { text, isSending, hasQuickText: !!quickText });
+      return;
+    }
+
+    if (!token) {
+      console.error("❌ handleSend 失敗：沒有 Token，無法呼叫 API");
+      return;
+    }
     
     const newHistory = [...messages, { role: 'user', content: text }];
     setMessages(newHistory);
     setInput('');
     setIsSending(true);
+
+    console.log("📡 正在發送請求至 AI...", { prompt: text });
 
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
@@ -612,6 +623,30 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     setSaveMsg,
     isPublicMode,
   };
+
+  // ── 🚀 核心：自動發送偵測器 ──
+  // 當 token 備妥且首頁有 prefill 請求時，自動執行 handleSend
+  const autoSendTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    const prefill = location?.state?.prefill;
+    
+    // 監控點：看看 token 到底長什麼樣子
+    console.log("🧐 自動發送檢查中:", { 
+      hasPrompt: !!prefill?.prompt, 
+      hasToken: !!token, 
+      isSending 
+    });
+
+    // 條件：有指令、有 Token、還沒發送過
+    if (prefill?.autoSend && prefill?.prompt && token && !autoSendTriggeredRef.current) {
+      console.log("🚀 Provider: 條件備齊，準備調用 handleSend...");
+      autoSendTriggeredRef.current = true;
+
+      // 這裡直接呼叫，不再等 setTimeout，或者縮短時間
+      handleSend(prefill.prompt); 
+    }
+  }, [token, location.state, isSending]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 };

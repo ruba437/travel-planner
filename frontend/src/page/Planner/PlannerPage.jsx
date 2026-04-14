@@ -52,64 +52,20 @@ const PlannerContent = ({ isPublicMode = false }) => {
 
   // ── 🚀 自動處理首頁傳來的 AI 請求 ──
   useEffect(() => {
+    // 只做一件事情：把首頁傳來的文字填入輸入框，其他的交給 Provider
     if (itineraryUuidParam || hasAppliedPrefill.current) return;
 
     const prefill = location?.state?.prefill;
-    if (!prefill) return;
+    if (!prefill || !prefill.prompt) return;
 
-    const { startLocation, startDate, endDate, autoSend, prompt } = prefill;
-    
-    // 檢查點：確保至少有 Prompt 或基本資訊
-    if (!prompt && (!startLocation || !startDate || !endDate)) return;
+    hasAppliedPrefill.current = true; // 鎖定
+    setInput(prefill.prompt); // 只填入文字
 
-    // 建立一個初始的空的 Plan 框架，防止畫面崩潰
-    const buildDraftPlan = () => {
-      const start = new Date(startDate || new Date());
-      const end = new Date(endDate || new Date());
-      const msPerDay = 24 * 60 * 60 * 1000;
-      const rawDayCount = Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
-      const dayCount = (Number.isFinite(rawDayCount) && rawDayCount > 0) ? rawDayCount : 1;
-
-      return {
-        tripName: `${startLocation || '新行程'}之旅`,
-        summary: '',
-        city: startLocation || '',
-        startDate: startDate || new Date().toISOString().split('T')[0],
-        startTime: '09:00',
-        note: '',
-        days: Array.from({ length: dayCount }, (_, index) => ({
-          day: index + 1,
-          title: `第 ${index + 1} 天`,
-          startTime: '09:00',
-          items: [],
-        })),
-        totalBudget: 0,
-        tags: [],
-      };
-    };
-
-    hasAppliedPrefill.current = true;
-    
-    if (prompt) {
-      setInput(prompt); 
-      
-      if (autoSend) {
-        setShowAiPanel(true);
-        // 重要：先建立一個空骨架，讓 MapView 等組件有東西可以渲染，不會噴 Error
-        setPlan(buildDraftPlan());
-
-        const timer = setTimeout(() => {
-          handleSend(prompt); // 這裡發送給後端 AI
-        }, 600); // 稍微延遲，確保 Provider 狀態已更新
-
-        return () => clearTimeout(timer);
-      }
+    if (prefill.autoSend) {
+      setShowAiPanel(true); // 只打開面板
+      console.log("🎯 已將指令填入，等待 Provider 執行...");
     }
-
-    if (!autoSend) {
-      setPlan(prevPlan => prevPlan || buildDraftPlan());
-    }
-  }, [location, itineraryUuidParam, handleSend, setInput, setShowAiPanel, setPlan]);
+  }, [location.pathname, location.search, itineraryUuidParam]); // ⚠️ 依賴陣列保持簡單且固定
 
   // ── 處理從地圖點擊「加入行程」的邏輯 ──
   const handleAddLocation = async (locationData) => {
