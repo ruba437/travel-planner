@@ -80,7 +80,9 @@ export default function HomePage() {
   const [plannerModalOpen, setPlannerModalOpen] = useState(false);
   const [plannerMode, setPlannerMode] = useState('manual');
   const [plannerForm, setPlannerForm] = useState({
+    subMode: 'city',
     startLocation: '',
+    customDescription: '',
     startDate: '',
     endDate: '',
   });
@@ -177,29 +179,48 @@ export default function HomePage() {
 
   const handlePlannerSubmit = (e) => {
     e.preventDefault();
+    const { startDate, endDate, subMode, startLocation, customDescription, noTimeLimit, durationDays } = plannerForm;
 
-    const startLocation = plannerForm.startLocation.trim();
-    const { startDate, endDate } = plannerForm;
-
-    if (!startLocation || !startDate || !endDate) {
-      setPlannerFormError('請完整輸入起點與旅遊區間。');
+    // 1. 基本驗證：如果是隨性模式，不需要檢查 startDate/endDate
+    if (subMode === 'city' && !startLocation) {
+      setPlannerFormError('請輸入目的地。');
+      return;
+    }
+    if (subMode === 'custom' && !customDescription) {
+      setPlannerFormError('請輸入客製化需求。');
+      return;
+    }
+    if (!noTimeLimit && (!startDate || !endDate)) {
+      setPlannerFormError('請輸入旅遊日期區間。');
       return;
     }
 
-    if (endDate < startDate) {
-      setPlannerFormError('旅遊結束日期不可早於出發日期。');
-      return;
-    }
+    // 2. 決定傳給 PlannerPage 的時間資料
+    // 如果沒選日期，我們用今天的日期當起點，根據天數往後推
+    const finalStart = noTimeLimit ? new Date().toISOString().split('T')[0] : startDate;
+    const days = durationDays || 3;
+    const finalEnd = noTimeLimit 
+      ? new Date(new Date().getTime() + (days - 1) * 24 * 60 * 60 * 1000).toISOString().split('T')[0] 
+      : endDate;
 
-    const prompt = `請幫我規劃旅程，起點是${startLocation}，旅遊日期從${startDate}到${endDate}。`;
+    // 3. 組合更強大的 Prompt
+    let prompt = subMode === 'city' 
+      ? `我想去${startLocation}旅遊` 
+      : `我的旅遊需求是：${customDescription}`;
+
+    if (noTimeLimit) {
+      prompt += `。⚠️請注意：這是一次隨性旅遊，我不需要具體的時間表，請為我規劃約 ${days} 天的建議行程清單即可，時間欄位請用時段（如：上午、下午）表示。`;
+    } else {
+      prompt += `，日期是從 ${startDate} 到 ${endDate}`;
+    }
 
     navigate('/planner', {
       state: {
         prefill: {
           mode: plannerMode,
-          startLocation,
-          startDate,
-          endDate,
+          startLocation: subMode === 'city' ? startLocation : '隨性探索',
+          startDate: finalStart,
+          endDate: finalEnd,
           prompt,
           autoSend: plannerMode === 'ai',
         },
@@ -462,46 +483,93 @@ export default function HomePage() {
       {plannerModalOpen && (
         <div className="az-modal-overlay" onClick={closePlannerModal}>
           <div className="az-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{plannerMode === 'ai' ? 'AI 智慧規劃' : '建立新行程'}</h3>
-            <p className="az-modal-desc">進入規劃前，請先輸入起點與旅遊區間。</p>
+            <div className="az-modal-header-row">
+              <h3>{plannerMode === 'ai' ? 'AI 智慧規劃' : '建立新行程'}</h3>
+              {/* 新增模式切換 Tab */}
+              {plannerMode === 'ai' && (
+                <div className="az-mode-switcher">
+                  <button 
+                    className={`az-mode-btn ${plannerForm.subMode === 'city' ? 'active' : ''}`}
+                    onClick={() => setPlannerForm(prev => ({...prev, subMode: 'city'}))}
+                  >目的地</button>
+                  <button 
+                    className={`az-mode-btn ${plannerForm.subMode === 'custom' ? 'active' : ''}`}
+                    onClick={() => setPlannerForm(prev => ({...prev, subMode: 'custom'}))}
+                  >客製化需求</button>
+                </div>
+              )}
+            </div>
 
             <form onSubmit={handlePlannerSubmit} className="az-modal-form">
-              <label className="az-modal-label" htmlFor="planner-start-location">起點</label>
-              <input
-                id="planner-start-location"
-                name="startLocation"
-                type="text"
-                className="az-modal-input"
-                placeholder="例如：台北車站、桃園機場"
-                value={plannerForm.startLocation}
-                onChange={handlePlannerFormChange}
-                autoFocus
-              />
+              {/* 動態切換輸入框 */}
+              {plannerForm.subMode === 'city' ? (
+                <div>
+                  <label className="az-modal-label">想去哪裡？</label>
+                  <input
+                    name="startLocation"
+                    type="text"
+                    className="az-modal-input"
+                    placeholder="例如：東京、巴黎、高雄..."
+                    value={plannerForm.startLocation}
+                    onChange={handlePlannerFormChange}
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="az-modal-label">告訴 AI 你的旅遊願望</label>
+                  <textarea
+                    name="customDescription"
+                    className="az-modal-input az-modal-textarea"
+                    placeholder="例如：想去台南吃美食，要有很多貓咪咖啡廳，預算兩萬內..."
+                    value={plannerForm.customDescription || ''}
+                    onChange={handlePlannerFormChange}
+                    rows="3"
+                  />
+                </div>
+              )}
 
-              <div className="az-modal-dates">
+              {plannerForm.subMode === 'custom' && (
+                <div className="az-modal-checkbox-row">
+                  <label className="az-modal-checkbox-label">
+                    <input
+                      type="checkbox"
+                      name="noTimeLimit"
+                      checked={plannerForm.noTimeLimit || false}
+                      onChange={(e) => setPlannerForm(prev => ({ ...prev, noTimeLimit: e.target.checked }))}
+                    />
+                    <span>我不想要死板的時間表（改為推薦景點清單）</span>
+                  </label>
+                </div>
+              )}
+
+              {!plannerForm.noTimeLimit ? (
+                <div className="az-modal-dates">
+                  <div>
+                    <label className="az-modal-label">出發日期</label>
+                    <input name="startDate" type="date" className="az-modal-input" value={plannerForm.startDate} onChange={handlePlannerFormChange} />
+                  </div>
+                  <div>
+                    <label className="az-modal-label">結束日期</label>
+                    <input name="endDate" type="date" className="az-modal-input" value={plannerForm.endDate} onChange={handlePlannerFormChange} />
+                  </div>
+                </div>
+              ) : (
+                /* 隨性模式：改問「預計玩幾天？」 */
                 <div>
-                  <label className="az-modal-label" htmlFor="planner-start-date">出發日期</label>
-                  <input
-                    id="planner-start-date"
-                    name="startDate"
-                    type="date"
-                    className="az-modal-input"
-                    value={plannerForm.startDate}
-                    onChange={handlePlannerFormChange}
+                  <label className="az-modal-label">預計旅遊天數（選填，預設 3 天）</label>
+                  <input 
+                    name="durationDays" 
+                    type="number" 
+                    min="1" 
+                    max="30"
+                    className="az-modal-input" 
+                    placeholder="例如：3" 
+                    value={plannerForm.durationDays || ''} 
+                    onChange={handlePlannerFormChange} 
                   />
                 </div>
-                <div>
-                  <label className="az-modal-label" htmlFor="planner-end-date">結束日期</label>
-                  <input
-                    id="planner-end-date"
-                    name="endDate"
-                    type="date"
-                    className="az-modal-input"
-                    value={plannerForm.endDate}
-                    onChange={handlePlannerFormChange}
-                  />
-                </div>
-              </div>
+              )}
 
               {plannerFormError && <div className="az-modal-error">{plannerFormError}</div>}
 
