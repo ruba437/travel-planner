@@ -52,62 +52,62 @@ const PlannerContent = ({ isPublicMode = false }) => {
 
   // ── 🚀 自動處理首頁傳來的 AI 請求 ──
   useEffect(() => {
-    // 防呆：如果是載入舊行程 (UUID)，或是這趟載入已經處理過預填，就停止
     if (itineraryUuidParam || hasAppliedPrefill.current) return;
 
     const prefill = location?.state?.prefill;
     if (!prefill) return;
 
     const { startLocation, startDate, endDate, autoSend, prompt } = prefill;
-    if (!startLocation || !startDate || !endDate) return;
+    
+    // 檢查點：確保至少有 Prompt 或基本資訊
+    if (!prompt && (!startLocation || !startDate || !endDate)) return;
 
+    // 建立一個初始的空的 Plan 框架，防止畫面崩潰
     const buildDraftPlan = () => {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
+      const start = new Date(startDate || new Date());
+      const end = new Date(endDate || new Date());
       const msPerDay = 24 * 60 * 60 * 1000;
       const rawDayCount = Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
-      const dayCount = Number.isFinite(rawDayCount) && rawDayCount > 0 ? rawDayCount : 1;
+      const dayCount = (Number.isFinite(rawDayCount) && rawDayCount > 0) ? rawDayCount : 1;
 
       return {
-        tripName: `${startLocation}之旅`,
+        tripName: `${startLocation || '新行程'}之旅`,
         summary: '',
-        city: startLocation,
-        startDate,
+        city: startLocation || '',
+        startDate: startDate || new Date().toISOString().split('T')[0],
         startTime: '09:00',
         note: '',
         days: Array.from({ length: dayCount }, (_, index) => ({
           day: index + 1,
           title: `第 ${index + 1} 天`,
           startTime: '09:00',
-          transportMode: 'TRANSIT',
           items: [],
         })),
-        totalBudget: 50000,
+        totalBudget: 0,
         tags: [],
       };
     };
 
-    // 標記為已處理，防止 React StrictMode 渲染兩次導致發送兩次
     hasAppliedPrefill.current = true;
     
     if (prompt) {
-      setInput(prompt); // 將文字填入對話框
+      setInput(prompt); 
       
       if (autoSend) {
-        // 自動打開 AI 面板，並延遲發送確保 Context 初始化完成
         setShowAiPanel(true);
-        console.log("偵測到首頁 AI 智慧規劃請求，正在自動發送中...");
-        
+        // 重要：先建立一個空骨架，讓 MapView 等組件有東西可以渲染，不會噴 Error
+        setPlan(buildDraftPlan());
+
         const timer = setTimeout(() => {
-          handleSend(prompt);
-        }, 500);
+          handleSend(prompt); // 這裡發送給後端 AI
+        }, 600); // 稍微延遲，確保 Provider 狀態已更新
 
         return () => clearTimeout(timer);
       }
     }
 
     if (!autoSend) {
-      setPlan((prevPlan) => prevPlan || buildDraftPlan());
+      setPlan(prevPlan => prevPlan || buildDraftPlan());
     }
   }, [location, itineraryUuidParam, handleSend, setInput, setShowAiPanel, setPlan]);
 
