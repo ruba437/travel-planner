@@ -68,6 +68,7 @@ const NAV_ITEMS = [
 
 export default function HomePage() {
   const { user, token, logout } = useAuth();
+  const isAuthenticated = Boolean(token);
   const navigate = useNavigate();
   const location = useLocation();
   const [itineraries, setItineraries] = useState([]);
@@ -157,9 +158,11 @@ export default function HomePage() {
   const currentPath = location?.pathname || '/';
   const sectionParam = new URLSearchParams(location?.search || '').get('section');
   const activeSection = ['guides', 'trips'].includes(sectionParam) ? sectionParam : 'all';
-  const showTripsSection = activeSection === 'all' || activeSection === 'trips';
-  const showDestinationsSection = activeSection === 'all';
-  const showGuidesSection = activeSection === 'all' || activeSection === 'guides';
+  const currentSection = isAuthenticated ? activeSection : (activeSection === 'guides' ? 'guides' : 'all');
+  const showTripsSection = isAuthenticated && (currentSection === 'all' || currentSection === 'trips');
+  const showDestinationsSection = currentSection === 'all';
+  const showGuidesSection = currentSection === 'all' || currentSection === 'guides';
+  const visibleNavItems = NAV_ITEMS.filter(({ key }) => isAuthenticated || (key !== 'trips' && key !== 'saved'));
 
   const openPlannerModal = (mode) => {
     setPlannerMode(mode);
@@ -230,9 +233,9 @@ export default function HomePage() {
   };
   
   const currentLabel = NAV_ITEMS.find(({ key, path }) =>
-    (key === 'home' && currentPath === '/' && activeSection === 'all') ||
-    (key === 'trips' && ((currentPath === '/' && activeSection === 'trips') || currentPath.startsWith('/planner'))) ||
-    (key === 'guides' && currentPath === '/' && activeSection === 'guides') ||
+    (key === 'home' && currentPath === '/' && currentSection === 'all') ||
+    (key === 'trips' && ((currentPath === '/' && currentSection === 'trips') || currentPath.startsWith('/planner'))) ||
+    (key === 'guides' && currentPath === '/' && currentSection === 'guides') ||
     (key === 'saved' && currentPath === path)
   )?.label || '首頁';
 
@@ -255,13 +258,13 @@ export default function HomePage() {
 
           {/* Nav */}
           <nav className="az-nav">
-            {NAV_ITEMS.map(({ key, label, icon, path }) => (
+            {visibleNavItems.map(({ key, label, icon, path }) => (
               <button
                 key={key}
                 className={`az-nav-item${(
-                  (key === 'home' && currentPath === '/' && activeSection === 'all') ||
-                  (key === 'trips' && ((currentPath === '/' && activeSection === 'trips') || currentPath.startsWith('/planner'))) ||
-                  (key === 'guides' && currentPath === '/' && activeSection === 'guides') ||
+                  (key === 'home' && currentPath === '/' && currentSection === 'all') ||
+                  (key === 'trips' && ((currentPath === '/' && currentSection === 'trips') || currentPath.startsWith('/planner'))) ||
+                  (key === 'guides' && currentPath === '/' && currentSection === 'guides') ||
                   (key === 'saved' && currentPath === path)
                 ) ? ' az-nav-item--active' : ''}`}
                 onClick={() => navigate(path)}
@@ -328,8 +331,6 @@ export default function HomePage() {
                 <h2 className="az-h2">我的行程</h2>
                 <div className="az-head-actions">
                   <button className="az-btn az-btn--outline" onClick={() => openPlannerModal('manual')}>自己規劃</button>
-
-                  
                   <button className="az-btn az-btn--ai" onClick={() => openPlannerModal('ai')}>
                     <SparkleIcon /> AI 智慧規劃
                   </button>

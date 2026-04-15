@@ -48,6 +48,7 @@ const NAV_ITEMS = [
 
 export default function GuideDetailPage() {
   const { user, logout, token } = useAuth();
+  const isAuthenticated = Boolean(token);
   const navigate = useNavigate();
   const location = useLocation();
   const { username, guideSlug } = useParams();
@@ -60,8 +61,10 @@ export default function GuideDetailPage() {
   const activeSection = new URLSearchParams(location?.search || '').get('section');
   const isGuidesView = (currentPath.startsWith('/u/') && currentPath.includes('/guide/')) || (currentPath === '/' && activeSection === 'guides');
   const isTripsView = currentPath.startsWith('/planner') || (currentPath === '/' && activeSection === 'trips');
+  const currentSection = isAuthenticated ? activeSection : (activeSection === 'guides' ? 'guides' : undefined);
+  const visibleNavItems = NAV_ITEMS.filter(({ key }) => isAuthenticated || (key !== 'trips' && key !== 'saved'));
   const currentLabel = NAV_ITEMS.find(({ key, path }) =>
-    (key === 'home' && currentPath === '/' && activeSection !== 'guides' && activeSection !== 'trips') ||
+    (key === 'home' && currentPath === '/' && currentSection !== 'guides' && currentSection !== 'trips') ||
     (key === 'trips' && isTripsView) ||
     (key === 'guides' && isGuidesView) ||
     (key === 'saved' && currentPath === path)
@@ -232,11 +235,11 @@ export default function GuideDetailPage() {
           </div>
 
           <nav className="az-nav">
-            {NAV_ITEMS.map(({ key, label, icon, path }) => (
+            {visibleNavItems.map(({ key, label, icon, path }) => (
               <button
                 key={key}
                 className={`az-nav-item${(
-                  (key === 'home' && currentPath === '/' && activeSection !== 'guides' && activeSection !== 'trips') ||
+                  (key === 'home' && currentPath === '/' && currentSection !== 'guides' && currentSection !== 'trips') ||
                   (key === 'trips' && isTripsView) ||
                   (key === 'guides' && isGuidesView) ||
                   (key === 'saved' && currentPath === path)

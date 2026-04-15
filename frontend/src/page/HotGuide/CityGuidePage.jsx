@@ -117,6 +117,7 @@ export default function CityGuidePage() {
   const navigate    = useNavigate();
   const location    = useLocation();
   const { user, token, logout } = useAuth();
+  const isAuthenticated = Boolean(token);
 
   const [guideData, setGuideData]           = useState(null);      // null = 尚未載入
   const [savedSet,  setSavedSet]            = useState(new Set());
@@ -127,6 +128,8 @@ export default function CityGuidePage() {
   const cityText   = useMemo(() => slugToCityText(city), [city]);
   const currentPath = location?.pathname || '/';
   const activeSection = new URLSearchParams(location?.search || '').get('section');
+  const currentSection = isAuthenticated ? activeSection : undefined;
+  const visibleNavItems = NAV_ITEMS.filter(({ key }) => isAuthenticated || (key !== 'trips' && key !== 'saved'));
 
   const getUserInitial = () => {
     const n = user?.displayName || user?.displayname || user?.email || '?';
@@ -240,13 +243,13 @@ export default function CityGuidePage() {
           </div>
 
           <nav className="az-nav">
-            {NAV_ITEMS.map(({ key, label, icon, path }) => (
+            {visibleNavItems.map(({ key, label, icon, path }) => (
               <button
                 key={key}
                 className={`az-nav-item${(
-                  (key === 'home' && currentPath === '/' && !['guides', 'trips'].includes(activeSection)) ||
-                  (key === 'trips' && ((currentPath === '/' && activeSection === 'trips') || currentPath.startsWith('/planner'))) ||
-                  (key === 'guides' && currentPath === '/' && activeSection === 'guides') ||
+                  (key === 'home' && currentPath === '/' && !['guides', 'trips'].includes(currentSection)) ||
+                  (key === 'trips' && ((currentPath === '/' && currentSection === 'trips') || currentPath.startsWith('/planner'))) ||
+                  (key === 'guides' && currentPath === '/' && currentSection === 'guides') ||
                   (key === 'saved' && currentPath === path)
                 ) ? ' az-nav-item--active' : ''}`}
                 onClick={() => navigate(path)}
