@@ -2,6 +2,20 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
 
+const getDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // 地球半徑 (公里)
+    const rLat1 = Number(lat1) * Math.PI / 180;
+    const rLat2 = Number(lat2) * Math.PI / 180;
+    const dLat = (Number(lat2) - Number(lat1)) * Math.PI / 180;
+    const dLon = (Number(lon2) - Number(lon1)) * Math.PI / 180;
+
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(rLat1) * Math.cos(rLat2) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
 // 建立 Context
 const PlannerContext = createContext();
 
@@ -169,6 +183,109 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     return newItems;
   }, [fetchTravelTime]);
 
+  // ====== 輔助函數：呼叫 Google 幫忙把「地名」轉成「經緯度座標」 ======
+  const fetchCoordinatesFromName = async (placeName) => {
+    return new Promise((resolve) => {
+      if (!window.google || !window.google.maps) {
+        return resolve(null);
+      }
+      const geocoder = new window.google.maps.Geocoder();
+      // 在地名後加上地區字眼（可依據你的專案調整）以提高精準度
+      geocoder.geocode({ address: placeName }, (results, status) => {
+        if (status === 'OK' && results && results[0]) {
+          resolve({
+            lat: results[0].geometry.location.lat(),
+            lng: results[0].geometry.location.lng()
+          });
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  };
+
+  // ====== 自動順路排序當天行程 ======
+  const optimizeDayRoute = async (dayIndex) => {
+    if (!plan || !plan.days || !plan.days[dayIndex]) return;
+    
+    // 1. 深度拷貝
+    let dayItems = [...plan.days[dayIndex].items];
+    
+    if (dayItems.length <= 2) {
+      alert('景點數量太少，不需要排序喔！');
+      return;
+    }
+
+    // 💡 2. 關鍵升級：補齊缺失的座標！
+    // 檢查每個景點，如果沒有座標，就當場去問 Google 它的經緯度，並存起來
+    dayItems = await Promise.all(dayItems.map(async (item) => {
+      if (item.lat && item.lng) return item; // 已經有座標就跳過
+      if (item.location?.lat && item.location?.lng) {
+        return { ...item, lat: item.location.lat, lng: item.location.lng };
+      }
+      
+      // 呼叫 Google 查座標
+      //console.log(`正在查詢 [${item.name}] 的座標...`);
+      const coords = await fetchCoordinatesFromName(item.name);
+      
+      if (coords) {
+        return { ...item, lat: coords.lat, lng: coords.lng }; // 把查到的座標補進去
+      }
+      return item; // 真的查不到就維持原樣
+    }));
+
+    // 3. 過濾出有座標的景點與無座標的景點
+    const validItems = dayItems.filter(item => item.lat && item.lng);
+    const invalidItems = dayItems.filter(item => !item.lat || !item.lng);
+
+    if (validItems.length <= 1) {
+      alert('無法取得這些地點的 Google 座標，無法自動排序！');
+      return;
+    }
+
+    // 4. 固定第一站當作起點，剩下拿去排
+    const optimized = [validItems[0]];
+    const unvisited = validItems.slice(1);
+
+    while (unvisited.length > 0) {
+      const lastPoint = optimized[optimized.length - 1];
+      
+      unvisited.sort((a, b) => {
+        const distA = getDistance(lastPoint.lat, lastPoint.lng, a.lat, a.lng);
+        const distB = getDistance(lastPoint.lat, lastPoint.lng, b.lat, b.lng);
+        return distA - distB;
+      });
+      
+      optimized.push(unvisited.shift()); 
+    }
+
+    const finalItems = [...optimized, ...invalidItems];
+
+    // 5. 更新 React State
+    const newPlan = {
+      ...plan,
+      days: plan.days.map((day, idx) => 
+        idx === dayIndex ? { ...day, items: finalItems } : day
+      )
+    };
+    
+    setPlan(newPlan);
+
+    // 6. 重新計算交通時間
+    const updatedItems = await recalculateDayTimesAsync(
+      finalItems, 
+      newPlan.days[dayIndex].startTime, 
+      newPlan.days[dayIndex].transportMode || 'TRANSIT'
+    );
+    
+    setPlan({
+      ...newPlan,
+      days: newPlan.days.map((day, idx) => 
+        idx === dayIndex ? { ...day, items: updatedItems } : day
+      )
+    });
+  };
+
   // 3. AI 發送訊息與行程同步
   const handleSend = async (quickText) => {
     const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
@@ -202,13 +319,55 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
       if (data.plan) {
         const nextPlan = { ...data.plan };
         if (nextPlan.days && Array.isArray(nextPlan.days)) {
-          // 對 AI 回傳的每一天進行過濾與時間重算
+          // 對 AI 回傳的每一天進行過濾、查座標、排序與時間重算
           nextPlan.days = await Promise.all(
             nextPlan.days.map(async (day) => {
-              const validItems = (day.items || []).filter(item => item && item.name?.trim());
+              let validItems = (day.items || []).filter(item => item && item.name?.trim());
               const dayStartTime = day.startTime || '09:00';
               const mode = day.transportMode || 'TRANSIT';
-              
+
+              // ==========================================
+              // 攔截 AI 的行程，自動查座標並順路排序
+              // ==========================================
+              if (validItems.length > 2) {
+                // 1. 補齊 AI 景點的座標
+                validItems = await Promise.all(validItems.map(async (item) => {
+                  if (item.lat && item.lng) return item;
+                  if (item.location?.lat && item.location?.lng) {
+                    return { ...item, lat: item.location.lat, lng: item.location.lng };
+                  }
+                  // 呼叫 Google 查座標
+                  const coords = await fetchCoordinatesFromName(item.name);
+                  if (coords) return { ...item, lat: coords.lat, lng: coords.lng };
+                  return item;
+                }));
+
+                // 2. 分離有座標與無座標景點
+                const withCoords = validItems.filter(item => item.lat && item.lng);
+                const withoutCoords = validItems.filter(item => !item.lat || !item.lng);
+
+                // 3. 執行最短距離排序 (固定第一站)
+                if (withCoords.length > 1) {
+                  const optimized = [withCoords[0]];
+                  const unvisited = withCoords.slice(1);
+
+                  while (unvisited.length > 0) {
+                    const lastPoint = optimized[optimized.length - 1];
+                    unvisited.sort((a, b) => {
+                      const distA = getDistance(lastPoint.lat, lastPoint.lng, a.lat, a.lng);
+                      const distB = getDistance(lastPoint.lat, lastPoint.lng, b.lat, b.lng);
+                      return distA - distB;
+                    });
+                    optimized.push(unvisited.shift());
+                  }
+                  
+                  // 排完後再把無座標的接回最後面
+                  validItems = [...optimized, ...withoutCoords];
+                }
+              }
+              // ==========================================
+
+              // 拿著排序好的景點，去呼叫 Google 算精準交通時間！
               const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, mode);
               return { ...day, items: recalculatedItems };
             })
@@ -622,6 +781,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     generateChecklist,
     setSaveMsg,
     isPublicMode,
+    optimizeDayRoute
   };
 
   // ── 🚀 核心：自動發送偵測器 ──

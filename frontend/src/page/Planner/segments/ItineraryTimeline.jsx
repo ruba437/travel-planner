@@ -8,7 +8,8 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     plan, 
     setPlan, 
     activeDayIdx, 
-    recalculateDayTimesAsync 
+    recalculateDayTimesAsync,
+    optimizeDayRoute 
   } = usePlanner();
 
   const handleDailyTravelModeChange = async (newMode) => {
@@ -121,6 +122,32 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
               <option value="WALKING">🚶 徒步漫遊</option>
               <option value="BICYCLING">🚲 單車騎行</option>
             </select>
+
+            {/* 自動排序按鈕 */}
+            <button
+              onClick={() => optimizeDayRoute(activeDayIdx)}
+              style={{
+                marginLeft: 'auto', // 把按鈕推到最右邊
+                padding: '6px 14px',
+                borderRadius: '8px',
+                border: 'none',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+                color: 'white',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 4px 6px -1px rgba(59,130,246,0.3)',
+                transition: 'transform 0.1s'
+              }}
+              onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+              onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              title="固定第一站，將後續行程依直線距離自動順路排序"
+            >
+              ✨ 自動順路排序
+            </button>
           </div>
         )}
 
