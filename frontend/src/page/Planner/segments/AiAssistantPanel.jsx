@@ -127,14 +127,14 @@ const AiAssistantPanel = () => {
 
       {/* ── Footer Input ── */}
       <div className="az-ai-footer">
-        <label className="az-auto-approve">
+        {/* <label className="az-auto-approve">
           <input 
             type="checkbox" 
             checked={autoApprove} 
             onChange={(e) => setAutoApprove(e.target.checked)} 
           />
           自動核准所有動作
-        </label>
+        </label> */}
         
         <div className="az-ai-input-row">
           <button 

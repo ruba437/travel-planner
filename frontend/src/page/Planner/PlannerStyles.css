@@ -1012,6 +1012,13 @@ input, textarea { font-family: var(--font); }
   overflow: hidden;
 }
 
+.az-item-thumb-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .az-item-body { flex: 1; overflow: hidden; }
 
 .az-item-time-range {

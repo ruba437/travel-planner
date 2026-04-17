@@ -84,7 +84,9 @@ const PlannerContent = ({ isPublicMode = false }) => {
       time: '', 
       cost: 0, 
       note: `手動從地圖加入`, 
-      location: { lat: locationData.lat, lng: locationData.lng } 
+      location: { lat: locationData.lat, lng: locationData.lng },
+      placeId: locationData.placeId || null,
+      photoReference: locationData.photoReference || null,
     };
     
     dayItems.push(newItem);

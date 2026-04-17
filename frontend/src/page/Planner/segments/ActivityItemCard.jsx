@@ -5,6 +5,13 @@ import { usePlanner } from '../PlannerProvider';
 // 類別對應圖示與顏色 (從原 App.jsx 搬移)
 const TYPE_ICON = { sight: '🗺️', food: '🍜', shopping: '🛍️', activity: '🎯', hotel: '🏨', transport: '🚌' };
 const TYPE_COLOR = { sight: '#0ea5e9', food: '#f97316', shopping: '#ec4899', activity: '#10b981', hotel: '#7c3aed', transport: '#6b7280' };
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const PHOTO_REF_CACHE = new Map();
+
+const getPhotoUrl = (photoReference) => {
+  if (!photoReference) return null;
+  return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=240`;
+};
 
 const ActivityItemCard = ({
   item,
@@ -22,9 +29,12 @@ const ActivityItemCard = ({
   canMovePrevDay,
   canMoveNextDay,
 }) => {
-  const { activeLocation, setActiveLocation } = usePlanner();
+  const { activeLocation, setActiveLocation, plan, token } = usePlanner();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [failedPhotoReference, setFailedPhotoReference] = useState(null);
+  const [searchedPhotoReference, setSearchedPhotoReference] = useState(null);
   const menuRef = useRef(null);
+  const attemptedLookupRef = useRef(new Set());
 
   const isActive = activeLocation && 
                    Number(activeLocation.day) === (dayIdx + 1) && 
@@ -32,6 +42,96 @@ const ActivityItemCard = ({
   
   const iconColor = TYPE_COLOR[item.type] || '#6b7280';
   const typeLabel = { sight: '景點', food: '美食', shopping: '購物', activity: '活動', hotel: '住宿', transport: '交通' }[item.type] || item.type;
+  const itemName = String(item.name || '').trim();
+  const cityName = String(plan?.city || '').trim();
+  const lookupKey = item.placeId
+    ? `pid:${item.placeId}`
+    : `${cityName}::${itemName}`;
+  const cachedPhotoReference = PHOTO_REF_CACHE.get(lookupKey) || null;
+  const photoReference = searchedPhotoReference || cachedPhotoReference || item.photoReference || null;
+  const photoUrl = photoReference && failedPhotoReference !== photoReference
+    ? getPhotoUrl(photoReference)
+    : null;
+  const shouldShowPhoto = Boolean(photoUrl);
+
+  useEffect(() => {
+    const canLookupByPlaceId = Boolean(item.placeId && token);
+    const canLookupBySearch = Boolean(itemName && cityName && token);
+    if (!canLookupByPlaceId && !canLookupBySearch) return;
+    if (PHOTO_REF_CACHE.has(lookupKey)) return;
+    if (attemptedLookupRef.current.has(lookupKey)) return;
+
+    attemptedLookupRef.current.add(lookupKey);
+    const controller = new AbortController();
+
+    const resolvePhotoReference = async () => {
+      try {
+        let nextPhotoReference = null;
+
+        if (item.placeId) {
+          const detailRes = await fetch(
+            `${API_BASE}/api/places/details?placeId=${encodeURIComponent(item.placeId)}`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: controller.signal,
+            },
+          );
+
+          if (detailRes.ok) {
+            const detailData = await detailRes.json();
+            nextPhotoReference = detailData?.photos?.[0]?.photo_reference || null;
+          }
+        }
+
+        if (!nextPhotoReference && itemName && cityName) {
+          const searchRes = await fetch(`${API_BASE}/api/places/search`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query: itemName, city: cityName }),
+            signal: controller.signal,
+          });
+
+          if (!searchRes.ok) return;
+          const searchData = await searchRes.json();
+          const firstPlace = searchData?.places?.[0];
+          if (!firstPlace) return;
+
+          if (firstPlace.placeId) {
+            const detailRes = await fetch(
+              `${API_BASE}/api/places/details?placeId=${encodeURIComponent(firstPlace.placeId)}`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+                signal: controller.signal,
+              },
+            );
+
+            if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              nextPhotoReference = detailData?.photos?.[0]?.photo_reference || null;
+            }
+          }
+
+          if (!nextPhotoReference) {
+            nextPhotoReference = firstPlace.photoReference || null;
+          }
+        }
+
+        if (!nextPhotoReference || controller.signal.aborted) return;
+        PHOTO_REF_CACHE.set(lookupKey, nextPhotoReference);
+        setSearchedPhotoReference(nextPhotoReference);
+      } catch (error) {
+        if (error?.name !== 'AbortError') {
+          console.warn('Resolve place photo failed:', error);
+        }
+      }
+    };
+
+    resolvePhotoReference();
+    return () => controller.abort();
+  }, [item.placeId, itemName, cityName, token, lookupKey]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -69,8 +169,16 @@ const ActivityItemCard = ({
               className={`az-item-card ${snapshot.isDragging ? 'az-item-card--dragging' : ''}`}
               {...provided.dragHandleProps}
             >
-              <div className="az-item-thumb" style={{ background: `${iconColor}18`, color: iconColor }}>
-                {TYPE_ICON[item.type] || '📍'}
+              <div className="az-item-thumb" style={shouldShowPhoto ? undefined : { background: `${iconColor}18`, color: iconColor }}>
+                {shouldShowPhoto ? (
+                  <img
+                    className="az-item-thumb-img"
+                    src={photoUrl}
+                    alt={item.name || '景點圖片'}
+                    loading="lazy"
+                    onError={() => setFailedPhotoReference(photoReference)}
+                  />
+                ) : (TYPE_ICON[item.type] || '📍')}
               </div>
 
               <div className="az-item-body">

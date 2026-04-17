@@ -789,8 +789,10 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                                     name: selectedMarker.name,
                                     address: selectedMarker.address,
                                     type: selectedMarker.type || 'sight',
+                                    placeId: selectedMarker.placeId || null,
                                     lat: selectedMarker.lat,
                                     lng: selectedMarker.lng,
+                                    photoReference: selectedMarker.photoReference || null,
                                     targetDayIndex: index // 傳回使用者選擇的日期索引
                                   });
                                   setSelectedMarker(null); // 加完後關閉視窗
