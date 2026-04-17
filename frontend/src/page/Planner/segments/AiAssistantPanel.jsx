@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { usePlanner } from '../PlannerProvider';
+import useVoiceRecording from '../../../hooks/useVoiceRecording';
 
 const AiAssistantPanel = () => {
   const { 
@@ -13,7 +16,29 @@ const AiAssistantPanel = () => {
     setAutoApprove 
   } = usePlanner();
 
+  const {
+    isRecording,
+    transcript,
+    interimTranscript,
+    error,
+    isSupported,
+    toggleRecording,
+    resetTranscript,
+  } = useVoiceRecording();
+
   const chatEndRef = useRef(null);
+
+  // 當語音錄音完成時，自動填入或發送文字
+  useEffect(() => {
+    if (!isRecording && transcript && !isSending) {
+      // 停止錄音且有文字內容
+      const fullTranscript = transcript.trim();
+      if (fullTranscript) {
+        setInput(fullTranscript);
+        resetTranscript();
+      }
+    }
+  }, [isRecording, transcript, isSending, setInput, resetTranscript]);
 
   // 自動捲動到底部
   useEffect(() => {
@@ -51,9 +76,31 @@ const AiAssistantPanel = () => {
       <div className="az-ai-messages">
         {messages.map((m, idx) => (
           <div key={idx} className={`az-ai-msg ${m.role === 'user' ? 'az-ai-msg--user' : 'az-ai-msg--bot'}`}>
-            {m.content.split('\n').map((line, i) => (
-              <div key={i}>{line || '\u00A0'}</div>
-            ))}
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({ children }) => <p className="az-md-p">{children}</p>,
+                strong: ({ children }) => <strong className="az-md-strong">{children}</strong>,
+                em: ({ children }) => <em className="az-md-em">{children}</em>,
+                ul: ({ children }) => <ul className="az-md-ul">{children}</ul>,
+                ol: ({ children }) => <ol className="az-md-ol">{children}</ol>,
+                li: ({ children }) => <li className="az-md-li">{children}</li>,
+                a: ({ href, children }) => (
+                  <a className="az-md-link" href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                ),
+                code: ({ inline, children }) =>
+                  inline ? (
+                    <code className="az-md-inline-code">{children}</code>
+                  ) : (
+                    <code className="az-md-code-block">{children}</code>
+                  ),
+                pre: ({ children }) => <pre className="az-md-pre">{children}</pre>,
+              }}
+            >
+              {String(m.content || '')}
+            </ReactMarkdown>
           </div>
         ))}
         {isSending && (
@@ -90,10 +137,17 @@ const AiAssistantPanel = () => {
         </label>
         
         <div className="az-ai-input-row">
-          <button className="az-ai-attach">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
-              <polyline points="21,15 16,10 5,21"/>
+          <button 
+            className={`az-ai-voice ${isRecording ? 'az-ai-voice--active' : ''} ${!isSupported ? 'az-ai-voice--disabled' : ''}`}
+            onClick={toggleRecording}
+            disabled={isSending || !isSupported}
+            title={isRecording ? '點擊停止錄音' : '點擊開始語音輸入'}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z" />
+              <path d="M19 11a7 7 0 0 1-14 0" />
+              <path d="M12 18v4" />
+              <path d="M8 22h8" />
             </svg>
           </button>
           
@@ -116,6 +170,25 @@ const AiAssistantPanel = () => {
             </svg>
           </button>
         </div>
+
+        {/* 語音狀態顯示 */}
+        {isRecording && (
+          <div className="az-ai-voice-status">
+            <div className="az-voice-indicator">
+              <span className="az-voice-dot" />
+              <span>錄音中...</span>
+            </div>
+            {interimTranscript && (
+              <div className="az-voice-text">{interimTranscript}</div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="az-ai-error">
+            {error}
+          </div>
+        )}
       </div>
     </div>
   );
