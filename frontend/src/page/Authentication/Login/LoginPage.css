@@ -1,0 +1,201 @@
+.az-auth-page {
+	--az-auth-orange: #FF6934;
+	--az-auth-orange-strong: #f1561f;
+	--az-auth-teal: #0CBFB0;
+	--az-auth-bg: #F5F5F7;
+	--az-auth-surface: #FFFFFF;
+	--az-auth-border: #E8E8EC;
+	--az-auth-text: #1A1A2E;
+	--az-auth-text-secondary: #6B7280;
+	--az-auth-error: #dc2626;
+	--az-auth-shadow: 0 24px 48px rgba(26, 26, 46, 0.12), 0 10px 20px rgba(26, 26, 46, 0.06);
+
+	min-height: 100vh;
+	display: grid;
+	place-items: center;
+	padding: 28px 18px;
+	background:
+		radial-gradient(circle at 10% 12%, rgba(255, 105, 52, 0.12) 0, rgba(255, 105, 52, 0) 42%),
+		radial-gradient(circle at 92% 85%, rgba(12, 191, 176, 0.16) 0, rgba(12, 191, 176, 0) 45%),
+		linear-gradient(160deg, #fafafa 0%, var(--az-auth-bg) 100%);
+}
+
+.az-auth-card-shell {
+	position: relative;
+	width: min(420px, 100%);
+}
+
+.az-auth-atmosphere {
+	position: absolute;
+	inset: -16px;
+	border-radius: 30px;
+	background: linear-gradient(130deg, rgba(255, 105, 52, 0.18), rgba(12, 191, 176, 0.14));
+	filter: blur(18px);
+	z-index: 0;
+}
+
+.az-auth-card {
+	position: relative;
+	z-index: 1;
+	background: var(--az-auth-surface);
+	border: 1px solid var(--az-auth-border);
+	border-radius: 18px;
+	padding: 30px 28px;
+	box-shadow: var(--az-auth-shadow);
+	animation: az-auth-appear 0.36s ease-out;
+}
+
+.az-auth-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 24px;
+}
+
+.az-auth-dot {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: linear-gradient(140deg, var(--az-auth-orange), var(--az-auth-teal));
+	box-shadow: 0 0 0 5px rgba(255, 105, 52, 0.12);
+}
+
+.az-auth-title {
+	color: var(--az-auth-text);
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: 0.01em;
+}
+
+.az-auth-heading {
+	margin: 0 0 18px;
+	color: var(--az-auth-text);
+	font-size: 24px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
+
+.az-auth-form {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.az-auth-input {
+	height: 44px;
+	width: 100%;
+	border: 1px solid var(--az-auth-border);
+	border-radius: 10px;
+	padding: 0 12px;
+	color: var(--az-auth-text);
+	font-size: 14px;
+	transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.az-auth-input::placeholder {
+	color: #9ca3af;
+}
+
+.az-auth-input:focus {
+	outline: none;
+	border-color: var(--az-auth-teal);
+	box-shadow: 0 0 0 3px rgba(12, 191, 176, 0.2);
+}
+
+.az-auth-error {
+	border: 1px solid #fecaca;
+	background: #fef2f2;
+	color: var(--az-auth-error);
+	border-radius: 8px;
+	padding: 8px 10px;
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.az-auth-submit-btn {
+	height: 44px;
+	border: none;
+	border-radius: 10px;
+	background: linear-gradient(120deg, var(--az-auth-orange), var(--az-auth-orange-strong));
+	color: #fff;
+	font-size: 15px;
+	font-weight: 700;
+	letter-spacing: 0.01em;
+	transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+	box-shadow: 0 8px 20px rgba(255, 105, 52, 0.24);
+}
+
+.az-auth-submit-btn:hover {
+	transform: translateY(-1px);
+	filter: brightness(1.02);
+}
+
+.az-auth-submit-btn:active {
+	transform: translateY(0);
+}
+
+.az-auth-submit-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(12, 191, 176, 0.3), 0 8px 20px rgba(255, 105, 52, 0.24);
+}
+
+.az-auth-submit-btn:disabled {
+	cursor: not-allowed;
+	opacity: 0.72;
+	transform: none;
+}
+
+.az-auth-toggle {
+	margin-top: 16px;
+	text-align: center;
+	color: var(--az-auth-text-secondary);
+	font-size: 14px;
+}
+
+.az-auth-toggle-btn {
+	margin-left: 6px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: var(--az-auth-teal);
+	font-size: 14px;
+	font-weight: 700;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.az-auth-toggle-btn:hover {
+	color: #0aa89a;
+}
+
+.az-auth-toggle-btn:focus-visible {
+	outline: 2px solid rgba(12, 191, 176, 0.42);
+	outline-offset: 2px;
+	border-radius: 3px;
+}
+
+@keyframes az-auth-appear {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@media (max-width: 560px) {
+	.az-auth-page {
+		padding: 20px 12px;
+	}
+
+	.az-auth-card {
+		border-radius: 14px;
+		padding: 24px 18px;
+	}
+
+	.az-auth-heading {
+		font-size: 22px;
+	}
+}
