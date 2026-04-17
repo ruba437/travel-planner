@@ -20,6 +20,49 @@ const getDayColor = (day) => {
   return dayColors[(day - 1) % dayColors.length];
 };
 
+const normalizeCoordPart = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 'na';
+  return num.toFixed(5);
+};
+
+const normalizeTextPart = (value) => String(value || '').trim().toLowerCase();
+
+const buildSegmentId = (day, from, to) => {
+  const fromKey = from?.placeId
+    ? `pid:${from.placeId}`
+    : `loc:${normalizeCoordPart(from?.lat)},${normalizeCoordPart(from?.lng)}:${normalizeTextPart(from?.name)}`;
+  const toKey = to?.placeId
+    ? `pid:${to.placeId}`
+    : `loc:${normalizeCoordPart(to?.lat)},${normalizeCoordPart(to?.lng)}:${normalizeTextPart(to?.name)}`;
+  return `seg-${Number(day) || 0}-${fromKey}-${toKey}`;
+};
+
+const sameSegmentByEndpoints = (a, b) => {
+  if (!a || !b) return false;
+  const epsilon = 0.00001;
+  return (
+    Number(a.day) === Number(b.day)
+    && Math.abs(Number(a.from?.lat) - Number(b.from?.lat)) <= epsilon
+    && Math.abs(Number(a.from?.lng) - Number(b.from?.lng)) <= epsilon
+    && Math.abs(Number(a.to?.lat) - Number(b.to?.lat)) <= epsilon
+    && Math.abs(Number(a.to?.lng) - Number(b.to?.lng)) <= epsilon
+  );
+};
+
+const resolveCurrentSegment = (segments, selected, selectedId) => {
+  if (!segments?.length) return null;
+  if (selectedId) {
+    const byId = segments.find((seg) => seg.id === selectedId);
+    if (byId) return byId;
+  }
+  if (selected) {
+    const byEndpoint = segments.find((seg) => sameSegmentByEndpoints(seg, selected));
+    if (byEndpoint) return byEndpoint;
+  }
+  return null;
+};
+
 const getMarkerIcon = (day) => {
   if (!window.google || !window.google.maps) return undefined;
   return {
@@ -181,17 +224,14 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     setRoutePath(null);
   }, [selectedDay]);
 
-  // 🔥 關鍵修正：移除 setCityCenter(null)
   useEffect(() => {
-    setSelectedDay(null);
+    const maxDay = Number(plan?.days?.length || 0);
+    if (selectedDay !== null && (selectedDay < 1 || selectedDay > maxDay)) {
+      setSelectedDay(null);
+    }
     setSelectedMarker(null);
-    setSelectedSegment(null);
-    setSelectedSegmentInfo(null);
     setLoadingDirections(false);
-    setRoutePath(null);
-    setSelectedSegmentId(null);
-    // 這裡我們不再重置 cityCenter，讓地圖維持在舊位置直到新資料進來
-  }, [plan]);
+  }, [plan, selectedDay]);
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -220,7 +260,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       for (let i = 0; i < sorted.length - 1; i++) {
         const from = sorted[i];
         const to = sorted[i + 1];
-        const stableId = `seg-${dayKey}-${i}`;
+        const stableId = buildSegmentId(dayKey, from, to);
         segs.push({
           id: stableId, 
           day: dayKey,
@@ -232,6 +272,29 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     });
     return segs;
   }, [markers]);
+
+  useEffect(() => {
+    if (!selectedSegment && !selectedSegmentId) return;
+
+    const resolved = resolveCurrentSegment(daySegments, selectedSegment, selectedSegmentId);
+    if (!resolved) {
+      setSelectedSegment(null);
+      setSelectedSegmentId(null);
+      setSelectedSegmentInfo(null);
+      setLoadingDirections(false);
+      setRoutePath(null);
+      return;
+    }
+
+    if (resolved.id !== selectedSegmentId) {
+      setSelectedSegmentId(resolved.id);
+      return;
+    }
+
+    if (!sameSegmentByEndpoints(resolved, selectedSegment)) {
+      setSelectedSegment(resolved);
+    }
+  }, [daySegments, selectedSegment, selectedSegmentId]);
 
   useEffect(() => {
     if (!mapRef || !window.google) return;
@@ -412,13 +475,29 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
 
   useEffect(() => {
     if (!selectedSegment) return;
+    const latestSegment = resolveCurrentSegment(daySegments, selectedSegment, selectedSegmentId);
+    if (!latestSegment) {
+      setSelectedSegment(null);
+      setSelectedSegmentId(null);
+      setSelectedSegmentInfo(null);
+      setLoadingDirections(false);
+      setRoutePath(null);
+      return;
+    }
+
+    if (latestSegment.id !== selectedSegmentId || !sameSegmentByEndpoints(latestSegment, selectedSegment)) {
+      setSelectedSegment(latestSegment);
+      setSelectedSegmentId(latestSegment.id);
+      return;
+    }
+
     if (directionsAbortRef.current) directionsAbortRef.current.abort();
     setRoutePath(null);
     setSelectedSegmentInfo(null);
     setLoadingDirections(true);
-    const t = setTimeout(() => { handleSegmentClick(selectedSegment); }, 50); 
+    const t = setTimeout(() => { handleSegmentClick(latestSegment); }, 50); 
     return () => clearTimeout(t);
-  }, [travelMode, selectedSegment]);
+  }, [travelMode, selectedSegment, selectedSegmentId, daySegments]);
 
   useEffect(() => {
     if (!mapRef || !window.google) return;
@@ -439,6 +518,24 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
   }, [routePath, mapRef]);
 
   async function handleSegmentClick(segment) {
+    const validSegment = resolveCurrentSegment(daySegments, segment, segment?.id);
+    if (!validSegment) {
+      setSelectedSegmentInfo({ segment, error: '路段已變更，請重新選擇路線。' });
+      setSelectedSegment(null);
+      setSelectedSegmentId(null);
+      setRoutePath(null);
+      setLoadingDirections(false);
+      return;
+    }
+
+    if (validSegment.id !== selectedSegmentId) {
+      setSelectedSegmentId(validSegment.id);
+    }
+
+    if (!sameSegmentByEndpoints(validSegment, selectedSegment)) {
+      setSelectedSegment(validSegment);
+    }
+
     setRoutePath(null);
     if (directionsAbortRef.current) directionsAbortRef.current.abort();
     const controller = new AbortController();
@@ -451,8 +548,8 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         signal: controller.signal,
         body: JSON.stringify({
-          origin: { lat: segment.from.lat, lng: segment.from.lng },
-          destination: { lat: segment.to.lat, lng: segment.to.lng },
+          origin: { lat: validSegment.from.lat, lng: validSegment.from.lng },
+          destination: { lat: validSegment.to.lat, lng: validSegment.to.lng },
           mode: travelMode,
         }),
       });
@@ -463,7 +560,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       if (!res.ok || data.error || !data.routes || data.routes.length === 0) {
         console.warn('找不到路線');
         setSelectedSegmentInfo({ 
-          segment, 
+          segment: validSegment, 
           error: data.error_message || data.error || 'Google Maps 找不到這段路的交通路線 🥲' 
         });
         setRoutePath(null);
@@ -489,12 +586,12 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       }
       
       // 💡 4. 顯示文字資訊卡：把 leg 的資訊與 segment 合併傳進去
-      setSelectedSegmentInfo({ ...leg, segment });
+      setSelectedSegmentInfo({ ...leg, segment: validSegment });
 
     } catch (err) {
       if (err?.name === 'AbortError') return;
       console.error(err);
-      setSelectedSegmentInfo({ segment, error: '取得交通方式失敗' });
+      setSelectedSegmentInfo({ segment: validSegment, error: '取得交通方式失敗' });
     } finally {
       if (reqId === directionsReqIdRef.current) setLoadingDirections(false);
     }

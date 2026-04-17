@@ -4,6 +4,24 @@ import { usePlanner } from '../PlannerProvider';
 import ActivityItemCard from './ActivityItemCard';
 import TransportSegmentCard from './TransportSegmentCard';
 
+const normalizeCoordPart = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 'na';
+  return num.toFixed(5);
+};
+
+const normalizeTextPart = (value) => String(value || '').trim().toLowerCase();
+
+const buildSegmentId = (dayIdx, from, to) => {
+  const fromLat = from?.location?.lat ?? from?.lat;
+  const fromLng = from?.location?.lng ?? from?.lng;
+  const toLat = to?.location?.lat ?? to?.lat;
+  const toLng = to?.location?.lng ?? to?.lng;
+  const fromKey = `loc:${normalizeCoordPart(fromLat)},${normalizeCoordPart(fromLng)}:${normalizeTextPart(from?.name)}`;
+  const toKey = `loc:${normalizeCoordPart(toLat)},${normalizeCoordPart(toLng)}:${normalizeTextPart(to?.name)}`;
+  return `seg-${Number(dayIdx) || 0}-${fromKey}-${toKey}`;
+};
+
 const ItineraryTimeline = ({ isReadOnly = false }) => {
   const { 
     plan, 
@@ -236,9 +254,10 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
       });
   };
 
-  if (!plan?.days || plan.days.length === 0) return null;
-
-  const currentDay = plan.days[activeDayIdx];
+  const hasDays = Boolean(plan?.days?.length);
+  const currentDay = hasDays
+    ? (plan.days[activeDayIdx] || { items: [], transportMode: 'TRANSIT' })
+    : { items: [], transportMode: 'TRANSIT' };
   const currentMode = currentDay.transportMode || 'TRANSIT';
 
   const segments = useMemo(() => {
@@ -250,7 +269,7 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
       const minutes = Math.max(0, toMinutes(nextStart) - toMinutes(prevEnd));
 
       return {
-        id: `seg-${activeDayIdx}-${idx}`,
+        id: buildSegmentId(activeDayIdx, item, next),
         durationText: minutes > 0 ? `${minutes} min` : '15 min',
         distanceText: formatDistance(item, next),
         mode: currentMode,
@@ -258,6 +277,8 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
       };
     });
   }, [activeDayIdx, currentDay.items, currentMode]);
+
+  if (!hasDays) return null;
 
   return (
     <DragDropContext onDragEnd={isReadOnly ? undefined : onDragEnd}>
