@@ -3,6 +3,31 @@ const router = express.Router();
 const axios = require('axios');
 const { err } = require('../utils/response');
 
+const normalizeDirectionPoint = (point) => {
+  if (!point) return null;
+
+  if (typeof point === 'string') {
+    const text = point.trim();
+    return text || null;
+  }
+
+  if (typeof point !== 'object') return null;
+
+  const placeId = String(point.placeId || point.place_id || '').trim();
+  if (placeId) {
+    return `place_id:${placeId}`;
+  }
+
+  const lat = Number(point.lat);
+  const lng = Number(point.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `${lat},${lng}`;
+  }
+
+  const name = String(point.name || '').trim();
+  return name || null;
+};
+
 router.get('/photo', async (req, res) => {
   const { ref, maxwidth } = req.query;
   if (!ref) return res.status(400).send('Missing ref');
@@ -56,8 +81,9 @@ router.post('/directions', async (req, res) => {
   if (!origin || !destination) return res.status(400).json({ error: 'Missing params' });
 
   try {
-    const originParam = typeof origin === 'string' ? origin : `${origin.lat},${origin.lng}`;
-    const destParam = typeof destination === 'string' ? destination : `${destination.lat},${destination.lng}`;
+    const originParam = normalizeDirectionPoint(origin);
+    const destParam = normalizeDirectionPoint(destination);
+    if (!originParam || !destParam) return res.status(400).json({ error: 'Missing params' });
 
     const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
       params: {

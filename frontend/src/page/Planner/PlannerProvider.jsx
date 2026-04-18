@@ -35,6 +35,45 @@ const isUnstableImageUrl = (url) => {
   return text.includes('source.unsplash.com');
 };
 
+const normalizeOptionalText = (value) => {
+  const text = String(value || '').trim();
+  return text || null;
+};
+
+const normalizeOptionalNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const normalizePlannerItem = (item) => {
+  if (!item || typeof item !== 'object') return item;
+
+  const directLat = normalizeOptionalNumber(item.lat);
+  const directLng = normalizeOptionalNumber(item.lng);
+  const nestedLat = normalizeOptionalNumber(item.location?.lat);
+  const nestedLng = normalizeOptionalNumber(item.location?.lng);
+  const lat = directLat ?? nestedLat;
+  const lng = directLng ?? nestedLng;
+  const location = Number.isFinite(lat) && Number.isFinite(lng)
+    ? { lat, lng }
+    : (item.location && typeof item.location === 'object' ? item.location : undefined);
+  const rawImageUrl = String(item.imageUrl || '').trim() || null;
+  const manualImageUrl = rawImageUrl && !isUnstableImageUrl(rawImageUrl) ? rawImageUrl : null;
+  const refImageUrl = buildPhotoUrlFromReference(item.photoReference, 400);
+
+  return {
+    ...item,
+    name: String(item.name || '').trim(),
+    note: String(item.note || '').trim(),
+    placeId: normalizeOptionalText(item.placeId),
+    address: normalizeOptionalText(item.address),
+    ...(Number.isFinite(lat) ? { lat } : {}),
+    ...(Number.isFinite(lng) ? { lng } : {}),
+    ...(location ? { location } : {}),
+    imageUrl: refImageUrl || manualImageUrl || null,
+  };
+};
+
 const normalizePlanImageUrls = (planData) => {
   if (!planData || !Array.isArray(planData.days)) return planData;
 
@@ -44,15 +83,7 @@ const normalizePlanImageUrls = (planData) => {
       const dayItems = Array.isArray(day?.items) ? day.items : [];
       return {
         ...day,
-        items: dayItems.map((item) => {
-          const rawImageUrl = String(item?.imageUrl || '').trim() || null;
-          const manualImageUrl = rawImageUrl && !isUnstableImageUrl(rawImageUrl) ? rawImageUrl : null;
-          const refImageUrl = buildPhotoUrlFromReference(item?.photoReference, 400);
-          return {
-            ...item,
-            imageUrl: refImageUrl || manualImageUrl || null,
-          };
-        }),
+        items: dayItems.map((item) => normalizePlannerItem(item)),
       };
     }),
   };
@@ -132,12 +163,20 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     if (!originItem || !destItem) return 15;
     
     const getPayload = (item) => {
-      // 優先檢查是否有經緯度物件
-      if (item.location?.lat && item.location?.lng) {
-        return { lat: item.location.lat, lng: item.location.lng };
+      const lat = normalizeOptionalNumber(item?.lat ?? item?.location?.lat);
+      const lng = normalizeOptionalNumber(item?.lng ?? item?.location?.lng);
+
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { lat, lng };
       }
+
+      const placeId = normalizeOptionalText(item?.placeId);
+      if (placeId) {
+        return { placeId };
+      }
+
       // 若無座標，檢查名稱是否有效
-      const name = item.name?.trim();
+      const name = String(item?.name || '').trim();
       if (!name || ['自由活動', '休息', '回飯店', '交通', '捷運', '搭乘'].some(k => name.includes(k))) {
         return null;
       }
@@ -151,8 +190,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     if (!origin || !dest) return 15;
 
     // 額外座標檢查
-    if (typeof origin === 'object' && (!origin.lat || !origin.lng)) return 15;
-    if (typeof dest === 'object' && (!dest.lat || !dest.lng)) return 15;
+    if (typeof origin === 'object' && !origin.placeId && (!Number.isFinite(origin.lat) || !Number.isFinite(origin.lng))) return 15;
+    if (typeof dest === 'object' && !dest.placeId && (!Number.isFinite(dest.lat) || !Number.isFinite(dest.lng))) return 15;
 
     try {
       const res = await fetch(`${API_BASE}/api/places/directions`, {
@@ -350,12 +389,12 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
       if (!res.ok || data.error) throw new Error(data.error || 'AI 請求失敗');
 
       if (data.plan) {
-        const nextPlan = { ...data.plan };
+        const nextPlan = normalizePlanImageUrls({ ...data.plan });
         if (nextPlan.days && Array.isArray(nextPlan.days)) {
           // 對 AI 回傳的每一天進行過濾、查座標、排序與時間重算
           nextPlan.days = await Promise.all(
             nextPlan.days.map(async (day) => {
-              let validItems = (day.items || []).filter(item => item && item.name?.trim());
+              let validItems = (day.items || []).filter((item) => item && String(item.name || '').trim());
               const dayStartTime = day.startTime || '09:00';
               const mode = day.transportMode || 'TRANSIT';
 
@@ -365,14 +404,14 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
               if (validItems.length > 2) {
                 // 1. 補齊 AI 景點的座標
                 validItems = await Promise.all(validItems.map(async (item) => {
-                  if (item.lat && item.lng) return item;
+                  if (Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng))) return normalizePlannerItem(item);
                   if (item.location?.lat && item.location?.lng) {
-                    return { ...item, lat: item.location.lat, lng: item.location.lng };
+                    return normalizePlannerItem({ ...item, lat: item.location.lat, lng: item.location.lng });
                   }
                   // 呼叫 Google 查座標
                   const coords = await fetchCoordinatesFromName(item.name);
-                  if (coords) return { ...item, lat: coords.lat, lng: coords.lng };
-                  return item;
+                  if (coords) return normalizePlannerItem({ ...item, lat: coords.lat, lng: coords.lng });
+                  return normalizePlannerItem(item);
                 }));
 
                 // 2. 分離有座標與無座標景點
@@ -459,7 +498,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
           publishedAt: publicData.publishedAt,
         };
 
-        setPlan(loadedPlan);
+        setPlan(normalizePlanImageUrls(loadedPlan));
         setItineraryUuid(publicData.uuid);
       } catch (error) {
         if (error.name !== 'AbortError') {
@@ -502,7 +541,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
             ? itineraryData.packingItems
             : [];
 
-        setPlan({
+        setPlan(normalizePlanImageUrls({
           ...itineraryData,
           tripName: data.title || itineraryData.tripName || data.city || '我的行程',
           summary: data.summary || itineraryData.summary || '',
@@ -511,7 +550,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
           startTime: data.startTime || itineraryData.startTime || '09:00',
           days,
           totalBudget: itineraryData.totalBudget || 50000,
-        });
+        }));
         setPackingItems(normalizeChecklistItems(loadedPackingItems));
         setTotalBudget(itineraryData.totalBudget || 50000);
         setTripNote(data.tripNote || itineraryData.tripNote || '');
@@ -565,7 +604,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
         startTime: plan.startTime,
       }),
       itineraryData: {
-        ...(persistencePayload?.itineraryData || plan),
+        ...normalizePlanImageUrls(persistencePayload?.itineraryData || plan),
         totalBudget,
         packingItems: nextPackingItems,
       },

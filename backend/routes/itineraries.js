@@ -16,6 +16,8 @@ const URL_VERIFY_TIMEOUT_MS = 3500;
 const URL_VERIFY_MAX_PER_REQUEST = 8;
 const CHECKLIST_MARKDOWN_URL_REGEX = /\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/gi;
 const CHECKLIST_RAW_HTTPS_URL_REGEX = /https:\/\/[^\s)]+/gi;
+const ITINERARY_NAME_MAX_LENGTH = 120;
+const ITINERARY_TEXT_MAX_LENGTH = 1000;
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -43,6 +45,66 @@ function normalizeChecklistItems(rawItems) {
     .map((item, idx) => normalizeChecklistItem(item, idx))
     .filter(Boolean)
     .slice(0, CHECKLIST_LIMIT);
+}
+
+function normalizeItineraryText(value, maxLength = ITINERARY_TEXT_MAX_LENGTH) {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+function normalizeItineraryNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeItineraryItem(rawItem) {
+  if (!rawItem || typeof rawItem !== 'object') return rawItem;
+
+  const name = normalizeItineraryText(rawItem.name, ITINERARY_NAME_MAX_LENGTH);
+  const note = normalizeItineraryText(rawItem.note);
+  const placeId = normalizeItineraryText(rawItem.placeId, 200) || null;
+  const address = normalizeItineraryText(rawItem.address, ITINERARY_TEXT_MAX_LENGTH) || null;
+  const directLat = normalizeItineraryNumber(rawItem.lat);
+  const directLng = normalizeItineraryNumber(rawItem.lng);
+  const nestedLat = normalizeItineraryNumber(rawItem.location?.lat);
+  const nestedLng = normalizeItineraryNumber(rawItem.location?.lng);
+  const lat = directLat ?? nestedLat;
+  const lng = directLng ?? nestedLng;
+  const normalizedLocation = Number.isFinite(lat) && Number.isFinite(lng)
+    ? { lat, lng }
+    : (rawItem.location && typeof rawItem.location === 'object' ? rawItem.location : undefined);
+
+  return {
+    ...rawItem,
+    name,
+    note,
+    ...(placeId ? { placeId } : {}),
+    ...(address ? { address } : {}),
+    ...(Number.isFinite(lat) ? { lat } : {}),
+    ...(Number.isFinite(lng) ? { lng } : {}),
+    ...(normalizedLocation ? { location: normalizedLocation } : {}),
+  };
+}
+
+function normalizeItineraryDay(rawDay) {
+  if (!rawDay || typeof rawDay !== 'object') return rawDay;
+
+  return {
+    ...rawDay,
+    items: Array.isArray(rawDay.items) ? rawDay.items.map((item) => normalizeItineraryItem(item)) : [],
+  };
+}
+
+function normalizeItineraryData(rawItineraryData) {
+  if (!rawItineraryData || typeof rawItineraryData !== 'object' || Array.isArray(rawItineraryData)) {
+    return rawItineraryData;
+  }
+
+  return {
+    ...rawItineraryData,
+    days: Array.isArray(rawItineraryData.days)
+      ? rawItineraryData.days.map((day) => normalizeItineraryDay(day))
+      : [],
+  };
 }
 
 function normalizeChecklistTextForCompare(text) {
@@ -897,6 +959,7 @@ router.post('/', async (req, res) => {
   
   const uuid = crypto.randomUUID(); // 這裡會用到 crypto
   const client = await pool.connect();
+  const normalizedItineraryData = normalizeItineraryData(itineraryData);
   
   try {
     await client.query('BEGIN');
@@ -910,9 +973,9 @@ router.post('/', async (req, res) => {
         summary || '',
         city || '',
         startDate || null,
-        toHHmm(startTime || itineraryData?.startTime),
-        tripNote || itineraryData?.tripNote || null,
-        JSON.stringify(itineraryData),
+        toHHmm(startTime || normalizedItineraryData?.startTime),
+        tripNote || normalizedItineraryData?.tripNote || null,
+        JSON.stringify(normalizedItineraryData),
       ]
     );
 
@@ -941,7 +1004,7 @@ router.get('/:uuid', async (req, res) => {
     
     const row = rows[0];
     let itineraryData;
-    try { itineraryData = JSON.parse(row.itinerarydata); } catch { itineraryData = null; }
+    try { itineraryData = normalizeItineraryData(JSON.parse(row.itinerarydata)); } catch { itineraryData = null; }
     
     const checklistItems = await readChecklistItemsByUuid(pool, row.uuid);
     const fallbackChecklist = normalizeChecklistItems(itineraryData?.packingItems || []).map((item, idx) => ({ ...item, id: `legacy-${idx}` }));
@@ -973,6 +1036,7 @@ router.put('/:uuid', async (req, res) => {
   if (!itineraryData) return res.status(400).json({ error: '行程資料不可為空' });
   
   const client = await pool.connect();
+  const normalizedItineraryData = normalizeItineraryData(itineraryData);
   try {
     await client.query('BEGIN');
     const { rowCount } = await client.query(
@@ -991,9 +1055,9 @@ router.put('/:uuid', async (req, res) => {
         summary || '',
         city || '',
         startDate || null,
-        toHHmm(startTime || itineraryData?.startTime), // 確保上方有引入 toHHmm
-        tripNote || itineraryData?.tripNote || null,
-        JSON.stringify(itineraryData),
+        toHHmm(startTime || normalizedItineraryData?.startTime), // 確保上方有引入 toHHmm
+        tripNote || normalizedItineraryData?.tripNote || null,
+        JSON.stringify(normalizedItineraryData),
         uuid,
         req.user.id,
       ]
