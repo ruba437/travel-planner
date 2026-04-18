@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
 const authMiddleware = require('../middleware/auth');
+const { enrichItineraryImages } = require('../utils/itineraryImages');
 
 // 1. 初始化 OpenAI
 const openai = new OpenAI({
@@ -161,11 +162,18 @@ router.post('/', async (req, res) => {
       const toolCall = responseMessage.tool_calls[0];
       if (toolCall.function.name === 'update_itinerary') {
         const itineraryArgs = JSON.parse(toolCall.function.arguments);
-        const reply = `沒問題！已為您規劃從 **${itineraryArgs.startLocation}** 於 **${itineraryArgs.startTime}** 出發的行程。`;
+        let enrichedPlan = itineraryArgs;
+
+        try {
+          enrichedPlan = await enrichItineraryImages(itineraryArgs);
+        } catch (error) {
+          console.warn('Itinerary image enrichment failed:', error.message || error);
+        }
+
         return res.json({
           role: 'assistant',
-          content: `沒問題！已為您生成行程：${itineraryArgs.summary} ${itineraryArgs.startDate ? `(出發日: ${itineraryArgs.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
-          plan: itineraryArgs,
+          content: `沒問題！已為您生成行程：${enrichedPlan.summary} ${enrichedPlan.startDate ? `(出發日: ${enrichedPlan.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
+          plan: enrichedPlan,
         });
       }
     }
