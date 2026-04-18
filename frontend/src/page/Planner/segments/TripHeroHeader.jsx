@@ -1,6 +1,37 @@
 import React, { useState } from 'react';
 import { usePlanner } from '../PlannerProvider';
 
+const HERO_CITY_IMAGE_MAP = {
+  東京: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&auto=format&fit=crop',
+  香港: 'https://images.unsplash.com/photo-1536599018102-9f803c140fc1?w=1200&auto=format&fit=crop',
+  曼谷: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=1200&auto=format&fit=crop',
+  大阪: 'https://images.unsplash.com/photo-1590559899731-a382839e5549?w=1200&auto=format&fit=crop',
+  首爾: 'https://images.unsplash.com/photo-1617369120004-4fc70312c5e6?w=1200&auto=format&fit=crop',
+  台北: 'https://images.unsplash.com/photo-1470004914212-05527e49370b?w=1200&auto=format&fit=crop',
+  京都: 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=1200&auto=format&fit=crop',
+  新加坡: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=1200&auto=format&fit=crop',
+  Tokyo: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&auto=format&fit=crop',
+  'Hong Kong': 'https://images.unsplash.com/photo-1536599018102-9f803c140fc1?w=1200&auto=format&fit=crop',
+  Bangkok: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=1200&auto=format&fit=crop',
+  Osaka: 'https://images.unsplash.com/photo-1590559899731-a382839e5549?w=1200&auto=format&fit=crop',
+  Seoul: 'https://images.unsplash.com/photo-1617369120004-4fc70312c5e6?w=1200&auto=format&fit=crop',
+  Taipei: 'https://images.unsplash.com/photo-1470004914212-05527e49370b?w=1200&auto=format&fit=crop',
+  Kyoto: 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=1200&auto=format&fit=crop',
+  Singapore: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=1200&auto=format&fit=crop',
+};
+
+const HERO_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1200&auto=format&fit=crop';
+
+const resolveHeroImageUrl = (city) => {
+  const cityText = String(city || '').trim();
+  if (!cityText) return HERO_FALLBACK_IMAGE;
+  const mapped = HERO_CITY_IMAGE_MAP[cityText];
+  if (mapped) return mapped;
+
+  const fuzzyKey = Object.keys(HERO_CITY_IMAGE_MAP).find((key) => cityText.includes(key) || key.includes(cityText));
+  return fuzzyKey ? HERO_CITY_IMAGE_MAP[fuzzyKey] : HERO_FALLBACK_IMAGE;
+};
+
 const TripHeroHeader = ({ isReadOnly = false }) => {
   const { 
     plan, 
@@ -91,14 +122,20 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
       })()
     : '';
 
+  const heroImageUrl = resolveHeroImageUrl(plan?.city);
+
   return (
     <div className="az-hero">
       <div className="az-hero-overlay" />
       <img
         className="az-hero-img"
-        src={`https://source.unsplash.com/800x240/?${encodeURIComponent(plan?.city || 'travel')},scenery`}
+        src={heroImageUrl}
         alt="trip cover"
-        onError={(e) => { e.target.style.display = 'none'; }}
+        onError={(e) => {
+          if (e.currentTarget.src !== HERO_FALLBACK_IMAGE) {
+            e.currentTarget.src = HERO_FALLBACK_IMAGE;
+          }
+        }}
       />
       
       <div className="az-hero-content">

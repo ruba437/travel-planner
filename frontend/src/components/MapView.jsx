@@ -38,6 +38,30 @@ const buildSegmentId = (day, from, to) => {
   return `seg-${Number(day) || 0}-${fromKey}-${toKey}`;
 };
 
+const buildDirectionPoint = (item) => {
+  if (!item) return null;
+
+  const placeId = String(item.placeId || '').trim();
+  const lat = Number(item.lat ?? item.location?.lat);
+  const lng = Number(item.lng ?? item.location?.lng);
+
+  if (placeId) {
+    const point = { placeId };
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      point.lat = lat;
+      point.lng = lng;
+    }
+    return point;
+  }
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng };
+  }
+
+  const name = String(item.name || '').trim();
+  return name || null;
+};
+
 const sameSegmentByEndpoints = (a, b) => {
   if (!a || !b) return false;
   const epsilon = 0.00001;
@@ -548,8 +572,8 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         signal: controller.signal,
         body: JSON.stringify({
-          origin: { lat: validSegment.from.lat, lng: validSegment.from.lng },
-          destination: { lat: validSegment.to.lat, lng: validSegment.to.lng },
+          origin: buildDirectionPoint(validSegment.from),
+          destination: buildDirectionPoint(validSegment.to),
           mode: travelMode,
         }),
       });
@@ -793,6 +817,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                                     lat: selectedMarker.lat,
                                     lng: selectedMarker.lng,
                                     photoReference: selectedMarker.photoReference || null,
+                                    imageUrl: getPhotoUrl(selectedMarker.photoReference) || null,
                                     targetDayIndex: index // 傳回使用者選擇的日期索引
                                   });
                                   setSelectedMarker(null); // 加完後關閉視窗

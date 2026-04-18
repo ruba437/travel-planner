@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
 const authMiddleware = require('../middleware/auth');
+const { enrichItineraryImages } = require('../utils/itineraryImages');
 
 // 1. 初始化 OpenAI
 const openai = new OpenAI({
@@ -54,9 +55,13 @@ const tools = [
                         type: 'string', 
                         description: '該行程的預估時間區間，請務必使用 24 小時制並以波浪號分隔 (例如 "09:30~11:30")。請根據景點特性預估合理的停留時間與交通時間。' 
                       },
-                      name: { type: 'string', description: '地點的具體名稱' },
+                      name: { type: 'string', description: '地點的具體名稱，只能放地名，不要放完整敘述或時間資訊' },
                       type: { type: 'string', enum: ['sight', 'food', 'shopping', 'activity'] },
                       note: { type: 'string' },
+                      placeId: { type: 'string', description: 'Google Places place_id，若已知請一併填寫' },
+                      address: { type: 'string', description: '地點地址，若已知請一併填寫' },
+                      lat: { type: 'number', description: '地點緯度，若已知請一併填寫' },
+                      lng: { type: 'number', description: '地點經度，若已知請一併填寫' },
                       cost: { 
                         type: "number", 
                         description: "該項目的預估花費（以當地貨幣或美金估算，僅數字）" 
@@ -121,6 +126,7 @@ router.post('/', async (req, res) => {
     2. 【大方給予推薦】：當使用者單純詢問「推薦美食」、「推薦住宿」、「交通方式」或「景點介紹」時，請發揮在地專家的精神，**直接用文字給出豐富、具體的推薦名單與詳細介紹**。絕對禁止回答「我無法推薦」或「我只能規劃行程」。
     3. 【保護現有行程 (⚠️極重要)】：在回答上述的「一般問答與推薦」時，**絕對不要呼叫 'update_itinerary' 工具**去覆蓋或修改使用者現有的行程！請單純用文字回覆即可。只有當使用者明確指示「請幫我把這些加入行程」或「幫我重新排行程」時，才可以使用工具。
     4. 【直接給予規劃】：當使用者明確說「幫我排行程」或要求生成完整路線時，請直接呼叫 'update_itinerary' 工具生成行程，不要拖泥帶水。
+    5. 【欄位格式約束】：items[].name 只能寫單一地點名稱，不能寫成一整段描述、建議或時間說明；若需要補充說明，請放到 note。若你知道地點資訊，請盡量同時填入 placeId、address、lat、lng，不要把這些資訊混進 name。
 
     二、 行程生成規則 (⚠️極重要，攸關系統運作⚠️)
     當你明確收到指令並呼叫 'update_itinerary' 工具時，必須嚴格遵守以下系統層級的限制：
@@ -161,11 +167,18 @@ router.post('/', async (req, res) => {
       const toolCall = responseMessage.tool_calls[0];
       if (toolCall.function.name === 'update_itinerary') {
         const itineraryArgs = JSON.parse(toolCall.function.arguments);
-        const reply = `沒問題！已為您規劃從 **${itineraryArgs.startLocation}** 於 **${itineraryArgs.startTime}** 出發的行程。`;
+        let enrichedPlan = itineraryArgs;
+
+        try {
+          enrichedPlan = await enrichItineraryImages(itineraryArgs);
+        } catch (error) {
+          console.warn('Itinerary image enrichment failed:', error.message || error);
+        }
+
         return res.json({
           role: 'assistant',
-          content: `沒問題！已為您生成行程：${itineraryArgs.summary} ${itineraryArgs.startDate ? `(出發日: ${itineraryArgs.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
-          plan: itineraryArgs,
+          content: `沒問題！已為您生成行程：${enrichedPlan.summary} ${enrichedPlan.startDate ? `(出發日: ${enrichedPlan.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
+          plan: enrichedPlan,
         });
       }
     }

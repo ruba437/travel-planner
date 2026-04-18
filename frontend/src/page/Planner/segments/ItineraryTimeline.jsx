@@ -13,12 +13,18 @@ const normalizeCoordPart = (value) => {
 const normalizeTextPart = (value) => String(value || '').trim().toLowerCase();
 
 const buildSegmentId = (dayIdx, from, to) => {
-  const fromLat = from?.location?.lat ?? from?.lat;
-  const fromLng = from?.location?.lng ?? from?.lng;
-  const toLat = to?.location?.lat ?? to?.lat;
-  const toLng = to?.location?.lng ?? to?.lng;
-  const fromKey = `loc:${normalizeCoordPart(fromLat)},${normalizeCoordPart(fromLng)}:${normalizeTextPart(from?.name)}`;
-  const toKey = `loc:${normalizeCoordPart(toLat)},${normalizeCoordPart(toLng)}:${normalizeTextPart(to?.name)}`;
+  const fromPlaceId = String(from?.placeId || '').trim();
+  const toPlaceId = String(to?.placeId || '').trim();
+  const fromLat = from?.lat ?? from?.location?.lat;
+  const fromLng = from?.lng ?? from?.location?.lng;
+  const toLat = to?.lat ?? to?.location?.lat;
+  const toLng = to?.lng ?? to?.location?.lng;
+  const fromKey = fromPlaceId
+    ? `pid:${fromPlaceId}`
+    : `loc:${normalizeCoordPart(fromLat)},${normalizeCoordPart(fromLng)}:${normalizeTextPart(from?.name)}`;
+  const toKey = toPlaceId
+    ? `pid:${toPlaceId}`
+    : `loc:${normalizeCoordPart(toLat)},${normalizeCoordPart(toLng)}:${normalizeTextPart(to?.name)}`;
   return `seg-${Number(dayIdx) || 0}-${fromKey}-${toKey}`;
 };
 
@@ -45,8 +51,8 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
 
   const formatDistance = (a, b) => {
     const getPoint = (item) => {
-      if (item?.location?.lat && item?.location?.lng) return item.location;
       if (item?.lat && item?.lng) return { lat: item.lat, lng: item.lng };
+      if (item?.location?.lat && item?.location?.lng) return item.location;
       return null;
     };
 
@@ -69,25 +75,39 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
   };
 
   const buildDirectionsUrl = (fromItem, toItem, mode = 'TRANSIT') => {
-    const formatPoint = (item) => {
-      if (item?.location?.lat && item?.location?.lng) {
-        return `${item.location.lat},${item.location.lng}`;
+    const formatPoint = (item, prefix) => {
+      const placeId = String(item?.placeId || '').trim();
+      if (placeId) {
+        const lat = item?.lat ?? item?.location?.lat;
+        const lng = item?.lng ?? item?.location?.lng;
+        const fragments = [];
+        if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+          fragments.push(`${prefix}=${Number(lat)},${Number(lng)}`);
+        } else if (item?.name) {
+          fragments.push(`${prefix}=${encodeURIComponent(item.name)}`);
+        }
+        fragments.push(`${prefix}_place_id=${encodeURIComponent(placeId)}`);
+        return fragments.join('&');
       }
-      if (item?.lat && item?.lng) {
-        return `${item.lat},${item.lng}`;
+
+      const lat = item?.lat ?? item?.location?.lat;
+      const lng = item?.lng ?? item?.location?.lng;
+      if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+        return `${prefix}=${Number(lat)},${Number(lng)}`;
       }
-      return encodeURIComponent(item?.name || '');
+
+      return `${prefix}=${encodeURIComponent(item?.name || '')}`;
     };
 
-    const origin = formatPoint(fromItem);
-    const destination = formatPoint(toItem);
+    const origin = formatPoint(fromItem, 'origin');
+    const destination = formatPoint(toItem, 'destination');
     const modeMap = {
       TRANSIT: 'transit',
       DRIVING: 'driving',
       WALKING: 'walking',
       BICYCLING: 'bicycling',
     };
-    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=${modeMap[mode] || 'transit'}`;
+    return `https://www.google.com/maps/dir/?api=1&${origin}&${destination}&travelmode=${modeMap[mode] || 'transit'}`;
   };
 
   const handleDailyTravelModeChange = async (newMode) => {
@@ -167,6 +187,11 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
 
     const name = prompt('編輯地點名稱：', current.name || '');
     if (name === null) return;
+    const normalizedName = name.trim();
+    if (normalizedName.length > 120) {
+      alert('地點名稱太長，請只輸入地名。');
+      return;
+    }
 
     const note = prompt('編輯描述（可留空）：', current.note || '');
     if (note === null) return;
@@ -178,7 +203,7 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     const dayItems = [...(plan.days[activeDayIdx].items || [])];
     dayItems[index] = {
       ...dayItems[index],
-      name: name.trim() || dayItems[index].name,
+      name: normalizedName || dayItems[index].name,
       note: note.trim(),
       cost: Number.isFinite(cost) && cost >= 0 ? cost : 0,
     };
@@ -239,12 +264,17 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
   const handleAddNewActivity = () => {
     const name = prompt('新增地點名稱：');
     if (!name || !plan) return;
+    const normalizedName = name.trim();
+    if (normalizedName.length > 120) {
+      alert('地點名稱太長，請只輸入地名。');
+      return;
+    }
 
     const newPlan = { ...plan };
     const dayItems = [...(plan.days[activeDayIdx].items || [])];
     const currentMode = plan.days[activeDayIdx].transportMode || 'TRANSIT';
 
-    dayItems.push({ name, type: 'sight', time: '', cost: 0 });
+    dayItems.push({ name: normalizedName, type: 'sight', time: '', cost: 0 });
 
     // 💡 將原本的 token 改為 currentMode
     recalculateDayTimesAsync(dayItems, plan.days[activeDayIdx].startTime, currentMode)

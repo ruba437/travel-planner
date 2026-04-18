@@ -13,6 +13,11 @@ const getPhotoUrl = (photoReference) => {
   return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=240`;
 };
 
+const isUnstableImageUrl = (url) => {
+  const text = String(url || '').trim().toLowerCase();
+  return text.includes('source.unsplash.com');
+};
+
 const ActivityItemCard = ({
   item,
   index,
@@ -29,9 +34,9 @@ const ActivityItemCard = ({
   canMovePrevDay,
   canMoveNextDay,
 }) => {
-  const { activeLocation, setActiveLocation, plan, token } = usePlanner();
+  const { activeLocation, setActiveLocation, plan, token, setPlan } = usePlanner();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [failedPhotoReference, setFailedPhotoReference] = useState(null);
+  const [failedImageSrc, setFailedImageSrc] = useState(null);
   const [searchedPhotoReference, setSearchedPhotoReference] = useState(null);
   const menuRef = useRef(null);
   const attemptedLookupRef = useRef(new Set());
@@ -47,14 +52,18 @@ const ActivityItemCard = ({
   const lookupKey = item.placeId
     ? `pid:${item.placeId}`
     : `${cityName}::${itemName}`;
+  const rawImageUrl = String(item.imageUrl || '').trim() || null;
+  const directImageUrl = rawImageUrl && !isUnstableImageUrl(rawImageUrl) ? rawImageUrl : null;
   const cachedPhotoReference = PHOTO_REF_CACHE.get(lookupKey) || null;
   const photoReference = searchedPhotoReference || cachedPhotoReference || item.photoReference || null;
-  const photoUrl = photoReference && failedPhotoReference !== photoReference
+  const fallbackPhotoUrl = photoReference
     ? getPhotoUrl(photoReference)
     : null;
+  const photoUrl = [fallbackPhotoUrl, directImageUrl].find((candidate) => candidate && candidate !== failedImageSrc) || null;
   const shouldShowPhoto = Boolean(photoUrl);
 
   useEffect(() => {
+    if (directImageUrl) return;
     const canLookupByPlaceId = Boolean(item.placeId && token);
     const canLookupBySearch = Boolean(itemName && cityName && token);
     if (!canLookupByPlaceId && !canLookupBySearch) return;
@@ -67,6 +76,7 @@ const ActivityItemCard = ({
     const resolvePhotoReference = async () => {
       try {
         let nextPhotoReference = null;
+        let nextPlaceId = item.placeId || null;
 
         if (item.placeId) {
           const detailRes = await fetch(
@@ -98,6 +108,9 @@ const ActivityItemCard = ({
           const searchData = await searchRes.json();
           const firstPlace = searchData?.places?.[0];
           if (!firstPlace) return;
+          if (firstPlace.placeId) {
+            nextPlaceId = firstPlace.placeId;
+          }
 
           if (firstPlace.placeId) {
             const detailRes = await fetch(
@@ -120,8 +133,46 @@ const ActivityItemCard = ({
         }
 
         if (!nextPhotoReference || controller.signal.aborted) return;
+        const nextImageUrl = getPhotoUrl(nextPhotoReference);
         PHOTO_REF_CACHE.set(lookupKey, nextPhotoReference);
         setSearchedPhotoReference(nextPhotoReference);
+
+        setPlan((prevPlan) => {
+          if (!prevPlan || !Array.isArray(prevPlan.days)) return prevPlan;
+          const targetDay = prevPlan.days?.[dayIdx];
+          if (!targetDay || !Array.isArray(targetDay.items)) return prevPlan;
+          const targetItem = targetDay.items?.[index];
+          if (!targetItem) return prevPlan;
+
+          const isSameItem =
+            String(targetItem.name || '').trim() === itemName
+            || (targetItem.placeId && targetItem.placeId === item.placeId);
+          if (!isSameItem) return prevPlan;
+
+          const currentPhotoReference = String(targetItem.photoReference || '').trim() || null;
+          const currentImageUrl = String(targetItem.imageUrl || '').trim() || null;
+          const currentPlaceId = String(targetItem.placeId || '').trim() || null;
+          const resolvedPlaceId = String(nextPlaceId || '').trim() || currentPlaceId;
+
+          if (
+            currentPhotoReference === nextPhotoReference
+            && currentImageUrl === nextImageUrl
+            && currentPlaceId === resolvedPlaceId
+          ) {
+            return prevPlan;
+          }
+
+          const nextDays = [...prevPlan.days];
+          const nextDay = { ...targetDay, items: [...targetDay.items] };
+          nextDay.items[index] = {
+            ...targetItem,
+            photoReference: nextPhotoReference,
+            imageUrl: nextImageUrl,
+            placeId: resolvedPlaceId,
+          };
+          nextDays[dayIdx] = nextDay;
+          return { ...prevPlan, days: nextDays };
+        });
       } catch (error) {
         if (error?.name !== 'AbortError') {
           console.warn('Resolve place photo failed:', error);
@@ -131,7 +182,11 @@ const ActivityItemCard = ({
 
     resolvePhotoReference();
     return () => controller.abort();
-  }, [item.placeId, itemName, cityName, token, lookupKey]);
+  }, [directImageUrl, item.placeId, itemName, cityName, token, lookupKey, dayIdx, index, setPlan]);
+
+  useEffect(() => {
+    setFailedImageSrc(null);
+  }, [item.imageUrl, item.photoReference, item.placeId, item.name]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -176,7 +231,7 @@ const ActivityItemCard = ({
                     src={photoUrl}
                     alt={item.name || '景點圖片'}
                     loading="lazy"
-                    onError={() => setFailedPhotoReference(photoReference)}
+                    onError={() => setFailedImageSrc(photoUrl)}
                   />
                 ) : (TYPE_ICON[item.type] || '📍')}
               </div>
