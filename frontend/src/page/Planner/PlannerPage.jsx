@@ -18,6 +18,13 @@ import MapView from '../../components/MapView';
 import '../../styles/sidebar-shared.css';
 import './PlannerStyles.css';
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
+const buildPhotoUrl = (photoReference) => {
+  if (!photoReference) return null;
+  return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=400`;
+};
+
 /**
  * PlannerContent: 持有 UI 佈局與自動發送邏輯
  */
@@ -87,6 +94,7 @@ const PlannerContent = ({ isPublicMode = false }) => {
       location: { lat: locationData.lat, lng: locationData.lng },
       placeId: locationData.placeId || null,
       photoReference: locationData.photoReference || null,
+      imageUrl: locationData.imageUrl || buildPhotoUrl(locationData.photoReference) || null,
     };
     
     dayItems.push(newItem);

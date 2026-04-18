@@ -793,6 +793,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                                     lat: selectedMarker.lat,
                                     lng: selectedMarker.lng,
                                     photoReference: selectedMarker.photoReference || null,
+                                    imageUrl: getPhotoUrl(selectedMarker.photoReference) || null,
                                     targetDayIndex: index // 傳回使用者選擇的日期索引
                                   });
                                   setSelectedMarker(null); // 加完後關閉視窗

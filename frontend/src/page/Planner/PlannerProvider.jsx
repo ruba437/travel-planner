@@ -25,6 +25,39 @@ const DEFAULT_DAY_START_TIME = '09:00';
 const CHECKLIST_LIMIT = 50;
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
+const buildPhotoUrlFromReference = (photoReference, maxWidth = 400) => {
+  if (!photoReference) return null;
+  return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=${maxWidth}`;
+};
+
+const isUnstableImageUrl = (url) => {
+  const text = String(url || '').trim().toLowerCase();
+  return text.includes('source.unsplash.com');
+};
+
+const normalizePlanImageUrls = (planData) => {
+  if (!planData || !Array.isArray(planData.days)) return planData;
+
+  return {
+    ...planData,
+    days: planData.days.map((day) => {
+      const dayItems = Array.isArray(day?.items) ? day.items : [];
+      return {
+        ...day,
+        items: dayItems.map((item) => {
+          const rawImageUrl = String(item?.imageUrl || '').trim() || null;
+          const manualImageUrl = rawImageUrl && !isUnstableImageUrl(rawImageUrl) ? rawImageUrl : null;
+          const refImageUrl = buildPhotoUrlFromReference(item?.photoReference, 400);
+          return {
+            ...item,
+            imageUrl: refImageUrl || manualImageUrl || null,
+          };
+        }),
+      };
+    }),
+  };
+};
+
 const normalizeChecklistItems = (items = []) => {
   if (!Array.isArray(items)) return [];
 
@@ -503,13 +536,14 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     if (!plan) return null;
 
     const nextPackingItems = normalizeChecklistItems(packingItems);
+    const normalizedPlan = normalizePlanImageUrls(plan);
     return {
-      title: plan.tripName || plan.city || '我的行程',
-      itineraryData: { ...plan, totalBudget, packingItems: nextPackingItems },
+      title: normalizedPlan.tripName || normalizedPlan.city || '我的行程',
+      itineraryData: { ...normalizedPlan, totalBudget, packingItems: nextPackingItems },
       tripNote,
       checklistItems: nextPackingItems,
-      startDate: plan.startDate,
-      startTime: plan.startTime,
+      startDate: normalizedPlan.startDate,
+      startTime: normalizedPlan.startTime,
     };
   }, [plan, totalBudget, packingItems, tripNote]);
 
