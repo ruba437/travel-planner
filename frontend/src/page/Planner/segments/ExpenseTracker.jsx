@@ -1,15 +1,18 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { usePlanner } from '../PlannerProvider';
 
 const ExpenseTracker = ({ isReadOnly = false }) => {
   const { 
     plan, 
     totalBudget, 
-    setTotalBudget 
+    setTotalBudget,
+    currencyConfig,
+    displayCurrency,
+    setDisplayCurrency
   } = usePlanner();
 
-  // 1. 計算所有行程點的總支出 (使用 useMemo 效能優化)
-  const totalSpent = useMemo(() => {
+  // 1. 計算所有行程點的總支出 (當地貨幣)
+  const totalCost = useMemo(() => {
     if (!plan || !plan.days) return 0;
     return plan.days.reduce((sum, day) => {
       const dayCost = (day.items || []).reduce((daySum, item) => {
@@ -19,20 +22,35 @@ const ExpenseTracker = ({ isReadOnly = false }) => {
     }, 0);
   }, [plan]);
 
-  // 2. 計算剩餘預算
-  const remaining = totalBudget - totalSpent;
+  const isHomeView = displayCurrency === 'home';
+  const currentSymbol = isHomeView ? currencyConfig.home : currencyConfig.local;
+  const displayBudget = isHomeView
+    ? totalBudget
+    : currencyConfig.rate > 0
+      ? totalBudget / currencyConfig.rate
+      : 0;
+  const displaySpent = isHomeView
+    ? totalCost * currencyConfig.rate
+    : totalCost;
+  const remaining = displayBudget - displaySpent;
   const isOverBudget = remaining < 0;
+  const progressPercent = totalBudget > 0 ? Math.min(100, ((totalCost * currencyConfig.rate) / totalBudget) * 100) : 0;
 
-  // 3. 計算進度條百分比
-  const progressPercent = totalBudget > 0 
-    ? Math.min((totalSpent / totalBudget) * 100, 100) 
-    : 0;
-
-  // 處理預算輸入變更
   const handleBudgetChange = (e) => {
     const value = Number(e.target.value);
-    setTotalBudget(value >= 0 ? value : 0);
+    if (isHomeView) {
+      setTotalBudget(value);
+    } else {
+      setTotalBudget(value * currencyConfig.rate);
+    }
   };
+
+  // 防呆：當地貨幣與母國貨幣相同時，自動切換到母國貨幣顯示模式
+  useEffect(() => {
+    if (currencyConfig.local === currencyConfig.home) {
+      setDisplayCurrency('home');
+    }
+  }, [currencyConfig.local, currencyConfig.home, setDisplayCurrency]);
 
   if (!plan) return null;
 
@@ -48,16 +66,41 @@ const ExpenseTracker = ({ isReadOnly = false }) => {
 
       <div className="az-budget-body">
         {/* 預算設定區 */}
-        <div className="az-budget-row">
-          <span>總預算 (TWD)</span>
+        <div className="az-budget-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>總預算 ({currentSymbol})</span>
           <input 
             type="number" 
             className="az-budget-input" 
-            value={totalBudget} 
+            value={Math.round(displayBudget)} 
             onChange={handleBudgetChange}
+            step={isHomeView ? 1000 : Math.round(1000 / (currencyConfig.rate || 1))}
             placeholder="設定預算..."
             disabled={isReadOnly}
           />
+        </div>
+
+        {/* 幣值顯示切換 */}
+        {currencyConfig.local !== currencyConfig.home && (
+          <div className="az-budget-currency-switch" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '12px 0' }}>
+            <button
+              type="button"
+              className={displayCurrency === 'local' ? 'az-pill az-pill-active' : 'az-pill'}
+              onClick={() => setDisplayCurrency('local')}
+            >
+              當地貨幣
+            </button>
+            <button
+              type="button"
+              className={displayCurrency === 'home' ? 'az-pill az-pill-active' : 'az-pill'}
+              onClick={() => setDisplayCurrency('home')}
+            >
+              台幣(母國貨幣)
+            </button>
+          </div>
+        )}
+
+        <div className="az-budget-display" style={{ marginBottom: '12px', fontSize: '1.1rem', fontWeight: 600, color: '#111' }}>
+          {`${currentSymbol} ${Math.round(displaySpent).toLocaleString()}`}
         </div>
 
         {/* 視覺化進度條 */}
@@ -72,16 +115,13 @@ const ExpenseTracker = ({ isReadOnly = false }) => {
         </div>
 
         {/* 數據統計區 */}
-        <div className="az-budget-stats">
-          <span style={{ color: isOverBudget ? '#ef4444' : '#6b7280' }}>
-            已支出 ${totalSpent.toLocaleString()}
-          </span>
-          <span className={isOverBudget ? 'az-over' : 'az-under'}>
-            {remaining >= 0 
-              ? `剩餘 $${remaining.toLocaleString()}` 
-              : `超額 $${Math.abs(remaining).toLocaleString()}`
-            }
-          </span>
+        <div className="az-budget-stats" style={{ display: 'grid', gap: '6px' }}>
+          <div className="az-expense-primary" style={{ color: isOverBudget ? '#ef4444' : '#6b7280' }}>
+            已支出 {currentSymbol} {Math.round(displaySpent).toLocaleString()}
+          </div>
+          <div className={isOverBudget ? 'az-over' : 'az-under'}>
+            剩餘 {currentSymbol} {Math.round(remaining).toLocaleString()}
+          </div>
         </div>
       </div>
     </div>

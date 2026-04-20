@@ -153,8 +153,36 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const [isAutoGeneratingChecklist, setIsAutoGeneratingChecklist] = useState(false);
   const [autoChecklistError, setAutoChecklistError] = useState(null);
   const [autoApprove, setAutoApprove] = useState(false);
+  const [localCurrency, setLocalCurrency] = useState('TWD');
+  const [currencyConfig, setCurrencyConfig] = useState({ local: 'TWD', home: 'TWD', rate: 1 });
+  const [displayCurrency, setDisplayCurrency] = useState('local');
   const autoSaveTimerRef = useRef(null);
   const lastSavedSnapshotRef = useRef('');
+
+  const fetchExchangeRate = useCallback(async (local = 'TWD', home = 'TWD') => {
+    if (local === home) {
+      setCurrencyConfig({ local, home, rate: 1 });
+      return;
+    }
+
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${encodeURIComponent(local)}`);
+      if (!res.ok) {
+        console.warn('fetchExchangeRate failed', res.status);
+        return;
+      }
+      const data = await res.json();
+      if (data && data.rates && typeof data.rates[home] === 'number') {
+        setCurrencyConfig({ local, home, rate: data.rates[home] });
+      }
+    } catch (error) {
+      console.warn('fetchExchangeRate error', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchExchangeRate(localCurrency, currencyConfig.home);
+  }, [fetchExchangeRate, localCurrency, currencyConfig.home]);
 
   // --- 核心邏輯 (Functions) ---
 
@@ -446,6 +474,9 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
           );
         }
         setPlan(nextPlan);
+        if (nextPlan.currency) {
+          setLocalCurrency(nextPlan.currency);
+        }
       }
       setMessages(prev => [...prev, { role: 'assistant', content: data.content || '行程已根據您的需求更新。' }]);
     } catch (e) {
@@ -500,6 +531,9 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
 
         setPlan(normalizePlanImageUrls(loadedPlan));
         setItineraryUuid(publicData.uuid);
+        if (loadedPlan.currency) {
+          setLocalCurrency(loadedPlan.currency);
+        }
       } catch (error) {
         if (error.name !== 'AbortError') {
           console.error('Load public itinerary error:', error);
@@ -555,6 +589,7 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
         setTotalBudget(itineraryData.totalBudget || 50000);
         setTripNote(data.tripNote || itineraryData.tripNote || '');
         setItineraryUuid(data.uuid || itineraryUuidParam);
+        setLocalCurrency(itineraryData.currency || 'TWD');
         setMessages([{ role: 'assistant', content: '行程已載入，可以開始編輯。' }]);
         setActiveDayIdx(0);
       } catch (error) {
@@ -821,6 +856,27 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     }
   }, [itineraryUuid, isPublicMode, token, plan]);
 
+  // 更新單一景點的預算成本
+  const updateItemCost = useCallback((dayIndex, itemIndex, newCost) => {
+    if (!plan || !plan.days || !plan.days[dayIndex] || !plan.days[dayIndex].items) return;
+    
+    const updatedPlan = {
+      ...plan,
+      days: plan.days.map((day, dIdx) => {
+        if (dIdx !== dayIndex) return day;
+        return {
+          ...day,
+          items: day.items.map((item, iIdx) => {
+            if (iIdx !== itemIndex) return item;
+            return { ...item, cost: Number(newCost) || 0 };
+          })
+        };
+      })
+    };
+    
+    setPlan(updatedPlan);
+  }, [plan]);
+
   // --- 提供給子組件的 Context Value ---
   const value = {
     plan, setPlan,
@@ -854,7 +910,13 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     generateChecklist,
     setSaveMsg,
     isPublicMode,
-    optimizeDayRoute
+    optimizeDayRoute,
+    updateItemCost,
+    localCurrency,
+    setLocalCurrency,
+    currencyConfig,
+    displayCurrency,
+    setDisplayCurrency,
   };
 
   // ── 🚀 核心：自動發送偵測器 ──

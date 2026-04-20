@@ -353,10 +353,11 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
             >
               {currentDay.items?.map((item, idx) => {
                 const segment = segments[idx];
+                const itemKey = String(item?.id ?? item?.placeId ?? `day-${activeDayIdx}-item-${idx}`);
                 return (
-                  <React.Fragment key={`item-frag-${activeDayIdx}-${idx}`}>
+                  <React.Fragment key={`item-frag-${itemKey}`}>
                     <ActivityItemCard
-                      key={`item-${activeDayIdx}-${idx}`}
+                      key={itemKey}
                       item={item}
                       index={idx}
                       dayIdx={activeDayIdx}

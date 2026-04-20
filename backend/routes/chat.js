@@ -19,6 +19,10 @@ const tools = [
         type: 'object',
         properties: {
           summary: { type: 'string', description: '行程的簡短中文概要' },
+          currency: { 
+            type: 'string', 
+            description: '根據使用者要求的旅遊目的地，自動判定當地的通用貨幣，並回傳標準的 ISO 4217 三碼字串（例如去日本請回傳 "JPY"，去韓國回傳 "KRW"，去台灣回傳 "TWD"，去美國回傳 "USD" 等）。' 
+          },
           totalBudget: { 
             type: "number", 
             description: "根據行程預估的總花費建議，或使用者要求的預算上限" 
@@ -64,7 +68,7 @@ const tools = [
                       lng: { type: 'number', description: '地點經度，若已知請一併填寫' },
                       cost: { 
                         type: "number", 
-                        description: "該項目的預估花費（以當地貨幣或美金估算，僅數字）" 
+                        description: "該項目的預估花費（以當地貨幣估算，僅數字）。【極度重要：當地物價數量級】所有的 cost 必須嚴格使用你判定的 currency（當地貨幣）的真實物價水準來估算！絕不可使用美金 (USD) 的數字直接套用。參考基準：如果是 JPY (日圓)：一般小吃/簡餐約 1000~2000，正式餐廳 3000~5000，景點門票約 1500~3000。如果是 KRW (韓元)：一般簡餐約 10000~15000，咖啡廳約 5000~8000。如果是 TWD (台幣)：一般小吃約 100~200，餐廳約 500~1000。免費景點（如公園、走路逛街）請嚴格填寫 0。請確保生成的數字符合當地的真實生活成本！" 
                       }
                     },
                     required: ['time', 'name', 'type', "cost"],
@@ -75,7 +79,7 @@ const tools = [
             },
           },
         },
-        required: ['summary', 'city', 'days', 'startLocation', 'startTime'],
+        required: ['summary', 'currency', 'city', 'days', 'startLocation', 'startTime'],
       },
     },
   },
@@ -107,6 +111,8 @@ router.post('/', async (req, res) => {
       - 你必須優先滿足這些「標籤條件」。
       - 如果使用者沒指定城市，請根據需求推薦最適合的城市並說明原因。
       - 解析需求中的情緒價值（如「放鬆」= 行程不要太趕）。
+
+    【貨幣判定規則】：請根據使用者要求的旅遊目的地，自動判定當地的通用貨幣，並在 "currency" 欄位中回傳標準的 ISO 4217 三碼字串（例如去日本請回傳 "JPY"，去韓國回傳 "KRW"，去台灣回傳 "TWD"，去美國回傳 "USD" 等）。
 
     【目前的行程背景資訊】
     - 目的地：${city}

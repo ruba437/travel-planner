@@ -166,6 +166,39 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
 
   const [travelMode, setTravelMode] = useState('DRIVING');
   const [selectedSegment, setSelectedSegment] = useState(null);
+  const planDayCount = Number(plan?.days?.length || 0);
+
+  const markerPlanSnapshot = useMemo(() => {
+    if (!plan || !Array.isArray(plan.days) || plan.days.length === 0) return null;
+
+    return {
+      city: String(plan.city || '').trim(),
+      startLocation: String(plan.startLocation || '').trim(),
+      days: plan.days.map((day) => ({
+        day: Number(day?.day) || 0,
+        items: (Array.isArray(day?.items) ? day.items : []).map((item, index) => ({
+          id: String(item?.id ?? ''),
+          placeId: String(item?.placeId ?? ''),
+          name: String(item?.name || '').trim(),
+          type: String(item?.type || ''),
+          order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index,
+        })),
+      })),
+    };
+  }, [plan]);
+
+  const markerPlanSignature = useMemo(() => {
+    if (!markerPlanSnapshot) return '';
+
+    return JSON.stringify({
+      city: markerPlanSnapshot.city,
+      startLocation: markerPlanSnapshot.startLocation,
+      days: markerPlanSnapshot.days.map((day) => ({
+        day: day.day,
+        items: day.items.map((item) => `${item.id}|${item.placeId}|${item.name}|${item.type}|${item.order}`),
+      })),
+    });
+  }, [markerPlanSnapshot]);
 
   const changeMode = (mode) => {
     setRoutePath(null);
@@ -249,13 +282,13 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
   }, [selectedDay]);
 
   useEffect(() => {
-    const maxDay = Number(plan?.days?.length || 0);
+    const maxDay = planDayCount;
     if (selectedDay !== null && (selectedDay < 1 || selectedDay > maxDay)) {
       setSelectedDay(null);
     }
     setSelectedMarker(null);
     setLoadingDirections(false);
-  }, [plan, selectedDay]);
+  }, [planDayCount, selectedDay]);
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -390,7 +423,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
   }, [activeLocation, markers, mapRef]);
 
   useEffect(() => {
-    if (!plan || !plan.days || plan.days.length === 0) return;
+    if (!markerPlanSnapshot) return;
     if (!isLoaded) return;
 
     const fetchMarkers = async () => {
@@ -402,12 +435,12 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
         let currentCityLocation = null;
 
         // 2. 抓城市中心 (優先)
-        if (plan.city) {
+        if (markerPlanSnapshot.city) {
           try {
             const cityRes = await fetch(`${API_BASE}/api/places/search`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ query: plan.city }),
+              body: JSON.stringify({ query: markerPlanSnapshot.city }),
             });
             const cityData = await cityRes.json();
             const cityPlace = cityData.places?.[0];
@@ -419,23 +452,24 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
         }
 
         // 3. 抓取起點座標 (Start Location)
-        if (plan.startLocation) {
+        if (markerPlanSnapshot.startLocation) {
           try {
             const startRes = await fetch(`${API_BASE}/api/places/search`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify({ 
-                query: plan.startLocation, 
-                city: plan.city 
+                query: markerPlanSnapshot.startLocation, 
+                city: markerPlanSnapshot.city 
               }),
             });
             const startData = await startRes.json();
             const startPlace = startData.places?.[0];
             if (startPlace) {
               newMarkers.push({
+                sourceKey: `start:${markerPlanSnapshot.startLocation}:${startPlace.placeId || 'unknown'}`,
                 lat: startPlace.lat,
                 lng: startPlace.lng,
-                name: `(起點) ${plan.startLocation}`,
+                name: `(起點) ${markerPlanSnapshot.startLocation}`,
                 placeId: startPlace.placeId,
                 day: 1,    
                 order: -1, // 關鍵：讓它排在第 1 天最前面
@@ -447,7 +481,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
         }
 
         // 4. 抓取各天行程景點
-        for (const day of plan.days) {
+        for (const day of markerPlanSnapshot.days) {
           const dayNumber = Number(day.day);
           let orderInDay = 0;
           for (const item of day.items || []) {
@@ -462,7 +496,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ 
                   query: itemName, 
-                  city: plan.city,
+                  city: markerPlanSnapshot.city,
                   center: currentCityLocation 
                 }),
               });
@@ -470,6 +504,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
               const place = data.places?.[0];
               if (place?.lat && place?.lng) {
                 newMarkers.push({
+                  sourceKey: String(item.id || place.placeId || `${dayNumber}-${itemName}-${orderInDay}`),
                   lat: place.lat,
                   lng: place.lng,
                   name: itemName || place.name,
@@ -495,7 +530,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       }
     };
     fetchMarkers();
-  }, [plan, isLoaded]);
+  }, [markerPlanSignature, isLoaded, token]);
 
   useEffect(() => {
     if (!selectedSegment) return;
@@ -674,7 +709,10 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
             
             {/* 💡 這裡把轉彎指示改用 step.html_instructions */}
             {steps.map((s, i) => (
-              <div key={i} style={{ marginBottom: 4, paddingBottom: 4, borderBottom: '1px dashed #666' }}>
+              <div
+                key={`${s.instructions || s.html_instructions || 'step'}-${s.distance?.text || ''}-${s.duration?.text || ''}-${i}`}
+                style={{ marginBottom: 4, paddingBottom: 4, borderBottom: '1px dashed #666' }}
+              >
                 <div dangerouslySetInnerHTML={{ __html: s.instructions || s.html_instructions }} />
               </div>
             ))}
@@ -727,7 +765,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
               .map((m) => (
                 <Marker
                   // 💡 關鍵：key 必須唯一，避免 React 重用組件導致圖示錯誤
-                  key={m.isStart ? `start-${m.day}` : `${m.day}-${m.order}`}
+                  key={String(m.sourceKey || m.placeId || `${m.day}-${m.order}-${m.name}`)}
                   position={{ lat: m.lat, lng: m.lng }}
                   onClick={() => {
                     setSelectedMarker(m);
@@ -874,7 +912,10 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                           <div>
                             <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#374151' }}>評論 ({placeDetails.reviews.length})</div>
                             {placeDetails.reviews.slice(0, 3).map((review, i) => (
-                              <div key={i} style={{ marginBottom: '8px', fontSize: '11px', color: '#4b5563', borderBottom: '1px dashed #f3f4f6', paddingBottom: '4px' }}>
+                              <div
+                                key={`${review.author_name || 'review'}-${review.time || review.relative_time_description || ''}-${review.rating || ''}-${i}`}
+                                style={{ marginBottom: '8px', fontSize: '11px', color: '#4b5563', borderBottom: '1px dashed #f3f4f6', paddingBottom: '4px' }}
+                              >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                                   <strong>{review.author_name}</strong>
                                   <span style={{ color: '#f59e0b' }}>★ {review.rating}</span>
