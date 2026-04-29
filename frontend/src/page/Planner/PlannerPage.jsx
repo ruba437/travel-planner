@@ -45,11 +45,12 @@ const PlannerContent = ({ isPublicMode = false }) => {
     setPlan,
     activeLocation,
     setActiveLocation,
+    activeDayIdx,
     setActiveDayIdx,
     recalculateDayTimesAsync,
+    updateGlobalStartLocation,
+    updateDayStartLocation,
     token,
-    // 從 Provider 取得自動發送需要的狀態
-    handleSend,
     setInput
   } = usePlanner();
 
@@ -72,7 +73,7 @@ const PlannerContent = ({ isPublicMode = false }) => {
       setShowAiPanel(true); // 只打開面板
       console.log("🎯 已將指令填入，等待 Provider 執行...");
     }
-  }, [location.pathname, location.search, itineraryUuidParam]); // ⚠️ 依賴陣列保持簡單且固定
+  }, [itineraryUuidParam, location?.state?.prefill, setInput, setShowAiPanel]);
 
   // ── 處理從地圖點擊「加入行程」的邏輯 ──
   const handleAddLocation = async (locationData) => {
@@ -109,6 +110,18 @@ const PlannerContent = ({ isPublicMode = false }) => {
     setPlan(newPlan);
     setActiveDayIdx(targetDayIdx);
     setActiveLocation({ day: targetDayIdx + 1, order: updatedItems.length - 1 });
+  };
+
+  const handleSetStartLocation = (locationData) => {
+    if (!plan || !Array.isArray(plan.days)) return;
+    if (!Number.isInteger(locationData?.targetDayIndex)) return;
+
+    updateDayStartLocation(locationData.targetDayIndex, locationData.name);
+    setActiveDayIdx(locationData.targetDayIndex);
+  };
+
+  const handleSetGlobalStartLocation = (locationData) => {
+    updateGlobalStartLocation(locationData?.name || '');
   };
 
   return (
@@ -213,9 +226,13 @@ const PlannerContent = ({ isPublicMode = false }) => {
           <div className="az-map-panel">
             <MapView 
               plan={plan}
+              activeDayIdx={activeDayIdx}
+              onDayChange={setActiveDayIdx}
               activeLocation={activeLocation}
               onLocationChange={setActiveLocation}
               onAddLocation={isPublicMode ? null : handleAddLocation}
+              onSetStartLocation={isPublicMode ? null : handleSetStartLocation}
+              onSetGlobalStartLocation={isPublicMode ? null : handleSetGlobalStartLocation}
               isReadOnly={isPublicMode}
             />
           </div>

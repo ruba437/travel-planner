@@ -1,5 +1,5 @@
 // frontend/src/MapView.jsx
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
 import {
   GoogleMap,
@@ -28,6 +28,26 @@ const normalizeCoordPart = (value) => {
 
 const normalizeTextPart = (value) => String(value || '').trim().toLowerCase();
 
+const toFiniteCoord = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const getFiniteCoords = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const lat = toFiniteCoord(value.lat ?? value.location?.lat);
+  const lng = toFiniteCoord(value.lng ?? value.location?.lng);
+  return lat !== null && lng !== null ? { lat, lng } : null;
+};
+
+const getStartLocationText = (value) => {
+  if (typeof value === 'string') return value.trim();
+  if (value && typeof value === 'object') {
+    return String(value.name || value.label || '').trim();
+  }
+  return '';
+};
+
 const buildSegmentId = (day, from, to) => {
   const fromKey = from?.placeId
     ? `pid:${from.placeId}`
@@ -42,8 +62,9 @@ const buildDirectionPoint = (item) => {
   if (!item) return null;
 
   const placeId = String(item.placeId || '').trim();
-  const lat = Number(item.lat ?? item.location?.lat);
-  const lng = Number(item.lng ?? item.location?.lng);
+  const coords = getFiniteCoords(item);
+  const lat = coords?.lat;
+  const lng = coords?.lng;
 
   if (placeId) {
     const point = { placeId };
@@ -54,7 +75,7 @@ const buildDirectionPoint = (item) => {
     return point;
   }
 
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+  if (lat !== undefined && lng !== undefined && lat !== null && lng !== null) {
     return { lat, lng };
   }
 
@@ -139,12 +160,23 @@ const translateType = (type) => {
   }
 };
 
-function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isReadOnly = false }) {
+function MapView({
+  plan,
+  activeDayIdx,
+  onDayChange,
+  activeLocation,
+  onLocationChange,
+  onAddLocation,
+  onSetStartLocation,
+  onSetGlobalStartLocation,
+  isReadOnly = false,
+}) {
   const { token } = useAuth();
   const [markers, setMarkers] = useState([]);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [showDaySelection, setShowDaySelection] = useState(false);
+  const [showStartSelection, setShowStartSelection] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const showAll = selectedDay === null;
   const [mapRef, setMapRef] = useState(null);
@@ -163,19 +195,36 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
 
   const directionsAbortRef = useRef(null);
   const directionsReqIdRef = useRef(0);
+  const previousSelectedDayRef = useRef(null);
+  const isMapInitiatedChangeRef = useRef(false);
+
+  // 行程天數 → 地圖同步：activeDayIdx 變更時更新地圖 selectedDay
+  useEffect(() => {
+    if (isMapInitiatedChangeRef.current) {
+      isMapInitiatedChangeRef.current = false;
+      return;
+    }
+    if (activeDayIdx === undefined || activeDayIdx === null) return;
+    const dayNumber = Number(plan?.days?.[activeDayIdx]?.day ?? activeDayIdx + 1);
+    setSelectedDay(dayNumber);
+  }, [activeDayIdx, plan?.days]);
 
   const [travelMode, setTravelMode] = useState('DRIVING');
   const [selectedSegment, setSelectedSegment] = useState(null);
   const planDayCount = Number(plan?.days?.length || 0);
+  const safeSelectedMarkerCoords = useMemo(() => getFiniteCoords(selectedMarker), [selectedMarker]);
+  const selectedPlaceId = selectedMarker?.placeId || null;
+  const selectedMarkerIsPoi = Boolean(selectedMarker?.isPoi);
 
   const markerPlanSnapshot = useMemo(() => {
     if (!plan || !Array.isArray(plan.days) || plan.days.length === 0) return null;
 
     return {
       city: String(plan.city || '').trim(),
-      startLocation: String(plan.startLocation || '').trim(),
-      days: plan.days.map((day) => ({
-        day: Number(day?.day) || 0,
+      startLocation: getStartLocationText(plan.startLocation),
+      days: plan.days.map((day, index) => ({
+        day: Number(day?.day) || index + 1,
+        startLocation: getStartLocationText(day?.startLocation),
         items: (Array.isArray(day?.items) ? day.items : []).map((item, index) => ({
           id: String(item?.id ?? ''),
           placeId: String(item?.placeId ?? ''),
@@ -195,6 +244,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       startLocation: markerPlanSnapshot.startLocation,
       days: markerPlanSnapshot.days.map((day) => ({
         day: day.day,
+        startLocation: day.startLocation,
         items: day.items.map((item) => `${item.id}|${item.placeId}|${item.name}|${item.type}|${item.order}`),
       })),
     });
@@ -229,10 +279,11 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
 
   useEffect(() => {
     setShowDaySelection(false); 
+    setShowStartSelection(false);
   }, [selectedMarker]);
 
   useEffect(() => {
-    if (!selectedMarker || !selectedMarker.placeId) {
+    if (!selectedPlaceId) {
       setPlaceDetails(null);
       return;
     }
@@ -240,29 +291,37 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     setLoadingDetails(true);
     setPlaceDetails(null); 
 
-    fetch(`${API_BASE}/api/places/details?placeId=${selectedMarker.placeId}`, {
+    fetch(`${API_BASE}/api/places/details?placeId=${selectedPlaceId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
       .then((data) => {
         setPlaceDetails(data);
-        if (selectedMarker.isPoi) {
-          setSelectedMarker((prev) => ({
-            ...prev,
-            name: data.name || prev.name,
-            address: data.formatted_address || prev.address,
-            rating: data.rating,
-            userRatingsTotal: data.user_ratings_total,
-            photoReference: data.photos?.[0]?.photo_reference,
-            type: data.types?.[0], 
-          }));
+        if (selectedMarkerIsPoi) {
+          setSelectedMarker((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              name: data.name || prev.name,
+              address: data.formatted_address || prev.address,
+              rating: data.rating,
+              userRatingsTotal: data.user_ratings_total,
+              photoReference: data.photos?.[0]?.photo_reference,
+              type: data.types?.[0],
+            };
+          });
         }
       })
       .catch((err) => console.error('Fetch Details Error', err))
       .finally(() => setLoadingDetails(false));
-  }, [selectedMarker?.placeId]);
+  }, [selectedMarkerIsPoi, selectedPlaceId, token]);
 
   useEffect(() => {
+    const previousSelectedDay = previousSelectedDayRef.current;
+    previousSelectedDayRef.current = selectedDay;
+
+    if (previousSelectedDay === selectedDay) return;
+
     if (selectedMarker && Number(selectedMarker.day) === Number(selectedDay)) {
       setSelectedSegment(null);
       setSelectedSegmentId(null); 
@@ -279,7 +338,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     setSelectedSegmentInfo(null);
     setLoadingDirections(false);
     setRoutePath(null);
-  }, [selectedDay]);
+  }, [selectedDay, selectedMarker]);
 
   useEffect(() => {
     const maxDay = planDayCount;
@@ -300,6 +359,11 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     if (cityCenter) return cityCenter;
     return defaultCenter;
   }, [cityCenter]);
+
+  const selectedMarkerStartName = useMemo(() => {
+    const rawName = String(selectedMarker?.googleName || selectedMarker?.name || '').trim();
+    return rawName.replace(/^\(起點\)\s*/, '');
+  }, [selectedMarker]);
 
   const daySegments = useMemo(() => {
     if (!markers.length) return [];
@@ -444,45 +508,49 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
             });
             const cityData = await cityRes.json();
             const cityPlace = cityData.places?.[0];
-            if (cityPlace?.lat && cityPlace?.lng) {
-              currentCityLocation = { lat: cityPlace.lat, lng: cityPlace.lng };
+            const cityCoords = getFiniteCoords(cityPlace);
+            if (cityCoords) {
+              currentCityLocation = cityCoords;
               setCityCenter(currentCityLocation);
             }
           } catch (e) { console.error('查詢城市失敗', e); }
         }
 
-        // 3. 抓取起點座標 (Start Location)
-        if (markerPlanSnapshot.startLocation) {
-          try {
-            const startRes = await fetch(`${API_BASE}/api/places/search`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ 
-                query: markerPlanSnapshot.startLocation, 
-                city: markerPlanSnapshot.city 
-              }),
-            });
-            const startData = await startRes.json();
-            const startPlace = startData.places?.[0];
-            if (startPlace) {
-              newMarkers.push({
-                sourceKey: `start:${markerPlanSnapshot.startLocation}:${startPlace.placeId || 'unknown'}`,
-                lat: startPlace.lat,
-                lng: startPlace.lng,
-                name: `(起點) ${markerPlanSnapshot.startLocation}`,
-                placeId: startPlace.placeId,
-                day: 1,    
-                order: -1, // 關鍵：讓它排在第 1 天最前面
-                isStart: true,
-                type: 'establishment'
-              });
-            }
-          } catch (e) { console.error('查詢起點失敗', e); }
-        }
-
-        // 4. 抓取各天行程景點
+        // 3. 抓取各天起點與行程景點
         for (const day of markerPlanSnapshot.days) {
           const dayNumber = Number(day.day);
+          const effectiveStartLocation = day.startLocation || markerPlanSnapshot.startLocation;
+
+          if (effectiveStartLocation) {
+            try {
+              const startRes = await fetch(`${API_BASE}/api/places/search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  query: effectiveStartLocation,
+                  city: markerPlanSnapshot.city,
+                  center: currentCityLocation,
+                }),
+              });
+              const startData = await startRes.json();
+              const startPlace = startData.places?.[0];
+              const startCoords = getFiniteCoords(startPlace);
+              if (startCoords) {
+                newMarkers.push({
+                  sourceKey: `start:day${dayNumber}:${startPlace.placeId || effectiveStartLocation}`,
+                  lat: startCoords.lat,
+                  lng: startCoords.lng,
+                  name: `(起點) ${effectiveStartLocation}`,
+                  placeId: startPlace.placeId,
+                  day: dayNumber,
+                  order: -1,
+                  isStart: true,
+                  type: 'establishment',
+                });
+              }
+            } catch (e) { console.error(`查詢第 ${dayNumber} 天起點失敗`, e); }
+          }
+
           let orderInDay = 0;
           for (const item of day.items || []) {
             const itemName = item.name?.trim();
@@ -502,11 +570,12 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
               });
               const data = await res.json();
               const place = data.places?.[0];
-              if (place?.lat && place?.lng) {
+              const placeCoords = getFiniteCoords(place);
+              if (placeCoords) {
                 newMarkers.push({
-                  sourceKey: String(item.id || place.placeId || `${dayNumber}-${itemName}-${orderInDay}`),
-                  lat: place.lat,
-                  lng: place.lng,
+                  sourceKey: `item:day${dayNumber}:order${orderInDay}:${place.placeId || itemName}`,
+                  lat: placeCoords.lat,
+                  lng: placeCoords.lng,
                   name: itemName || place.name,
                   googleName: place.name,
                   address: place.address || '',
@@ -524,39 +593,13 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
             } catch (err) { console.error(`搜尋 ${itemName} 失敗`, err); }
           }
         }
-        setMarkers(newMarkers);
+        setMarkers(newMarkers.filter((marker) => getFiniteCoords(marker)));
       } finally {
         setLoadingPlaces(false);
       }
     };
     fetchMarkers();
-  }, [markerPlanSignature, isLoaded, token]);
-
-  useEffect(() => {
-    if (!selectedSegment) return;
-    const latestSegment = resolveCurrentSegment(daySegments, selectedSegment, selectedSegmentId);
-    if (!latestSegment) {
-      setSelectedSegment(null);
-      setSelectedSegmentId(null);
-      setSelectedSegmentInfo(null);
-      setLoadingDirections(false);
-      setRoutePath(null);
-      return;
-    }
-
-    if (latestSegment.id !== selectedSegmentId || !sameSegmentByEndpoints(latestSegment, selectedSegment)) {
-      setSelectedSegment(latestSegment);
-      setSelectedSegmentId(latestSegment.id);
-      return;
-    }
-
-    if (directionsAbortRef.current) directionsAbortRef.current.abort();
-    setRoutePath(null);
-    setSelectedSegmentInfo(null);
-    setLoadingDirections(true);
-    const t = setTimeout(() => { handleSegmentClick(latestSegment); }, 50); 
-    return () => clearTimeout(t);
-  }, [travelMode, selectedSegment, selectedSegmentId, daySegments]);
+  }, [isLoaded, markerPlanSignature, markerPlanSnapshot, token]);
 
   useEffect(() => {
     if (!mapRef || !window.google) return;
@@ -576,7 +619,7 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     return () => removeLine();
   }, [routePath, mapRef]);
 
-  async function handleSegmentClick(segment) {
+  const handleSegmentClick = useCallback(async (segment) => {
     const validSegment = resolveCurrentSegment(daySegments, segment, segment?.id);
     if (!validSegment) {
       setSelectedSegmentInfo({ segment, error: '路段已變更，請重新選擇路線。' });
@@ -654,7 +697,33 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
     } finally {
       if (reqId === directionsReqIdRef.current) setLoadingDirections(false);
     }
-  }
+  }, [daySegments, mapRef, selectedSegment, selectedSegmentId, token, travelMode]);
+
+  useEffect(() => {
+    if (!selectedSegment) return;
+    const latestSegment = resolveCurrentSegment(daySegments, selectedSegment, selectedSegmentId);
+    if (!latestSegment) {
+      setSelectedSegment(null);
+      setSelectedSegmentId(null);
+      setSelectedSegmentInfo(null);
+      setLoadingDirections(false);
+      setRoutePath(null);
+      return;
+    }
+
+    if (latestSegment.id !== selectedSegmentId || !sameSegmentByEndpoints(latestSegment, selectedSegment)) {
+      setSelectedSegment(latestSegment);
+      setSelectedSegmentId(latestSegment.id);
+      return;
+    }
+
+    if (directionsAbortRef.current) directionsAbortRef.current.abort();
+    setRoutePath(null);
+    setSelectedSegmentInfo(null);
+    setLoadingDirections(true);
+    const t = setTimeout(() => { handleSegmentClick(latestSegment); }, 50);
+    return () => clearTimeout(t);
+  }, [daySegments, handleSegmentClick, selectedSegment, selectedSegmentId, travelMode]);
 
   const renderRouteCard = () => {
     // 💡 我們的資訊現在不是存在 summary，而是直接在 selectedSegmentInfo 裡面 (因為它就是 leg 本身)
@@ -730,8 +799,13 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
       {plan?.days?.length > 0 && (
         <div style={{position:'absolute',top:8,right:8,zIndex:2,display:'flex',gap:4,background:'rgba(255,255,255,0.9)',padding:6,borderRadius:99}}>
           <button onClick={() => {setSelectedDay(null);onLocationChange?.(null);}} style={{border:'none',background:selectedDay===null?'#000':'transparent',color:selectedDay===null?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>全部</button>
-          {plan.days.map(d => (
-            <button key={d.day} onClick={() => {setSelectedDay(Number(d.day));onLocationChange?.(null);}} 
+          {plan.days.map((d, idx) => (
+            <button key={d.day} onClick={() => {
+              isMapInitiatedChangeRef.current = true;
+              setSelectedDay(Number(d.day));
+              onLocationChange?.(null);
+              onDayChange?.(idx);
+            }} 
               style={{border:'none',background:selectedDay===Number(d.day)?getDayColor(d.day):'transparent',color:selectedDay===Number(d.day)?'#fff':'#000',borderRadius:99,padding:'2px 8px',cursor:'pointer'}}>
               第 {d.day} 天
             </button>
@@ -764,9 +838,8 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
               .filter((m) => selectedDay === null || m.day === selectedDay)
               .map((m) => (
                 <Marker
-                  // 💡 關鍵：key 必須唯一，避免 React 重用組件導致圖示錯誤
-                  key={String(m.sourceKey || m.placeId || `${m.day}-${m.order}-${m.name}`)}
-                  position={{ lat: m.lat, lng: m.lng }}
+                  key={m.sourceKey}
+                  position={{ lat: Number(m.lat), lng: Number(m.lng) }}
                   onClick={() => {
                     setSelectedMarker(m);
                     if (!m.isStart) onLocationChange?.({ day: m.day, order: m.order });
@@ -783,8 +856,8 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                 />
               ))}
 
-            {selectedMarker && (
-              <InfoWindow position={{ lat: selectedMarker.lat, lng: selectedMarker.lng }} onCloseClick={() => setSelectedMarker(null)}>
+            {selectedMarker && safeSelectedMarkerCoords && (
+              <InfoWindow position={safeSelectedMarkerCoords} onCloseClick={() => setSelectedMarker(null)}>
                 <div style={{ maxWidth: '260px', fontSize: '12px' }}>
                   <div style={{ fontWeight: 'bold' }}>{selectedMarker.name}</div>
                   
@@ -814,6 +887,103 @@ function MapView({ plan, activeLocation, onLocationChange, onAddLocation, isRead
                   <div style={{color: '#6b7280', marginBottom: '4px'}}>{selectedMarker.address}</div>
                   
                   <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedMarker.name)}`} target="_blank" rel="noreferrer" style={{color: '#2563eb', textDecoration: 'none', display: 'block', marginBottom: '8px'}}>在 Google Maps 中開啟 →</a>
+
+                  {!isReadOnly && selectedMarkerStartName && (
+                    <div style={{ marginBottom: '8px' }}>
+                      {!showStartSelection ? (
+                        <button
+                          onClick={() => setShowStartSelection(true)}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            backgroundColor: '#0f766e',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            marginBottom: selectedMarker.isPoi ? '8px' : 0,
+                          }}
+                        >
+                          📍 設為起點
+                        </button>
+                      ) : (
+                        <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '8px', backgroundColor: '#f9fafb', marginBottom: selectedMarker.isPoi ? '8px' : 0 }}>
+                          <p style={{ margin: '0 0 8px 0', fontSize: '0.9em', fontWeight: 'bold', color: '#374151' }}>將「{selectedMarkerStartName}」設為：</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <button
+                              onClick={() => {
+                                onSetGlobalStartLocation?.({
+                                  name: selectedMarkerStartName,
+                                  lat: selectedMarker.lat,
+                                  lng: selectedMarker.lng,
+                                  placeId: selectedMarker.placeId || null,
+                                });
+                                setSelectedMarker(null);
+                              }}
+                              style={{
+                                padding: '6px 8px',
+                                backgroundColor: '#fff',
+                                color: '#0f766e',
+                                border: '1px solid #99f6e4',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '0.85em',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              🌐 全域預設出發地
+                            </button>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                              {plan?.days?.map((day, index) => (
+                                <button
+                                  key={`start-day-${day.day}`}
+                                  onClick={() => {
+                                    onSetStartLocation?.({
+                                      name: selectedMarkerStartName,
+                                      lat: selectedMarker.lat,
+                                      lng: selectedMarker.lng,
+                                      placeId: selectedMarker.placeId || null,
+                                      targetDayIndex: index,
+                                    });
+                                    setSelectedMarker(null);
+                                  }}
+                                  style={{
+                                    padding: '4px 8px',
+                                    backgroundColor: '#fff',
+                                    color: '#374151',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.85em',
+                                  }}
+                                >
+                                  第 {day.day} 天
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => setShowStartSelection(false)}
+                            style={{
+                              width: '100%',
+                              marginTop: '8px',
+                              padding: '4px',
+                              backgroundColor: 'transparent',
+                              color: '#6b7280',
+                              border: 'none',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                              fontSize: '0.8em',
+                            }}
+                          >
+                            取消
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* 判斷是不是地圖上隨便點擊的景點 (isPoi)，如果是，就顯示加入按鈕 */}
                   {!isReadOnly && selectedMarker.isPoi && (

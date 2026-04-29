@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import { usePlanner } from '../PlannerProvider';
 import ActivityItemCard from './ActivityItemCard';
@@ -11,6 +11,14 @@ const normalizeCoordPart = (value) => {
 };
 
 const normalizeTextPart = (value) => String(value || '').trim().toLowerCase();
+
+const getStartLocationText = (startLocation) => {
+  if (typeof startLocation === 'string') return startLocation;
+  if (startLocation && typeof startLocation === 'object') {
+    return String(startLocation.name || startLocation.label || '').trim();
+  }
+  return '';
+};
 
 const buildSegmentId = (dayIdx, from, to) => {
   const fromPlaceId = String(from?.placeId || '').trim();
@@ -34,7 +42,8 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     setPlan, 
     activeDayIdx, 
     recalculateDayTimesAsync,
-    optimizeDayRoute 
+    optimizeDayRoute,
+    updateGlobalStartLocation,
   } = usePlanner();
 
   const toMinutes = (hhmm) => {
@@ -126,6 +135,16 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     
     setPlan(newPlan);
   };
+
+  const handleDayStartLocationChange = useCallback((value) => {
+    if (!plan) return;
+    const nextPlan = { ...plan, days: [...plan.days] };
+    nextPlan.days[activeDayIdx] = {
+      ...nextPlan.days[activeDayIdx],
+      startLocation: String(value || '').trimStart(),
+    };
+    setPlan(nextPlan);
+  }, [activeDayIdx, plan, setPlan]);
 
   // 處理拖拽結束邏輯
   const onDragEnd = async (result) => {
@@ -289,6 +308,58 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
     ? (plan.days[activeDayIdx] || { items: [], transportMode: 'TRANSIT' })
     : { items: [], transportMode: 'TRANSIT' };
   const currentMode = currentDay.transportMode || 'TRANSIT';
+  const canonicalGlobalStartLocation = getStartLocationText(plan?.startLocation);
+  const canonicalStartLocation = getStartLocationText(currentDay.startLocation);
+  const [localGlobalStartName, setLocalGlobalStartName] = useState(canonicalGlobalStartLocation);
+  const [localStartName, setLocalStartName] = useState(canonicalStartLocation);
+
+  useEffect(() => {
+    setLocalGlobalStartName(canonicalGlobalStartLocation);
+  }, [canonicalGlobalStartLocation]);
+
+  useEffect(() => {
+    setLocalStartName(canonicalStartLocation);
+  }, [canonicalStartLocation, activeDayIdx]);
+
+  const commitGlobalStartLocationChange = useCallback((rawValue) => {
+    const nextValue = String(rawValue || '').trim();
+    const currentValue = canonicalGlobalStartLocation.trim();
+
+    if (nextValue === currentValue) {
+      setLocalGlobalStartName(nextValue);
+      return;
+    }
+
+    updateGlobalStartLocation(nextValue);
+    setLocalGlobalStartName(nextValue);
+  }, [canonicalGlobalStartLocation, updateGlobalStartLocation]);
+
+  const commitDayStartLocationChange = useCallback((rawValue) => {
+    const nextValue = String(rawValue || '').trim();
+    const currentValue = canonicalStartLocation.trim();
+
+    if (nextValue === currentValue) {
+      setLocalStartName(nextValue);
+      return;
+    }
+
+    handleDayStartLocationChange(nextValue);
+    setLocalStartName(nextValue);
+  }, [canonicalStartLocation, handleDayStartLocationChange]);
+
+  const handleStartLocationKeyDown = useCallback((event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    commitDayStartLocationChange(localStartName);
+    event.currentTarget.blur();
+  }, [commitDayStartLocationChange, localStartName]);
+
+  const handleGlobalStartLocationKeyDown = useCallback((event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    commitGlobalStartLocationChange(localGlobalStartName);
+    event.currentTarget.blur();
+  }, [commitGlobalStartLocationChange, localGlobalStartName]);
 
   const segments = useMemo(() => {
     const items = currentDay.items || [];
@@ -311,11 +382,64 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
   if (!hasDays) return null;
 
   return (
-    <DragDropContext onDragEnd={isReadOnly ? undefined : onDragEnd}>
-      <div className="az-day-block">
-        <div className="az-day-timeline-head">
-          <h3 className="az-day-timeline-title">Day {activeDayIdx + 1}</h3>
-        </div>
+    <>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>全域預設出發地</div>
+        {isReadOnly ? (
+          <div style={{ fontSize: 14, color: '#111827', fontWeight: 500 }}>
+            {canonicalGlobalStartLocation || '未設定'}
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={localGlobalStartName}
+            onChange={(e) => setLocalGlobalStartName(e.target.value)}
+            onBlur={() => commitGlobalStartLocationChange(localGlobalStartName)}
+            onKeyDown={handleGlobalStartLocationKeyDown}
+            placeholder="例如：飯店、機場、車站"
+            style={{
+              width: '100%',
+              padding: '9px 11px',
+              borderRadius: 8,
+              border: '1px solid #d1d5db',
+              fontSize: 14,
+              outline: 'none',
+            }}
+          />
+        )}
+      </div>
+
+      <DragDropContext onDragEnd={isReadOnly ? undefined : onDragEnd}>
+        <div className="az-day-block">
+          <div className="az-day-timeline-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <h3 className="az-day-timeline-title" style={{ margin: 0, lineHeight: 1.2 }}>Day {activeDayIdx + 1}</h3>
+            <div style={{ minWidth: 260, flex: '1 1 320px' }}>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>📍 當天起點</div>
+              {isReadOnly ? (
+                <div style={{ fontSize: 14, color: '#111827', fontWeight: 500 }}>
+                  {canonicalStartLocation || '未設定'}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={localStartName}
+                  onChange={(e) => setLocalStartName(e.target.value)}
+                  onBlur={() => commitDayStartLocationChange(localStartName)}
+                  onKeyDown={handleStartLocationKeyDown}
+                  placeholder={canonicalStartLocation ? '例如：飯店、機場、車站' : `預設出發地: ${canonicalGlobalStartLocation || '未設定'}`}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    fontSize: 13,
+                    outline: 'none',
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        
         
         {/* === 單日交通方式選單 === */}
         {!isReadOnly && (
@@ -399,8 +523,9 @@ const ItineraryTimeline = ({ isReadOnly = false }) => {
             新增項目
           </button>
         )}
-      </div>
-    </DragDropContext>
+        </div>
+      </DragDropContext>
+    </>
   );
 };
 

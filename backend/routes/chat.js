@@ -35,10 +35,6 @@ const tools = [
             type: 'string', 
             description: '旅遊開始日期，格式為 YYYY-MM-DD。' 
           },
-          startLocation: { 
-            type: 'string', 
-            description: '行程第一天的出發起點（例如：飯店名稱、機場或車站）' 
-          },
           startTime: { 
             type: 'string', 
             description: '第一天開始行程的時間，格式為 HH:mm (例如 "09:00")' 
@@ -50,6 +46,10 @@ const tools = [
               properties: {
                 day: { type: 'number' },
                 title: { type: 'string' },
+                startLocation: {
+                  type: 'string',
+                  description: '該日出發起點（例如：飯店名稱、機場或車站）'
+                },
                 items: {
                   type: 'array',
                   items: {
@@ -79,7 +79,7 @@ const tools = [
             },
           },
         },
-        required: ['summary', 'currency', 'city', 'days', 'startLocation', 'startTime'],
+        required: ['summary', 'currency', 'city', 'days', 'startTime'],
       },
     },
   },
@@ -142,7 +142,8 @@ router.post('/', async (req, res) => {
     3. 【停留時間設定】：請為每個實體景點評估合理的停留時間區間（格式為 "HH:mm~HH:mm"，例如 "09:30~11:30"）。
       - 評估基準：大型景點 2-3 小時、小型景點 1 小時、用餐 1.5 小時。
       - ⚠️ 注意：你只需要給出該景點的「停留時間」，絕對不需要在兩個景點之間手動預留交通空檔，系統會自己把後續時間往後推算。
-    4. 【每日統一出發時間】：每一天的第一個景點，請一律預設從 "09:00" 開始安排（除非使用者明確要求其他時間）。`;
+    4. 【每日起始位置】(可選)：如果有明確的出發起點（例如飯店、機場或車站），可在 days[].startLocation 填寫；若無特定起點，可留空讓使用者自行設定。
+    5. 【每日統一出發時間】：每一天的第一個景點，請一律預設從 "09:00" 開始安排（除非使用者明確要求其他時間）。`;
 
   // 注入記憶
   if (currentPlan) {

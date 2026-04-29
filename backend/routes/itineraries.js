@@ -87,9 +87,11 @@ function normalizeItineraryItem(rawItem) {
 
 function normalizeItineraryDay(rawDay) {
   if (!rawDay || typeof rawDay !== 'object') return rawDay;
+  const startLocation = normalizeItineraryText(rawDay.startLocation, ITINERARY_NAME_MAX_LENGTH);
 
   return {
     ...rawDay,
+    startLocation,
     items: Array.isArray(rawDay.items) ? rawDay.items.map((item) => normalizeItineraryItem(item)) : [],
   };
 }
@@ -99,11 +101,24 @@ function normalizeItineraryData(rawItineraryData) {
     return rawItineraryData;
   }
 
+  const legacyStartLocation = normalizeItineraryText(rawItineraryData.startLocation, ITINERARY_NAME_MAX_LENGTH);
+  const normalizedDays = Array.isArray(rawItineraryData.days)
+    ? rawItineraryData.days.map((day, index) => {
+      const normalizedDay = normalizeItineraryDay(day);
+      if (!normalizedDay || typeof normalizedDay !== 'object') return normalizedDay;
+
+      const dayStartLocation = normalizeItineraryText(normalizedDay.startLocation, ITINERARY_NAME_MAX_LENGTH);
+      const shouldApplyLegacy = index === 0 && !dayStartLocation && legacyStartLocation;
+      return {
+        ...normalizedDay,
+        startLocation: shouldApplyLegacy ? legacyStartLocation : dayStartLocation,
+      };
+    })
+    : [];
+
   return {
     ...rawItineraryData,
-    days: Array.isArray(rawItineraryData.days)
-      ? rawItineraryData.days.map((day) => normalizeItineraryDay(day))
-      : [],
+    days: normalizedDays,
   };
 }
 
