@@ -36,7 +36,7 @@ const ActivityItemCard = ({
 }) => {
   const { activeLocation, setActiveLocation, plan, token, setPlan, currencyConfig, displayCurrency, updateItemCost } = usePlanner();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [failedImageSrc, setFailedImageSrc] = useState(null);
+  const [failedImageState, setFailedImageState] = useState({ key: '', src: null });
   const [searchedPhotoReference, setSearchedPhotoReference] = useState(null);
   const [isEditingCost, setIsEditingCost] = useState(false);
   const [localCost, setLocalCost] = useState(item.cost ? Number(item.cost) : '');
@@ -59,6 +59,10 @@ const ActivityItemCard = ({
   const rawImageUrl = String(item.imageUrl || '').trim() || null;
   const directImageUrl = rawImageUrl && !isUnstableImageUrl(rawImageUrl) ? rawImageUrl : null;
   const cachedPhotoReference = PHOTO_REF_CACHE.get(lookupKey) || null;
+  const imageIdentityKey = useMemo(() => (
+    `${dayIdx}:${index}:${String(item.placeId || '')}:${String(item.photoReference || '')}:${String(item.imageUrl || '')}:${itemName}`
+  ), [dayIdx, index, item.placeId, item.photoReference, item.imageUrl, itemName]);
+  const failedImageSrc = failedImageState.key === imageIdentityKey ? failedImageState.src : null;
   const photoReference = searchedPhotoReference || cachedPhotoReference || item.photoReference || null;
   const fallbackPhotoUrl = photoReference
     ? getPhotoUrl(photoReference)
@@ -186,11 +190,7 @@ const ActivityItemCard = ({
 
     resolvePhotoReference();
     return () => controller.abort();
-  }, [directImageUrl, item.placeId, itemName, cityName, token, dayIdx, index, setPlan]);
-
-  useEffect(() => {
-    setFailedImageSrc(null);
-  }, [item.imageUrl, item.photoReference, item.placeId, item.name]);
+  }, [directImageUrl, item.placeId, itemName, cityName, token, dayIdx, index, setPlan, lookupKey]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -235,7 +235,7 @@ const ActivityItemCard = ({
                     src={photoUrl}
                     alt={item.name || '景點圖片'}
                     loading="lazy"
-                    onError={() => setFailedImageSrc(photoUrl)}
+                    onError={() => setFailedImageState({ key: imageIdentityKey, src: photoUrl })}
                   />
                 ) : (TYPE_ICON[item.type] || '📍')}
               </div>
