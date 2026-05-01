@@ -42,16 +42,10 @@ const ActivityItemCard = ({
   const [localCost, setLocalCost] = useState(item.cost ? Number(item.cost) : '');
   const menuRef = useRef(null);
   const attemptedLookupRef = useRef(new Set());
-  const itemIdentityKey = useMemo(
-    () => `${String(item.id ?? '')}::${String(item.placeId ?? '')}::${String(item.name ?? '').trim()}`,
-    [item.id, item.placeId, item.name],
-  );
 
   const isActive = activeLocation && 
                    Number(activeLocation.day) === (dayIdx + 1) && 
                    Number(activeLocation.order) === index;
-  const isHomeCurrency = displayCurrency === 'home';
-  const inputCurrencySymbol = isHomeCurrency ? currencyConfig.home : currencyConfig.local;
   
   const iconColor = TYPE_COLOR[item.type] || '#6b7280';
   const typeLabel = { sight: '景點', food: '美食', shopping: '購物', activity: '活動', hotel: '住宿', transport: '交通' }[item.type] || item.type;
@@ -192,7 +186,7 @@ const ActivityItemCard = ({
 
     resolvePhotoReference();
     return () => controller.abort();
-  }, [itemIdentityKey, cityName, token]);
+  }, [directImageUrl, item.placeId, itemName, cityName, token, dayIdx, index, setPlan]);
 
   useEffect(() => {
     setFailedImageSrc(null);
@@ -210,56 +204,19 @@ const ActivityItemCard = ({
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [menuOpen]);
 
-  useEffect(() => {
-    if (!isEditingCost) return;
-
-    const baseCost = Number(item.cost) || 0;
-    const nextCost = Math.round(
-      isHomeCurrency
-        ? baseCost * Number(currencyConfig.rate || 0)
-        : baseCost,
-    );
-
-    setLocalCost(nextCost);
-  }, [isEditingCost, isHomeCurrency, item.cost, currencyConfig.rate]);
-
-  const saveEditedCost = () => {
-    const numericCost = localCost === '' ? 0 : Number(localCost);
-    if (!Number.isFinite(numericCost)) {
-      setIsEditingCost(false);
-      return;
-    }
-
-    const normalizedCost = isHomeCurrency
-      ? (Number(currencyConfig.rate) > 0 ? numericCost / Number(currencyConfig.rate) : numericCost)
-      : numericCost;
-
-    updateItemCost(dayIdx, index, Math.round(normalizedCost));
-    setIsEditingCost(false);
-  };
-
   const [startTime, endTime] = String(item.time || '').split('~');
   const timeLabel = startTime && endTime
     ? `${String(startTime).trim()} - ${String(endTime).trim()}`
     : item.time;
 
   return (
-    <Draggable
-      draggableId={String(item.id ?? item.placeId ?? `item-${dayIdx}-${index}`)}
-      index={index}
-      isDragDisabled={isReadOnly}
-    >
+    <Draggable draggableId={`item-${dayIdx}-${index}-${item.name}`} index={index} isDragDisabled={isReadOnly}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
           className={`az-timeline-item-wrap ${isActive ? 'az-timeline-item-wrap--active' : ''}`}
-          onClick={(e) => {
-            if (e.target.closest('.budget-edit-zone')) {
-              return;
-            }
-            setActiveLocation({ day: dayIdx + 1, order: index });
-          }}
+          onClick={() => setActiveLocation({ day: dayIdx + 1, order: index })}
           style={provided.draggableProps.style}
         >
           <div className="az-timeline-node" aria-hidden="true">
@@ -302,30 +259,29 @@ const ActivityItemCard = ({
                   style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 >
                   {isEditingCost ? (
-                    <>
-                      <input
-                        type="number"
-                        autoFocus
-                        value={localCost}
-                        onChange={(e) => setLocalCost(e.target.value === '' ? '' : Number(e.target.value))}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={saveEditedCost}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            saveEditedCost();
-                          }
-                        }}
-                        style={{ width: '80px', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid #3b82f6', fontSize: '0.9rem' }}
-                        placeholder="0"
-                      />
-                      <span style={{ fontSize: '0.68rem', color: '#6b7280', letterSpacing: '0.02em' }}>
-                        {inputCurrencySymbol}
-                      </span>
-                    </>
+                    <input
+                      type="number"
+                      autoFocus
+                      value={localCost}
+                      onChange={(e) => setLocalCost(e.target.value === '' ? '' : Number(e.target.value))}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => {
+                        updateItemCost(dayIdx, index, localCost === '' ? 0 : localCost);
+                        setIsEditingCost(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          updateItemCost(dayIdx, index, localCost === '' ? 0 : localCost);
+                          setIsEditingCost(false);
+                        }
+                      }}
+                      style={{ width: '80px', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid #3b82f6', fontSize: '0.9rem' }}
+                      placeholder="0"
+                    />
                   ) : item.cost > 0 ? (
                     <span className="az-item-cost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setIsEditingCost(true); }}>
                       {displayCurrency === 'local'
-                        ? `${currencyConfig.local} ${Math.round(Number(item.cost)).toLocaleString()}`
+                        ? `${currencyConfig.local} ${Number(item.cost).toLocaleString()}`
                         : `${currencyConfig.home} ${Math.round(Number(item.cost) * currencyConfig.rate).toLocaleString()}`
                       }
                       <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>✏️</span>
