@@ -1154,3 +1154,228 @@ input, textarea { font-family: var(--font); }
   .az-trip-panel { display: none; }
   .az-map-panel { flex: 1; }
 }
+
+/* 容器捲動 */
+.az-proposal-view {
+  background: #fff;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow: hidden; /* 由子容器處理捲動 */
+}
+
+.az-proposal-scroll-area {
+  flex: 1;
+  overflow-y: auto; /* 核心：允許上下捲動 */
+  padding-right: 10px;
+}
+
+.az-proposal-scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.az-proposal-scroll-area::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 10px;
+}
+
+.az-proposal-header {
+  margin-bottom: 24px;
+}
+
+.az-proposal-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.az-proposal-title-row h3 {
+  font-size: 1.5rem;
+  color: #1f2937;
+  margin: 0;
+}
+
+.az-proposal-subtitle {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-top: 8px;
+}
+
+.az-proposal-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* 卡片容器 */
+.az-proposal-list-container {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 20px;
+}
+
+/* 方案卡片本體 */
+.az-proposal-item-card {
+  background: #fff;
+  border: 1px solid #edf2f7;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.az-proposal-item-card:hover {
+  border-color: #f97316;
+  box-shadow: 0 10px 15px -3px rgba(249, 115, 22, 0.1);
+}
+
+/* 卡片裝飾線 */
+.az-card-accent {
+  height: 4px;
+  background: linear-gradient(90deg, #f97316, #fb923c);
+}
+
+.az-card-content {
+  padding: 20px;
+}
+
+.az-card-tag {
+  display: inline-block;
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  margin-bottom: 12px;
+}
+
+.az-card-content h4 {
+  font-size: 1.2rem;
+  margin: 0 0 10px 0;
+  color: #111827;
+}
+
+.az-card-desc {
+  font-size: 0.9rem;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.az-card-hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.az-card-hashtags span {
+  font-size: 0.8rem;
+  color: #f97316;
+  font-weight: 500;
+}
+
+/* 景點預覽區 */
+.az-card-preview {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 20px;
+}
+
+.az-card-preview h5 {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.az-card-preview ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.az-card-preview li {
+  margin-bottom: 4px;
+}
+
+/* 選定按鈕 */
+.az-card-select-btn {
+  width: 100%;
+  background: #1f2937; /* 深色背景 */
+  color: #ffffff;
+  border: none;
+  padding: 14px;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 10px;
+}
+
+.az-card-select-btn:hover {
+  background: #f97316; /* 懸停變橘色 */
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.2);
+}
+
+.az-card-select-btn:active {
+  transform: translateY(0);
+}
+
+.az-proposal-footer-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin-top: 16px;
+}
+
+/* 雙按鈕佈局 */
+.az-card-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.az-card-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.az-btn-preview {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.az-btn-preview:hover {
+  background: #e5e7eb;
+}
+
+.az-btn-confirm {
+  background: #1f2937;
+  color: #fff;
+}
+
+.az-btn-confirm:hover {
+  background: #f97316; /* 懸停變橘色 */
+}
