@@ -42,7 +42,7 @@ const tools = [
                     type: 'object',
                     properties: {
                       time: { type: 'string', description: '24小時制波浪號分隔 (例如 "09:30~11:30")' },
-                      name: { type: 'string' },
+                      name: { type: 'string', description: '地點名稱。⚠️禁止與同日內其他地點重複。' },
                       type: { type: 'string', enum: ['sight', 'food', 'shopping', 'activity'] },
                       note: { type: 'string' },
                       placeId: { type: 'string' },
@@ -81,12 +81,12 @@ const tools = [
                 highlights: { 
                   type: 'array', 
                   items: { type: 'string' }, 
-                  description: '【禁令】：嚴禁與標題或描述內容重複。請填寫感性或氛圍類的標籤，如：#深度體驗 #不趕路 #攝影控首選' 
+                  description: '【禁令】：嚴禁與標題或描述內容重複。' 
                 },
                 daySummaries: { 
                   type: 'array', 
                   items: { type: 'string' }, 
-                  description: '每日具體地點大綱。⚠️禁止包含 Day X 或 第 X 天 字樣。' 
+                  description: '每日地點大綱。⚠️禁止包含 Day X 或 第 X 天 字樣，必須包含具體景點名。' 
                 },
                 itineraryData: { 
                   type: 'object', 
@@ -107,14 +107,12 @@ const tools = [
   },
 ];
 
-// ------------------ API: Chat Endpoint ------------------
 router.post('/', async (req, res) => {
   const { messages, currentPlan } = req.body; 
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
   const today = new Date().toISOString().split('T')[0];
   const city = currentPlan?.city || '依據對話判斷';
-  // 🚀 獲取當前天數，用於在 System Prompt 中提醒 AI
   const daysCountText = (currentPlan?.days && currentPlan.days.length > 0)
     ? `${currentPlan.days.length} 天`
     : '依據對話判斷';
@@ -123,27 +121,20 @@ router.post('/', async (req, res) => {
 
     【兩階段規劃規範】
     1. 初步提案階段 (generate_proposals)：
-      - 請提供 2-3 個方案。
-      - 'daySummaries' 必須包含具體景點名稱（如：大英博物館、倫敦塔橋）。
-      - ⚠️【格式禁令】：摘要中禁止包含 "Day X" 或 "第 X 天" 的字眼，直接描述景點即可。
-
+       - 提供 2-3 個方案。'daySummaries' 必須包含具體景點。
+       - ⚠️【格式禁令】：摘要禁止包含 "Day X" 或 "第 X 天"。
     2. 詳細規劃階段 (update_itinerary)：
-      - 當使用者選定後，才呼叫此工具產生完整的每日細節、座標與時間。
-
+       - 選定後生成完整 JSON。
     3. 【Hashtag 規範】：
-      - 'highlights' 陣列必須與 'title' 和 'description' 完全不同。
-      - 不要放景點名稱在 Hashtag 裡（景點應放在 daySummaries）。
-      - 範例：若標題是「雪梨文化之旅」，Hashtag 應為 #藝術巡禮 #歌劇院夜景 #文青必去，而非 #雪梨 #文化。
+       - 嚴禁與標題或描述重複。不要放景點名稱在 Hashtag。
 
     【目前的行程背景】
-    - 目的地：${city}
-    - 旅遊天數：${daysCountText}
+    - 目的地：${city} | 旅遊天數：${daysCountText}
 
-    【行程生成規則】
-    - items[].name 只能是地點名稱。
-    - 停留時間格式固定為 "HH:mm~HH:mm"。
-    - 預設首日 09:00 出發。
-    - 必須根據當地真實物價給予 cost 數值 (幣別：${currentPlan?.currency || '自動判定'})。`;
+    【行程生成規則 (⚠️多樣性與去重要求⚠️)】
+    1. 【禁止重複】：同一天 items[].name 絕對禁止重複。同點活動請合併至 note。
+    2. 【豐富度】：每天至少包含 3 個以上不同實體地點。避免全天待在單一商場。
+    3. 【規則】：停留時間固定為 "HH:mm~HH:mm"，首日 09:00 出發，使用當地真實物價。`;
 
   if (currentPlan) {
     systemContent += `\n【⚠️ 目前已有的行程資料】\n${JSON.stringify(currentPlan)}`;
@@ -165,28 +156,16 @@ router.post('/', async (req, res) => {
 
       if (toolCall.function.name === 'update_itinerary') {
         let enrichedPlan = args;
-        try {
-          enrichedPlan = await enrichItineraryImages(args);
-        } catch (e) { console.warn('Images failed', e); }
-
-        return res.json({
-          role: 'assistant',
-          content: `好的！這是我為您詳細規劃的「${enrichedPlan.summary}」行程。`,
-          plan: enrichedPlan,
-        });
+        try { enrichedPlan = await enrichItineraryImages(args); } catch (e) {}
+        return res.json({ role: 'assistant', content: `已規劃行程：${enrichedPlan.summary}`, plan: enrichedPlan });
       }
       
       if (toolCall.function.name === 'generate_proposals') {
-        return res.json({
-          role: 'assistant',
-          content: '我已經為您準備了幾個方案，選定後我會為您生成多天的詳細內容。',
-          proposals: args.proposals,
-        });
+        return res.json({ role: 'assistant', content: '為您準備了以下方案：', proposals: args.proposals });
       }
     }
 
     return res.json({ role: 'assistant', content: responseMessage.content, plan: null });
-
   } catch (err) {
     console.error('OpenAI Error:', err);
     res.status(500).json({ error: 'AI processing failed' });
