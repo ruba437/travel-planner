@@ -21,7 +21,7 @@ const PlannerContext = createContext();
 
 // 常數定義
 // eslint-disable-next-line react-refresh/only-export-components
-export const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+export const API_BASE = import.meta.env.VITE_BACKEND_URL;
 const DEFAULT_DAY_START_TIME = '09:00';
 const CHECKLIST_LIMIT = 50;
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
@@ -127,35 +127,23 @@ const normalizePlannerPlan = (planData) => normalizePlanImageUrls(normalizePlanD
 
 const normalizeChecklistItems = (items = []) => {
   if (!Array.isArray(items)) return [];
-
   return [...items]
-    .map((item, index) => {
-      const sortOrderValue = Number(item?.sortOrder);
-      return {
-        ...item,
-        sortOrder: Number.isFinite(sortOrderValue) ? Math.max(0, sortOrderValue) : index,
-      };
-    })
-    .sort((a, b) => {
-      const sortDiff = (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0);
-      if (sortDiff !== 0) return sortDiff;
-      return String(a.id).localeCompare(String(b.id));
-    })
     .map((item, index) => ({
       ...item,
-      sortOrder: index,
+      sortOrder: Number.isFinite(Number(item?.sortOrder)) ? Math.max(0, Number(item.sortOrder)) : index,
     }))
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.id).localeCompare(String(b.id)))
+    .map((item, index) => ({ ...item, sortOrder: index }))
     .slice(0, CHECKLIST_LIMIT);
 };
 
-// 輔助函數：時間正規化
 const normalizeTimeValue = (value, fallback = DEFAULT_DAY_START_TIME) => {
   const raw = String(value || '').trim();
   const m = raw.match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return fallback;
   const hh = Number(m[1]);
   const mm = Number(m[2]);
-  if (Number.isNaN(hh) || Number.isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 };
 
@@ -165,13 +153,12 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // --- 狀態管理 (States) ---
+  // --- 狀態管理 ---
   const [plan, setPlan] = useState(null);
   const [messages, setMessages] = useState([{ role: 'assistant', content: '嗨，我是旅遊小助手！我可以幫你安排行程。' }]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [activeLocation, setActiveLocation] = useState(null);
-  const [weatherData] = useState(null);
   const [totalBudget, setTotalBudget] = useState(50000);
   const [itineraryUuid, setItineraryUuid] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -192,8 +179,11 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   const [localCurrency, setLocalCurrency] = useState('TWD');
   const [currencyConfig, setCurrencyConfig] = useState({ local: 'TWD', home: 'TWD', rate: 1 });
   const [displayCurrency, setDisplayCurrency] = useState('local');
+  const [currentProposals, setCurrentProposals] = useState(null); 
+
   const autoSaveTimerRef = useRef(null);
   const lastSavedSnapshotRef = useRef('');
+  const autoSendTriggeredRef = useRef(false);
 
   const fetchExchangeRate = useCallback(async (local = 'TWD', home = 'TWD') => {
     if (local === home) {
@@ -222,10 +212,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
 
   // --- 核心邏輯 (Functions) ---
 
-  // 1. 取得交通時間 (🚀 強化防禦：防止 400 錯誤)
   const fetchTravelTime = useCallback(async (originItem, destItem, mode = 'TRANSIT') => {
     if (!originItem || !destItem) return 15;
-    
     const getPayload = (item) => {
       const lat = normalizeOptionalNumber(item?.lat ?? item?.location?.lat);
       const lng = normalizeOptionalNumber(item?.lng ?? item?.location?.lng);
@@ -246,11 +234,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
       }
       return name;
     };
-
     const origin = getPayload(originItem);
     const dest = getPayload(destItem);
-
-    // 💡 如果起點或終點資料不全，直接回傳預設 15 分鐘，不發送 API 請求
     if (!origin || !dest) return 15;
 
     // 額外座標檢查
@@ -260,60 +245,35 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     try {
       const res = await fetch(`${API_BASE}/api/places/directions`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          Authorization: `Bearer ${token}` 
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ origin, destination: dest, mode })
       });
-      
-      if (!res.ok) return 15; // 即使 API 回傳 400/500 也保底 15 分鐘
-
       const data = await res.json();
       if (data.routes?.length > 0) {
         const durationSeconds = data.routes[0].legs[0].duration.value;
-        // 以 15 分鐘為單位進位
         return Math.ceil(Math.ceil(durationSeconds / 60) / 15) * 15 || 15;
       }
-    } catch (e) { 
-      console.warn("Direction calculation skipped:", e.message); 
-    }
+    } catch (e) { console.warn(e.message); }
     return 15;
   }, [token]);
 
-  // 2. 重新計算全天時間 (非同步處理)
   const recalculateDayTimesAsync = useCallback(async (items, dayStartTime = '09:00', mode = 'TRANSIT') => {
     if (!items || items.length === 0) return items;
     let currentStartTime = normalizeTimeValue(dayStartTime);
     const newItems = [];
-
     for (let i = 0; i < items.length; i++) {
       const item = { ...items[i] };
-      
-      // 計算交通時間 (從第二個景點開始算)
-      let travelTime = 0;
-      if (i > 0) {
-        const itemMode = newItems[i - 1].travelMode || mode;
-        travelTime = await fetchTravelTime(newItems[i - 1], item, itemMode);
-      }
-
-      // 將當前起始時間加上交通時間
+      let travelTime = (i > 0) ? await fetchTravelTime(newItems[i - 1], item, newItems[i - 1].travelMode || mode) : 0;
       const [currH, currM] = currentStartTime.split(':').map(Number);
       const arrivalDate = new Date();
       arrivalDate.setHours(currH, currM + travelTime, 0, 0);
       const startTimeStr = `${String(arrivalDate.getHours()).padStart(2, '0')}:${String(arrivalDate.getMinutes()).padStart(2, '0')}`;
-
-      // 停留時間預設 120 分鐘
-      let durationMinutes = 120;
       const [startH, startM] = startTimeStr.split(':').map(Number);
       const assignedEndDate = new Date();
-      assignedEndDate.setHours(startH, startM + durationMinutes, 0, 0);
+      assignedEndDate.setHours(startH, startM + 120, 0, 0);
       const endTimeStr = `${String(assignedEndDate.getHours()).padStart(2, '0')}:${String(assignedEndDate.getMinutes()).padStart(2, '0')}`;
-      
       item.time = `${startTimeStr}~${endTimeStr}`;
       newItems.push(item);
-      
-      // 更新下一個景點的起算點
       currentStartTime = endTimeStr;
     }
     return newItems;
@@ -554,30 +514,18 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   // 3. AI 發送訊息與行程同步
   const handleSend = async (quickText) => {
     const text = typeof quickText === 'string' ? quickText.trim() : input.trim();
-    if (!text || (isSending && !quickText)) {
-      console.warn("🛑 handleSend 被攔截", { text, isSending, hasQuickText: !!quickText });
-      return;
-    }
-
-    if (!token) {
-      console.error("❌ handleSend 失敗：沒有 Token，無法呼叫 API");
-      return;
-    }
-    
+    if (!text || (isSending && !quickText)) return;
+    if (!token) return;
     const newHistory = [...messages, { role: 'user', content: text }];
     setMessages(newHistory);
     setInput('');
     setIsSending(true);
-
-    console.log("📡 正在發送請求至 AI...", { prompt: text });
-
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ messages: newHistory, currentPlan: plan })
       });
-      
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'AI 請求失敗');
 
@@ -668,14 +616,13 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
         if (nextPlan.currency) {
           setLocalCurrency(nextPlan.currency);
         }
+        setCurrentProposals(null);
+      } else if (Array.isArray(data.proposals) && data.proposals.length > 0) {
+        setCurrentProposals(data.proposals);
       }
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content || '行程已根據您的需求更新。' }]);
-    } catch (e) {
-      console.error("AI Chat Error:", e);
-      setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，系統目前忙碌中，請稍後再試。' }]);
-    } finally {
-      setIsSending(false);
-    }
+      setMessages(prev => [...prev, { role: 'assistant', content: data.content || '行程已更新。' }]);
+    } catch (e) { console.error(e); }
+    finally { setIsSending(false); }
   };
 
   // ========== 公開模式：載入公開行程 ==========
@@ -994,55 +941,21 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
   }, [isPublicMode, itineraryUuidParam, isLoadingItinerary, plan]);
 
   const generateChecklist = useCallback(async ({ silent = false, replaceExisting = false } = {}) => {
-    if (!itineraryUuid || isPublicMode) return { success: false, skipped: true };
-    if (!token) {
-      const message = '登入資訊尚未就緒，請稍後再試';
-      setAutoChecklistError(message);
-      if (!silent) {
-        setSaveMsg(message);
-        setTimeout(() => setSaveMsg(null), 2500);
-      }
-      return { success: false, error: message };
-    }
-
+    if (!itineraryUuid || isPublicMode || !token) return { success: false };
     setIsChecklistSyncing(true);
     setIsAutoGeneratingChecklist(true);
-    setAutoChecklistError(null);
-
     try {
-      const res = await fetch(`${API_BASE}/api/itineraries/${encodeURIComponent(itineraryUuid)}/generate-checklist`, {
+      const res = await fetch(`${API_BASE}/api/itineraries/${itineraryUuid}/generate-checklist`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ currentPlan: plan, replaceExisting }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currentPlan: plan, replaceExisting })
       });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || '生成行前清單失敗');
-
-      const nextItems = normalizeChecklistItems(Array.isArray(data.checklistItems) ? data.checklistItems : []);
+      const data = await res.json();
+      const nextItems = normalizeChecklistItems(data.checklistItems || []);
       setPackingItems(nextItems);
-
-      if (!silent) {
-        const nextMessage = replaceExisting
-          ? `已重新生成 ${nextItems.length} 項旅行準備`
-          : (data.addedCount > 0 ? `已補齊 ${data.addedCount} 項旅行準備` : '目前清單已齊全');
-        setSaveMsg(nextMessage);
-        setTimeout(() => setSaveMsg(null), 2200);
-      }
-
-      return { success: true, addedCount: Number(data.addedCount) || 0, checklistItems: nextItems };
-    } catch (error) {
-      const message = error?.message || '生成行前清單失敗';
-      setAutoChecklistError(message);
-      if (!silent) {
-        setSaveMsg(message);
-        setTimeout(() => setSaveMsg(null), 3000);
-      }
-      return { success: false, error: message };
-    } finally {
+      return { success: true, checklistItems: nextItems };
+    } catch (error) { return { success: false }; }
+    finally {
       setIsChecklistSyncing(false);
       setIsAutoGeneratingChecklist(false);
     }
@@ -1107,8 +1020,9 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     isAutoSaving,
     hasUnsavedChanges,
     isLoadingItinerary,
+    setIsLoadingItinerary,
     activeLocation, setActiveLocation,
-    weatherData,
+    // weatherData,
     handleSend,
     saveItinerary,
     recalculateDayTimesAsync,
@@ -1131,33 +1045,24 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     currencyConfig,
     displayCurrency,
     setDisplayCurrency,
+    currentProposals,
+    setCurrentProposals,
   };
 
   // ── 🚀 核心：自動發送偵測器 ──
   // 當 token 備妥且首頁有 prefill 請求時，自動執行 handleSend
-  const autoSendTriggeredRef = useRef(false);
   const handleSendRef = useRef(handleSend);
   handleSendRef.current = handleSend;
 
   useEffect(() => {
     const prefill = location?.state?.prefill;
-    
-    // 監控點：看看 token 到底長什麼樣子
-    console.log("🧐 自動發送檢查中:", { 
-      hasPrompt: !!prefill?.prompt, 
-      hasToken: !!token, 
-      isSending 
-    });
-
-    // 條件：有指令、有 Token、還沒發送過
     if (prefill?.autoSend && prefill?.prompt && token && !autoSendTriggeredRef.current) {
-      console.log("🚀 Provider: 條件備齊，準備調用 handleSend...");
       autoSendTriggeredRef.current = true;
 
       // 這裡直接呼叫，不再等 setTimeout，或者縮短時間
       handleSendRef.current(prefill.prompt);
     }
-  }, [token, location.state, isSending]);
+  }, [token, location.state, isSending, handleSend]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 };

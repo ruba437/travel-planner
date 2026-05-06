@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { PlannerProvider, usePlanner } from './PlannerProvider';
+import { PlannerProvider, usePlanner, API_BASE } from './PlannerProvider'; // 確保導出 API_BASE
 
 // 匯入子區段 (Segments)
 import NavigationSidebar from './segments/NavigationSidebar';
@@ -10,15 +10,14 @@ import ItineraryTimeline from './segments/ItineraryTimeline';
 import PrepChecklist from './segments/PrepChecklist';
 import ExpenseTracker from './segments/ExpenseTracker';
 import AiAssistantPanel from './segments/AiAssistantPanel';
+import ProposalPreviewer from './segments/ProposalPreviewer';
 
-// 匯入共用組件 (路徑對應 src/components/MapView.jsx)
+// 匯入共用組件
 import MapView from '../../components/MapView';
 
-// 匯入共用 Sidebar 樣式與頁面樣式
+// 匯入樣式
 import '../../styles/sidebar-shared.css';
 import './PlannerStyles.css';
-
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 const buildPhotoUrl = (photoReference) => {
   if (!photoReference) return null;
@@ -41,7 +40,8 @@ const PlannerContent = ({ isPublicMode = false }) => {
     hasUnsavedChanges,
     saveMsg,
     isLoadingItinerary,
-    plan,
+    setIsLoadingItinerary, // 確保從 Provider 導出此方法
+    plan, 
     setPlan,
     activeLocation,
     setActiveLocation,
@@ -51,29 +51,31 @@ const PlannerContent = ({ isPublicMode = false }) => {
     updateGlobalStartLocation,
     updateDayStartLocation,
     token,
-    setInput
+    handleSend,
+    setInput,
+    messages,
+    setMessages,
+    currentProposals, 
+    setCurrentProposals
   } = usePlanner();
 
   const location = useLocation();
   const { uuid: itineraryUuidParam } = useParams();
-  const hasAppliedPrefill = useRef(false); // 用於確保自動發送只執行一次
+  const hasAppliedPrefill = useRef(false);
 
-  // ── 🚀 自動處理首頁傳來的 AI 請求 ──
+  // ── 自動處理首頁傳來的 AI 請求 ──
   useEffect(() => {
-    // 只做一件事情：把首頁傳來的文字填入輸入框，其他的交給 Provider
     if (itineraryUuidParam || hasAppliedPrefill.current) return;
-
     const prefill = location?.state?.prefill;
     if (!prefill || !prefill.prompt) return;
 
-    hasAppliedPrefill.current = true; // 鎖定
-    setInput(prefill.prompt); // 只填入文字
+    hasAppliedPrefill.current = true; 
+    setInput(prefill.prompt); 
 
     if (prefill.autoSend) {
-      setShowAiPanel(true); // 只打開面板
-      console.log("🎯 已將指令填入，等待 Provider 執行...");
+      setShowAiPanel(true); 
     }
-  }, [itineraryUuidParam, location?.state?.prefill, setInput, setShowAiPanel]);
+  }, [location.pathname, location.search, itineraryUuidParam, location?.state?.prefill, setInput, setShowAiPanel]);
 
   // ── 處理從地圖點擊「加入行程」的邏輯 ──
   const handleAddLocation = async (locationData) => {
@@ -81,7 +83,6 @@ const PlannerContent = ({ isPublicMode = false }) => {
       alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
       return;
     }
-    
     const targetDayIdx = locationData.targetDayIndex;
     const newPlan = { ...plan, days: [...plan.days] };
     const dayItems = [...(plan.days[targetDayIdx].items || [])];
@@ -123,24 +124,81 @@ const PlannerContent = ({ isPublicMode = false }) => {
   const handleSetGlobalStartLocation = (locationData) => {
     updateGlobalStartLocation(locationData?.name || '');
   };
+  
+  /**
+   * 🚀 核心邏輯：向 LLM 請求詳細行程內容
+   */
+  const expandPlanDetail = async (proposalData) => {
+    setIsLoadingItinerary(true);
+    const baseProposal = proposalData?.itineraryData || proposalData?.itinerary_data || proposalData?.plan || proposalData || {};
+    const proposalTitle = proposalData?.title || baseProposal.title || baseProposal.summary || "選定方案";
+    const proposalDescription = proposalData?.description || '';
+    const proposalHighlights = Array.isArray(proposalData?.highlights) ? proposalData.highlights : [];
+    
+    try {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ 
+          messages: [
+            ...messages, 
+            {
+              role: 'user',
+              content: [
+                `我選定了方案：【${proposalTitle}】。請為這個方案生成完整的詳細行程數據。`,
+                proposalDescription ? `方案描述：${proposalDescription}` : '',
+                proposalHighlights.length > 0 ? `方案亮點：${proposalHighlights.join('、')}` : '',
+                `請直接呼叫 update_itinerary 工具，輸出每一天的具體項目(items)、座標、時間區間以及預算估算。`
+              ].filter(Boolean).join('\n')
+            }
+          ],
+          currentPlan: baseProposal // 用提案本身當作規劃上下文
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'AI 擴充行程失敗');
+
+      if (data.plan) {
+        // 重算時間與座標邏輯 (同步 Provider 的處理方式)
+        const nextPlan = { ...data.plan };
+        if (nextPlan.days) {
+          nextPlan.days = await Promise.all(
+            nextPlan.days.map(async (day) => {
+              const validItems = (day.items || []).filter(i => i && i.name?.trim());
+              const itemsWithTimes = await recalculateDayTimesAsync(validItems, day.startTime || '09:00');
+              return { ...day, items: itemsWithTimes };
+            })
+          );
+        }
+        return nextPlan;
+      }
+      return null;
+    } catch (e) {
+      console.error("Expansion Error:", e);
+      alert("AI 規劃詳細行程時發生錯誤，請稍後再試。");
+      return null;
+    } finally {
+      setIsLoadingItinerary(false);
+    }
+  };
 
   return (
     <div className="az-root">
-      {/* 載入中遮罩 */}
+      {/* 載入中遮罩 (包含二次擴充時的狀態) */}
       {isLoadingItinerary && (
         <div className="az-loading-overlay">
           <div className="az-spinner" />
-          <p>載入行程中...</p>
+          <p>AI 正在編寫詳細行程，請稍候...</p>
         </div>
       )}
 
-      {/* ── 左側導航側邊欄 ── */}
       {!isPublicMode && <NavigationSidebar />}
 
-      {/* ── 主要內容區 ── */}
       <div className="az-main">
-        
-        {/* 頂部工具列 (Topbar) */}
         <header className="az-topbar">
           <button className="az-topbar-icon-btn" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -149,7 +207,6 @@ const PlannerContent = ({ isPublicMode = false }) => {
             </svg>
           </button>
 
-          {/* 公開模式隱藏 AI 按鈕 */}
           {!isPublicMode && (
             <button 
               className={`az-topbar-btn ${showAiPanel ? 'az-topbar-btn--active' : ''}`} 
@@ -163,11 +220,7 @@ const PlannerContent = ({ isPublicMode = false }) => {
           )}
 
           <div className="az-topbar-status">
-            {isPublicMode && <span className="az-status-text" style={{ fontSize: '12px', color: '#999' }}>公開預覽模式</span>}
             {!isPublicMode && (isAutoSaving || isSaving) && <span className="az-status-text">保存中...</span>}
-            {!isPublicMode && !isAutoSaving && !isSaving && hasUnsavedChanges && (
-              <span className="az-status-text">保存中...</span>
-            )}
             {saveMsg && (
               <span className={`az-save-msg ${saveMsg === '已保存' ? 'az-save-msg--ok' : 'az-save-msg--err'}`}>
                 {saveMsg}
@@ -176,53 +229,61 @@ const PlannerContent = ({ isPublicMode = false }) => {
           </div>
 
           <div className="az-topbar-spacer" />
-
-          <button className="az-topbar-icon-btn" title="查看導航">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16 10,8"/>
-            </svg>
-          </button>
         </header>
 
-        {/* 內容包裹區 */}
         <div className="az-content-wrap">
-          
-          {/* ── 左側行程面板 ── */}
           <div className="az-trip-panel">
-            <TripHeroHeader isReadOnly={isPublicMode} />
+            {currentProposals && currentProposals.length > 0 ? (
+              <ProposalPreviewer 
+                proposals={currentProposals}
+                onCancel={() => setCurrentProposals(null)}
+                onPreview={async (proposal) => {
+                  const proposalData = proposal?.itineraryData || proposal?.itinerary_data || proposal?.plan || {};
 
-            <div className="az-tabs">
-              <button 
-                className={`az-tab ${activeTab === 'info' ? 'az-tab--active' : ''}`} 
-                onClick={() => setActiveTab('info')}
-              >
-                資訊
-              </button>
-              <button 
-                className={`az-tab ${activeTab === 'itinerary' ? 'az-tab--active' : ''}`} 
-                onClick={() => setActiveTab('itinerary')}
-              >
-                行程
-              </button>
-            </div>
-
-            <div className="az-tab-content">
-              {activeTab === 'info' ? (
-                <>
-                  <PrepChecklist isReadOnly={isPublicMode} />
-                  <ExpenseTracker isReadOnly={isPublicMode} />
-                </>
-              ) : (
-                <>
-                  <DayTabNavigator isReadOnly={isPublicMode} />
-                  <h2 className="az-itinerary-heading">行程詳情</h2>
-                  <ItineraryTimeline isReadOnly={isPublicMode} />
-                </>
-              )}
-            </div>
+                  // 🚀 如果是預位符或資料太少，立即去問 LLM 詳細行程
+                  if (proposalData.isPlaceholder || !proposalData.days || proposalData.days.length === 0) {
+                    const detailed = await expandPlanDetail(proposal);
+                    if (detailed) setPlan(detailed);
+                  } else {
+                    setPlan(proposalData);
+                    setActiveTab('itinerary');
+                  }
+                }}
+                onConfirm={async (proposal) => {
+                  // 🚀 選定時無論如何都重新請求最詳細的版本
+                  const detailed = await expandPlanDetail(proposal);
+                  if (detailed) {
+                    setPlan(detailed);
+                    setCurrentProposals(null);
+                    setActiveTab('itinerary');
+                  }
+                }}
+              />
+            ) : (
+              <>
+                <TripHeroHeader isReadOnly={isPublicMode} />
+                <div className="az-tabs">
+                  <button className={`az-tab ${activeTab === 'info' ? 'az-tab--active' : ''}`} onClick={() => setActiveTab('info')}>資訊</button>
+                  <button className={`az-tab ${activeTab === 'itinerary' ? 'az-tab--active' : ''}`} onClick={() => setActiveTab('itinerary')}>行程</button>
+                </div>
+                <div className="az-tab-content">
+                  {activeTab === 'info' ? (
+                    <>
+                      <PrepChecklist isReadOnly={isPublicMode} />
+                      <ExpenseTracker isReadOnly={isPublicMode} />
+                    </>
+                  ) : (
+                    <>
+                      <DayTabNavigator isReadOnly={isPublicMode} />
+                      <h2 className="az-itinerary-heading">行程詳情</h2>
+                      <ItineraryTimeline isReadOnly={isPublicMode} />
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
-          {/* ── 右側地圖面板 ── */}
           <div className="az-map-panel">
             <MapView 
               plan={plan}
@@ -239,15 +300,11 @@ const PlannerContent = ({ isPublicMode = false }) => {
         </div>
       </div>
 
-      {/* ── 浮動 AI 助手面板（公開模式不顯示） ── */}
       {!isPublicMode && showAiPanel && <AiAssistantPanel />}
     </div>
   );
 };
 
-/**
- * PlannerPage: 導出組件
- */
 const PlannerPage = ({ isPublicMode = false }) => {
   return (
     <PlannerProvider isPublicMode={isPublicMode}>

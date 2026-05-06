@@ -9,12 +9,13 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 2. 定義 AI 工具
 const tools = [
   {
     type: 'function',
     function: {
       name: 'update_itinerary',
-      description: '【僅在確認起點與時間後呼叫】生成包含起點與出發時間的完整旅遊行程。',
+      description: '【詳細規劃階段】當使用者選定方案或要求詳細行程時呼叫。生成包含每日時段、景點名稱、座標與花費的完整 JSON。',
       parameters: {
         type: 'object',
         properties: {
@@ -71,59 +72,85 @@ const tools = [
                         description: "該項目的預估花費（以當地貨幣估算，僅數字）。【極度重要：當地物價數量級】所有的 cost 必須嚴格使用你判定的 currency（當地貨幣）的真實物價水準來估算！絕不可使用美金 (USD) 的數字直接套用。參考基準：如果是 JPY (日圓)：一般小吃/簡餐約 1000~2000，正式餐廳 3000~5000，景點門票約 1500~3000。如果是 KRW (韓元)：一般簡餐約 10000~15000，咖啡廳約 5000~8000。如果是 TWD (台幣)：一般小吃約 100~200，餐廳約 500~1000。免費景點（如公園、走路逛街）請嚴格填寫 0。請確保生成的數字符合當地的真實生活成本！" 
                       }
                     },
-                    required: ['time', 'name', 'type', "cost"],
-                  },
-                },
-              },
-              required: ['day', 'items'],
-            },
-          },
+                    required: ['time', 'name', 'type', 'cost']
+                  }
+                }
+              }
+            } 
+          }
         },
         required: ['summary', 'currency', 'city', 'days', 'startTime'],
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_proposals',
+      description: '產生 2-3 個行程提案。每個提案必須包含基礎的 itineraryData 物件，即使裡面只有城市名稱。',
+      parameters: {
+        type: 'object',
+        properties: {
+          proposals: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                description: { type: 'string' },
+                highlights: { type: 'array', items: { type: 'string' } },
+                // 🚀 強制要求此物件存在
+                itineraryData: { 
+                  type: 'object', 
+                  properties: {
+                    city: { type: 'string' },
+                    summary: { type: 'string' }
+                  },
+                  required: ['city'] 
+                }
+              },
+              required: ['id', 'title', 'description', 'highlights', 'itineraryData'] // 🚀 設為必填
+            }
+          }
+        },
+        required: ['proposals'],
+      },
+    },
+  }
 ];
 
 // ------------------ API: Chat Endpoint ------------------
 router.post('/', async (req, res) => {
-  const systemMsg = {
-    role: 'system',
-    content: `你是一個旅遊助手。當使用者提及預算限制（例如：我的預算是兩萬）或要求行程時：
-    1. 請估算各項活動 cost。
-    2. 請在 update_itinerary 的 totalBudget 欄位填入：
-      - 若使用者有指定預算，則填入該金額。
-      - 若使用者沒指定，則填入你估算完所有活動後的總和加 10% 作為緩衝。`
-  };
   const { messages, currentPlan } = req.body; 
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
   const today = new Date().toISOString().split('T')[0];
-
   const city = currentPlan?.city || '依據對話判斷';
-  const daysCount = currentPlan?.days?.length ? `${currentPlan.days.length} 天` : '依據對話判斷';
+  const daysCountText = Array.isArray(currentPlan?.days) && currentPlan.days.length > 0
+    ? `${currentPlan.days.length} 天`
+    : '依據對話判斷';
 
-  // 🔥 構建 System Prompt：調整為「主動型」助理
-  let systemContent = `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
-    【核心任務】
-    1. 若使用者提供具體目的地：請安排該城市最經典、熱門且順路的行程。
-    2. 若使用者提供客製化需求（如：預算、寵物、特定愛好）：
-      - 你必須優先滿足這些「標籤條件」。
-      - 如果使用者沒指定城市，請根據需求推薦最適合的城市並說明原因。
-      - 解析需求中的情緒價值（如「放鬆」= 行程不要太趕）。
+  let systemContent = `你是一位專業的全球旅遊規劃助理。今天是 ${today}。
 
     【貨幣判定規則】：請根據使用者要求的旅遊目的地，自動判定當地的通用貨幣，並在 "currency" 欄位中回傳標準的 ISO 4217 三碼字串（例如去日本請回傳 "JPY"，去韓國回傳 "KRW"，去台灣回傳 "TWD"，去美國回傳 "USD" 等）。
 
     【目前的行程背景資訊】
     - 目的地：${city}
-    - 旅遊天數：${daysCount} 天
+    - 旅遊天數：${daysCountText}
     - 出發與日期資訊：(請參考使用者的第一句對話)
+    
+    【兩階段規劃流程】
+    1. 初步提案階段 (generate_proposals)：
+       - 當使用者提出客製化需求時，請提供 2-3 個風格迥異的提案。
+       - 此階段「不需要」產出詳細的景點清單，只需標題、描述與亮點。
+       - 這是為了讓使用者先進行「比較與選定」。
 
-    【關於時間安排的特殊指令】
-    1. 若使用者要求「不要時間限制」或表現出隨性意圖：
-      - 在 'update_itinerary' 的 items[].time 欄位中，不要填寫具體時間（如 09:00~11:00）。
-      - 請改填寫「建議時段」，例如：「上午」、「午餐後」、「下午」、「傍晚」或「彈性」。
-      - 確保行程的順序依然是合理的地理路徑，但不再受具體小時限制。
+    2. 詳細規劃階段 (update_itinerary)：
+       - 當使用者說「選定某方案」、「就這個」或點擊預覽詳細行程時。
+       - 你必須針對該方案擴充為「完整的每日行程」。
+       - 必須包含具體的時間(time)、景點(name)與花費(cost)。
+       - 隨性模式下，時間可填寫「上午/下午」。
 
     【行程規劃標準作業程序 (SOP)】：
     系統已經透過前端介面獲取了上述的旅遊資訊，請依照以下最高指導原則進行對話與規劃：
@@ -160,10 +187,7 @@ router.post('/', async (req, res) => {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini', 
-      messages: [
-        { role: 'system', content: systemContent },
-        ...messages
-      ],
+      messages: [{ role: 'system', content: systemContent }, ...messages],
       tools: tools,
       tool_choice: 'auto',
     });
@@ -172,10 +196,9 @@ router.post('/', async (req, res) => {
 
     if (responseMessage.tool_calls) {
       const toolCall = responseMessage.tool_calls[0];
+      const itineraryArgs = JSON.parse(toolCall.function.arguments);
       if (toolCall.function.name === 'update_itinerary') {
-        const itineraryArgs = JSON.parse(toolCall.function.arguments);
         let enrichedPlan = itineraryArgs;
-
         try {
           enrichedPlan = await enrichItineraryImages(itineraryArgs);
         } catch (error) {
@@ -184,17 +207,21 @@ router.post('/', async (req, res) => {
 
         return res.json({
           role: 'assistant',
-          content: `沒問題！已為您生成行程：${enrichedPlan.summary} ${enrichedPlan.startDate ? `(出發日: ${enrichedPlan.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
+          content: `好的！這是我為您詳細規劃的「${enrichedPlan.summary}」行程。`,
           plan: enrichedPlan,
+        });
+      }
+      
+      if (toolCall.function.name === 'generate_proposals') {
+        return res.json({
+          role: 'assistant',
+          content: '我已經根據您的需求準備了幾個不同的方案，您可以先預覽大綱，選定後我會為您生成詳細內容。',
+          proposals: itineraryArgs.proposals,
         });
       }
     }
 
-    return res.json({
-      role: 'assistant',
-      content: responseMessage.content,
-      plan: null,
-    });
+    return res.json({ role: 'assistant', content: responseMessage.content, plan: null });
 
   } catch (err) {
     console.error('OpenAI Error:', err);

@@ -4,7 +4,7 @@ import { useAuth } from '../Authentication/AuthContext';
 import '../../styles/sidebar-shared.css';
 import './HomePage.css';
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL;
 
 const DESTINATION_IMAGES = {
   '東京': 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&q=80',

@@ -217,12 +217,12 @@ function MapView({
   const selectedMarkerIsPoi = Boolean(selectedMarker?.isPoi);
 
   const markerPlanSnapshot = useMemo(() => {
-    if (!plan || !Array.isArray(plan.days) || plan.days.length === 0) return null;
+    if (!plan) return null;
 
     return {
       city: String(plan.city || '').trim(),
       startLocation: getStartLocationText(plan.startLocation),
-      days: plan.days.map((day, index) => ({
+      days: Array.isArray(plan.days) ? plan.days.map((day, index) => ({
         day: Number(day?.day) || index + 1,
         startLocation: getStartLocationText(day?.startLocation),
         items: (Array.isArray(day?.items) ? day.items : []).map((item, index) => ({
@@ -232,7 +232,7 @@ function MapView({
           type: String(item?.type || ''),
           order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index,
         })),
-      })),
+      })) : [],
     };
   }, [plan]);
 
@@ -815,7 +815,7 @@ function MapView({
 
       {renderRouteCard()}
 
-      {(!plan || !plan.days || plan.days.length === 0) ? (
+      {(!plan || (!plan.city && (!plan.days || plan.days.length === 0))) ? (
          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: '14px' }}>
            尚未產生行程，暫不顯示地圖。
          </div>
