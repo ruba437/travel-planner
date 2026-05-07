@@ -1746,8 +1746,8 @@ input, textarea { font-family: var(--font); }
 .az-card-hashtags {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: 6px;
+  margin-bottom: 16px;
 }
 
 .az-card-hashtags span {
@@ -1851,4 +1851,62 @@ input, textarea { font-family: var(--font); }
 
 .az-btn-confirm:hover {
   background: #f97316; /* 懸停變橘色 */
+}
+
+.az-proposal-summary-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.az-proposal-summary-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.az-proposal-summary-list li:last-child {
+  border-bottom: none;
+}
+
+.az-proposal-summary-list strong {
+  color: #f97316;
+  margin-right: 4px;
+}
+
+.az-day-label {
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.az-day-text {
+  font-size: 0.9rem;
+  color: #374151;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.az-q-tag {
+  font-size: 0.75rem;
+  color: #6b7280; /* 改為較淡的灰色 */
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  border: 1px solid #e5e7eb;
+}
+
+/* 移除橘色邊框，改用低調的灰色，讓畫面不雜亂 */
+.az-q-tag:hover {
+  color: #ea580c;
+  border-color: #fb923c;
+  background: #fff7ed;
 }

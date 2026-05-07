@@ -237,21 +237,10 @@ const PlannerContent = ({ isPublicMode = false }) => {
               <ProposalPreviewer 
                 proposals={currentProposals}
                 onCancel={() => setCurrentProposals(null)}
-                onPreview={async (proposal) => {
-                  const proposalData = proposal?.itineraryData || proposal?.itinerary_data || proposal?.plan || {};
-
-                  // 🚀 如果是預位符或資料太少，立即去問 LLM 詳細行程
-                  if (proposalData.isPlaceholder || !proposalData.days || proposalData.days.length === 0) {
-                    const detailed = await expandPlanDetail(proposal);
-                    if (detailed) setPlan(detailed);
-                  } else {
-                    setPlan(proposalData);
-                    setActiveTab('itinerary');
-                  }
-                }}
                 onConfirm={async (proposal) => {
-                  // 🚀 選定時無論如何都重新請求最詳細的版本
-                  const detailed = await expandPlanDetail(proposal);
+                  // 這裡的 proposal 就是 AI 傳回的單個方案物件
+                  // 執行之前寫好的 expandPlanDetail，讓 AI 產生詳細 JSON
+                  const detailed = await expandPlanDetail(proposal); 
                   if (detailed) {
                     setPlan(detailed);
                     setCurrentProposals(null);
