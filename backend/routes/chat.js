@@ -15,15 +15,12 @@ const tools = [
     type: 'function',
     function: {
       name: 'update_itinerary',
-      description: '【詳細規劃階段】當使用者選定方案或要求詳細行程時呼叫。生成包含每日時段、景點名稱、座標與花費的完整 JSON。',
+      description: '【詳細規劃階段】生成包含每日時段、具體地點、座標與花費的完整 JSON。當使用者選定某個方案或要求詳細行程時呼叫。',
       parameters: {
         type: 'object',
         properties: {
-          summary: { type: 'string', description: '行程的簡短中文概要' },
-          currency: { 
-            type: 'string', 
-            description: '標準 ISO 4217 三碼字串（例如 "JPY", "TWD"）。' 
-          },
+          summary: { type: 'string', description: '行程的簡短繁體中文概要' },
+          currency: { type: 'string', description: '標準 ISO 4217 三碼字串（例如 "JPY", "TWD"）。' },
           totalBudget: { type: "number", description: "預估總花費" },
           city: { type: 'string', description: '目的地城市（含國家）' },
           startDate: { type: 'string', description: 'YYYY-MM-DD' },
@@ -35,18 +32,15 @@ const tools = [
               properties: {
                 day: { type: 'number' },
                 title: { type: 'string' },
-                startLocation: { type: 'string' },
                 items: {
                   type: 'array',
                   items: {
                     type: 'object',
                     properties: {
                       time: { type: 'string', description: '24小時制波浪號分隔 (例如 "09:30~11:30")' },
-                      name: { type: 'string', description: '地點名稱。⚠️禁止與同日內其他地點重複。' },
+                      name: { type: 'string', description: '地點名稱。⚠️禁止與同日內重複。' },
                       type: { type: 'string', enum: ['sight', 'food', 'shopping', 'activity'] },
                       note: { type: 'string' },
-                      placeId: { type: 'string' },
-                      address: { type: 'string' },
                       lat: { type: 'number' },
                       lng: { type: 'number' },
                       cost: { type: "number" }
@@ -66,7 +60,7 @@ const tools = [
     type: 'function',
     function: {
       name: 'generate_proposals',
-      description: '【初步提案階段】當使用者提出需求時，產生 2-3 個風格迥異的方案大綱。必須包含每一天的標題。',
+      description: '【初步提案階段】產生 3 個風格大綱。此階段「禁止」產出詳細 items 地點清單。',
       parameters: {
         type: 'object',
         properties: {
@@ -77,23 +71,20 @@ const tools = [
               properties: {
                 id: { type: 'string' },
                 title: { type: 'string' },
-                description: { type: 'string', description: '方案的核心價值與風格描述。' },
+                description: { type: 'string', description: '方案風格與價值的中文描述。' },
                 highlights: { 
                   type: 'array', 
                   items: { type: 'string' }, 
-                  description: '【禁令】：嚴禁與標題或描述內容重複。' 
+                  description: '氛圍標籤，嚴禁與標題重複。' 
                 },
                 daySummaries: { 
                   type: 'array', 
                   items: { type: 'string' }, 
-                  description: '每日地點大綱。⚠️禁止包含 Day X 或 第 X 天 字樣，必須包含具體景點名。' 
+                  description: '每日一句話摘要。⚠️禁止包含 "Day X" 字樣。' 
                 },
                 itineraryData: { 
                   type: 'object', 
-                  properties: {
-                    city: { type: 'string' },
-                    summary: { type: 'string' }
-                  },
+                  properties: { city: { type: 'string' } },
                   required: ['city'] 
                 }
               },
@@ -113,31 +104,48 @@ router.post('/', async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
   const city = currentPlan?.city || '依據對話判斷';
-  const daysCountText = (currentPlan?.days && currentPlan.days.length > 0)
-    ? `${currentPlan.days.length} 天`
-    : '依據對話判斷';
+  
+  // 🛡️ 強化版天數偵測 (避免出現 null)
+  let expectedDays = (currentPlan?.days && currentPlan.days.length > 0) ? currentPlan.days.length : null;
+  
+  if (!expectedDays) {
+    // 備援 1：從最後一則訊息抓取
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || "";
+    const match = lastUserMsg.match(/(\d+)\s*天/);
+    if (match) {
+      expectedDays = parseInt(match[1]);
+    } else {
+      // 備援 2：掃描整個對話紀錄
+      const fullText = messages.map(m => m.content).join(" ");
+      const globalMatch = fullText.match(/(\d+)\s*天/);
+      if (globalMatch) expectedDays = parseInt(globalMatch[1]);
+    }
+  }
+
+  // 顯示用的防錯字串
+  const displayDays = expectedDays || "多";
+  const daysCountText = expectedDays ? `${expectedDays} 天` : '依據對話判斷';
 
   let systemContent = `你是一位專業的全球旅遊規劃助理。今天是 ${today}。
 
-    【兩階段規劃規範】
-    1. 初步提案階段 (generate_proposals)：
-       - 提供 2-3 個方案。'daySummaries' 必須包含具體景點。
-       - ⚠️【格式禁令】：摘要禁止包含 "Day X" 或 "第 X 天"。
-    2. 詳細規劃階段 (update_itinerary)：
-       - 選定後生成完整 JSON。
-    3. 【Hashtag 規範】：
-       - 嚴禁與標題或描述重複。不要放景點名稱在 Hashtag。
+    【語言規範：繁體中文】
+    - ⚠️ 你必須「全程使用繁體中文」回答。
 
-    【目前的行程背景】
-    - 目的地：${city} | 旅遊天數：${daysCountText}
+    【兩階段流程邏輯】
+    1. 方案提案 (generate_proposals)：
+       - 提供 3 個方案。'daySummaries' 長度必須精確等於 ${displayDays}。
+       - 此階段「僅限大綱」，禁止列出具體時段。
+    2. 詳細規劃 (update_itinerary)：
+       - 當使用者選定方案後呼叫。
+       - 'days' 陣列長度必須「精確等於」${displayDays} 天，嚴禁規劃 1 天。
 
-    【行程生成規則 (⚠️多樣性與去重要求⚠️)】
-    1. 【禁止重複】：同一天 items[].name 絕對禁止重複。同點活動請合併至 note。
-    2. 【豐富度】：每天至少包含 3 個以上不同實體地點。避免全天待在單一商場。
-    3. 【規則】：停留時間固定為 "HH:mm~HH:mm"，首日 09:00 出發，使用當地真實物價。`;
+    【硬性規則】
+    - 目的地：${city} | 天數：${daysCountText}。
+    - 地點嚴禁重複。Hashtag 嚴禁與標題或描述重複。
+    - 每日規劃 3 個以上地點，使用當地幣別。`;
 
   if (currentPlan) {
-    systemContent += `\n【⚠️ 目前已有的行程資料】\n${JSON.stringify(currentPlan)}`;
+    systemContent += `\n【⚠️ 目前已有的行程資料背景】\n${JSON.stringify(currentPlan)}`;
   }
 
   try {
@@ -146,6 +154,7 @@ router.post('/', async (req, res) => {
       messages: [{ role: 'system', content: systemContent }, ...messages],
       tools: tools,
       tool_choice: 'auto',
+      temperature: 0.3, 
     });
 
     const responseMessage = completion.choices[0].message;
@@ -154,18 +163,43 @@ router.post('/', async (req, res) => {
       const toolCall = responseMessage.tool_calls[0];
       const args = JSON.parse(toolCall.function.arguments);
 
+      // --- 詳細規劃階段 ---
       if (toolCall.function.name === 'update_itinerary') {
         let enrichedPlan = args;
+        
+        // 物理裁切：確保回傳天數與預期一致
+        if (expectedDays && enrichedPlan.days && enrichedPlan.days.length > expectedDays) {
+          enrichedPlan.days = enrichedPlan.days.slice(0, expectedDays);
+        }
+
         try { enrichedPlan = await enrichItineraryImages(args); } catch (e) {}
-        return res.json({ role: 'assistant', content: `已規劃行程：${enrichedPlan.summary}`, plan: enrichedPlan });
+        
+        return res.json({ 
+          role: 'assistant', 
+          content: `好的！這是我為您詳細規劃的 ${displayDays} 天行程。`, 
+          plan: enrichedPlan 
+        });
       }
       
+      // --- 初步提案階段 ---
       if (toolCall.function.name === 'generate_proposals') {
-        return res.json({ role: 'assistant', content: '為您準備了以下方案：', proposals: args.proposals });
+        if (expectedDays) {
+          args.proposals = args.proposals.map(p => ({
+            ...p,
+            daySummaries: p.daySummaries.slice(0, expectedDays)
+          }));
+        }
+        return res.json({ 
+          role: 'assistant', 
+          content: `我為您準備了 3 個提案：`, 
+          proposals: args.proposals 
+        });
       }
     }
 
+    // 一般對話回覆
     return res.json({ role: 'assistant', content: responseMessage.content, plan: null });
+
   } catch (err) {
     console.error('OpenAI Error:', err);
     res.status(500).json({ error: 'AI processing failed' });

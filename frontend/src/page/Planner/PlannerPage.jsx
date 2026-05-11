@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { PlannerProvider, usePlanner, API_BASE } from './PlannerProvider'; // 確保導出 API_BASE
+import { PlannerProvider, usePlanner, API_BASE } from './PlannerProvider'; 
 
-// 匯入子區段 (Segments)
+// 匯入子區段
 import NavigationSidebar from './segments/NavigationSidebar';
 import TripHeroHeader from './segments/TripHeroHeader';
 import DayTabNavigator from './segments/DayTabNavigator';
@@ -12,10 +12,8 @@ import ExpenseTracker from './segments/ExpenseTracker';
 import AiAssistantPanel from './segments/AiAssistantPanel';
 import ProposalPreviewer from './segments/ProposalPreviewer';
 
-// 匯入共用組件
 import MapView from '../../components/MapView';
 
-// 匯入樣式
 import '../../styles/sidebar-shared.css';
 import './PlannerStyles.css';
 
@@ -24,46 +22,21 @@ const buildPhotoUrl = (photoReference) => {
   return `${API_BASE}/api/places/photo?ref=${encodeURIComponent(photoReference)}&maxwidth=400`;
 };
 
-/**
- * PlannerContent: 持有 UI 佈局與自動發送邏輯
- */
 const PlannerContent = ({ isPublicMode = false }) => {
   const { 
-    activeTab, 
-    setActiveTab, 
-    sidebarCollapsed, 
-    setSidebarCollapsed,
-    showAiPanel,
-    setShowAiPanel,
-    isSaving,
-    isAutoSaving,
-    hasUnsavedChanges,
-    saveMsg,
-    isLoadingItinerary,
-    setIsLoadingItinerary, // 確保從 Provider 導出此方法
-    plan, 
-    setPlan,
-    activeLocation,
-    setActiveLocation,
-    activeDayIdx,
-    setActiveDayIdx,
-    recalculateDayTimesAsync,
-    updateGlobalStartLocation,
-    updateDayStartLocation,
-    token,
-    handleSend,
-    setInput,
-    messages,
-    setMessages,
-    currentProposals, 
-    setCurrentProposals
+    activeTab, setActiveTab, sidebarCollapsed, setSidebarCollapsed,
+    showAiPanel, setShowAiPanel, isSaving, isAutoSaving, hasUnsavedChanges, saveMsg,
+    isLoadingItinerary, setIsLoadingItinerary, plan, setPlan,
+    activeLocation, setActiveLocation, activeDayIdx, setActiveDayIdx,
+    recalculateDayTimesAsync, updateGlobalStartLocation, updateDayStartLocation,
+    token, handleSend, setInput, messages, setMessages,
+    currentProposals, setCurrentProposals
   } = usePlanner();
 
   const location = useLocation();
   const { uuid: itineraryUuidParam } = useParams();
   const hasAppliedPrefill = useRef(false);
 
-  // ── 自動處理首頁傳來的 AI 請求 ──
   useEffect(() => {
     if (itineraryUuidParam || hasAppliedPrefill.current) return;
     const prefill = location?.state?.prefill;
@@ -77,7 +50,6 @@ const PlannerContent = ({ isPublicMode = false }) => {
     }
   }, [location.pathname, location.search, itineraryUuidParam, location?.state?.prefill, setInput, setShowAiPanel]);
 
-  // ── 處理從地圖點擊「加入行程」的邏輯 ──
   const handleAddLocation = async (locationData) => {
     if (!plan || !plan.days || plan.days.length === 0 || locationData.targetDayIndex === undefined) {
       alert('請先讓 AI 產生一個基本的行程，才能手動加入景點喔！');
@@ -116,7 +88,6 @@ const PlannerContent = ({ isPublicMode = false }) => {
   const handleSetStartLocation = (locationData) => {
     if (!plan || !Array.isArray(plan.days)) return;
     if (!Number.isInteger(locationData?.targetDayIndex)) return;
-
     updateDayStartLocation(locationData.targetDayIndex, locationData.name);
     setActiveDayIdx(locationData.targetDayIndex);
   };
@@ -127,11 +98,31 @@ const PlannerContent = ({ isPublicMode = false }) => {
   
   /**
    * 🚀 核心邏輯：向 LLM 請求詳細行程內容
+   * 職責：將初步提案 (Proposal) 擴充為包含具體時間、地點與座標的完整行程
    */
   const expandPlanDetail = async (proposalData) => {
     setIsLoadingItinerary(true);
+    
+    // 1. 🛡️ 鎖定預期天數：優先從現有 plan 獲取，若無則從提案摘要長度判斷
+    const expectedDays = 
+      plan?.days?.length ||                             // 來源 1: 現有的行程物件
+      proposalData?.daySummaries?.length ||            // 來源 2: 提案中的摘要陣列長度
+      (proposalData?.itineraryData?.days?.length) ||   // 來源 3: 提案內部的原始數據
+      0;
+    
+    if (expectedDays <= 0) {
+      console.error("無法偵測旅遊天數", { plan, proposalData });
+      alert("偵測不到行程天數，請嘗試重新整理頁面或重新對話。");
+      setIsLoadingItinerary(false);
+      return null;
+    }
+
+    console.log(`[Debug] 鎖定擴充天數為: ${expectedDays} 天`);
+
+    // 2. 準備提案基礎資訊
     const baseProposal = proposalData?.itineraryData || proposalData || {};
     const proposalTitle = proposalData?.title || baseProposal.summary || "選定方案";
+    const proposalDescription = proposalData?.description || '';
     
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
@@ -145,20 +136,39 @@ const PlannerContent = ({ isPublicMode = false }) => {
             ...messages, 
             {
               role: 'user',
-              content: `我選定了方案：【${proposalTitle}】。請生成完整詳細行程。⚠️要求：每日地點禁止重複，同點活動請合併。`
+              content: [
+                `我選定了方案：【${proposalTitle}】。`,
+                `請為這個方案生成詳細行程。`,
+                `⚠️【硬性限制】：`,
+                `1. 旅遊總天數必須「精確等於 ${expectedDays} 天」。`,
+                `2. 請完整規劃 Day 1 到 Day ${expectedDays} 的所有項目，嚴禁只給一天。`,
+                `3. 必須使用「繁體中文」產出所有景點名稱、說明與概要。`,
+                `4. 每日地點禁止重複，若同一地點有多個活動，請合併為一個項目並在 note 說明。`,
+                `請呼叫 update_itinerary 工具產出結果。`
+              ].join('\n')
             }
           ],
-          currentPlan: null 
+          // 🚀 傳入目前的 plan 背景，讓後端計算 expectedDays 並對齊天數
+          currentPlan: { ...plan, days: plan?.days || new Array(expectedDays).fill({}) }
         })
       });
       
       const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'AI 擴充行程失敗');
+
       if (data.plan) {
-        const nextPlan = { ...data.plan };
+        let nextPlan = { ...data.plan };
+        
+        // 3. 🛡️ 前端裁切保險：防止 AI 幻覺產生多餘天數
+        if (nextPlan.days && nextPlan.days.length > expectedDays) {
+          console.warn(`[Correction] AI generated extra days. Trimming to ${expectedDays}.`);
+          nextPlan.days = nextPlan.days.slice(0, expectedDays);
+        }
+
+        // 4. 🛡️ 地點去重與時間軸自動校正
         if (nextPlan.days) {
           nextPlan.days = await Promise.all(
             nextPlan.days.map(async (day) => {
-              // 🛡️ 實作 Set 去重
               const seenNames = new Set();
               const uniqueItems = (day.items || []).filter(item => {
                 const name = item.name?.trim();
@@ -169,16 +179,24 @@ const PlannerContent = ({ isPublicMode = false }) => {
                 return false;
               });
 
-              // 重新計算時間軸
-              const itemsWithTimes = await recalculateDayTimesAsync(uniqueItems, day.startTime || '09:00');
+              // 重新計算時間，確保行程連續且符合 startTime
+              const itemsWithTimes = await recalculateDayTimesAsync(
+                uniqueItems, 
+                day.startTime || '09:00'
+              );
+              
               return { ...day, items: itemsWithTimes };
             })
           );
         }
+        
         return nextPlan;
       }
+      return null;
     } catch (e) {
       console.error("Expansion Error:", e);
+      alert("AI 規劃詳細行程時發生錯誤，請稍後再試。");
+      return null;
     } finally {
       setIsLoadingItinerary(false);
     }
@@ -186,7 +204,6 @@ const PlannerContent = ({ isPublicMode = false }) => {
 
   return (
     <div className="az-root">
-      {/* 載入中遮罩 (包含二次擴充時的狀態) */}
       {isLoadingItinerary && (
         <div className="az-loading-overlay">
           <div className="az-spinner" />
@@ -236,8 +253,6 @@ const PlannerContent = ({ isPublicMode = false }) => {
                 proposals={currentProposals}
                 onCancel={() => setCurrentProposals(null)}
                 onConfirm={async (proposal) => {
-                  // 這裡的 proposal 就是 AI 傳回的單個方案物件
-                  // 執行之前寫好的 expandPlanDetail，讓 AI 產生詳細 JSON
                   const detailed = await expandPlanDetail(proposal); 
                   if (detailed) {
                     setPlan(detailed);
