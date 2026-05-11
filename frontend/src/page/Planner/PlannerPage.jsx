@@ -130,10 +130,8 @@ const PlannerContent = ({ isPublicMode = false }) => {
    */
   const expandPlanDetail = async (proposalData) => {
     setIsLoadingItinerary(true);
-    const baseProposal = proposalData?.itineraryData || proposalData?.itinerary_data || proposalData?.plan || proposalData || {};
-    const proposalTitle = proposalData?.title || baseProposal.title || baseProposal.summary || "選定方案";
-    const proposalDescription = proposalData?.description || '';
-    const proposalHighlights = Array.isArray(proposalData?.highlights) ? proposalData.highlights : [];
+    const baseProposal = proposalData?.itineraryData || proposalData || {};
+    const proposalTitle = proposalData?.title || baseProposal.summary || "選定方案";
     
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
@@ -147,40 +145,40 @@ const PlannerContent = ({ isPublicMode = false }) => {
             ...messages, 
             {
               role: 'user',
-              content: [
-                `我選定了方案：【${proposalTitle}】。請為這個方案生成完整的詳細行程數據。`,
-                proposalDescription ? `方案描述：${proposalDescription}` : '',
-                proposalHighlights.length > 0 ? `方案亮點：${proposalHighlights.join('、')}` : '',
-                `請直接呼叫 update_itinerary 工具，輸出每一天的具體項目(items)、座標、時間區間以及預算估算。`
-              ].filter(Boolean).join('\n')
+              content: `我選定了方案：【${proposalTitle}】。請生成完整詳細行程。⚠️要求：每日地點禁止重複，同點活動請合併。`
             }
           ],
-          currentPlan: baseProposal // 用提案本身當作規劃上下文
+          currentPlan: null 
         })
       });
       
       const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'AI 擴充行程失敗');
-
       if (data.plan) {
-        // 重算時間與座標邏輯 (同步 Provider 的處理方式)
         const nextPlan = { ...data.plan };
         if (nextPlan.days) {
           nextPlan.days = await Promise.all(
             nextPlan.days.map(async (day) => {
-              const validItems = (day.items || []).filter(i => i && i.name?.trim());
-              const itemsWithTimes = await recalculateDayTimesAsync(validItems, day.startTime || '09:00');
+              // 🛡️ 實作 Set 去重
+              const seenNames = new Set();
+              const uniqueItems = (day.items || []).filter(item => {
+                const name = item.name?.trim();
+                if (name && !seenNames.has(name)) {
+                  seenNames.add(name);
+                  return true;
+                }
+                return false;
+              });
+
+              // 重新計算時間軸
+              const itemsWithTimes = await recalculateDayTimesAsync(uniqueItems, day.startTime || '09:00');
               return { ...day, items: itemsWithTimes };
             })
           );
         }
         return nextPlan;
       }
-      return null;
     } catch (e) {
       console.error("Expansion Error:", e);
-      alert("AI 規劃詳細行程時發生錯誤，請稍後再試。");
-      return null;
     } finally {
       setIsLoadingItinerary(false);
     }
