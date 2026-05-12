@@ -131,6 +131,10 @@ export default function CityGuidePage() {
   const currentSection = isAuthenticated ? activeSection : undefined;
   const visibleNavItems = NAV_ITEMS.filter(({ key }) => isAuthenticated || (key !== 'trips' && key !== 'saved'));
 
+  useEffect(() => {
+    document.title = cityText ? `${cityText} 城市指南 | Travel Planner` : '城市指南 | Travel Planner';
+  }, [cityText]);
+
   const getUserInitial = () => {
     const n = user?.displayName || user?.displayname || user?.email || '?';
     return n.charAt(0).toUpperCase();
@@ -236,8 +240,7 @@ export default function CityGuidePage() {
             <div className="az-logo-icon">✈</div>
             {!sidebarCollapsed && (
               <div className="az-logo-texts">
-                <span className="az-logo-name">旅遊規劃器</span>
-                <span className="az-beta-badge">BETA</span>
+                <span className="az-logo-name">Rêverie 旅遊規劃器</span>
               </div>
             )}
           </div>

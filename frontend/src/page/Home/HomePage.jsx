@@ -91,6 +91,9 @@ export default function HomePage() {
 
   useEffect(() => { fetchHomeContent(); }, []);
   useEffect(() => {
+    document.title = '首頁 | Travel Planner';
+  }, []);
+  useEffect(() => {
     if (!token) { setLoading(false); setItineraries([]); return; }
     fetchItineraries();
   }, [token]);
@@ -250,8 +253,7 @@ export default function HomePage() {
             <div className="az-logo-icon">✈</div>
             {!sidebarCollapsed && (
               <div className="az-logo-texts">
-                <span className="az-logo-name">旅遊規劃器</span>
-                <span className="az-beta-badge">BETA</span>
+                <span className="az-logo-name">Rêverie 旅遊規劃器</span>
               </div>
             )}
           </div>

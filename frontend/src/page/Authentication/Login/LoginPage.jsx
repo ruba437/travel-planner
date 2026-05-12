@@ -1,6 +1,6 @@
 /* frontend/src/page/Authentication/Login/LoginPage.jsx */
 import './LoginPage.css';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../AuthContext';
 
 export default function LoginPage() {
@@ -11,6 +11,10 @@ export default function LoginPage() {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = `${isRegister ? '註冊帳號' : '登入'} | Travel Planner`;
+  }, [isRegister]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

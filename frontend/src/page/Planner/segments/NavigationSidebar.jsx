@@ -27,8 +27,7 @@ const NavigationSidebar = () => {
           <div className="az-logo-icon">✈</div>
           {!sidebarCollapsed && (
             <div className="az-logo-texts">
-              <span className="az-logo-name">旅遊規劃器</span>
-              <span className="az-beta-badge">BETA</span>
+              <span className="az-logo-name">Rêverie 旅遊規劃器</span>
             </div>
           )}
         </div>
