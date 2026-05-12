@@ -1,6 +1,7 @@
 /* frontend/src/page/Authentication/Login/LoginPage.jsx */
 import './LoginPage.css';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 
 export default function LoginPage() {
@@ -70,6 +71,13 @@ export default function LoginPage() {
               className="az-auth-input"
             />
             {error && <div className="az-auth-error" aria-live="polite">{error}</div>}
+            {!isRegister && (
+              <div className="az-auth-row">
+                <Link to="/forgot-password" className="az-auth-link">
+                  忘記密碼？
+                </Link>
+              </div>
+            )}
             <button type="submit" disabled={loading} className="az-auth-submit-btn">
               {loading ? '處理中...' : isRegister ? '註冊' : '登入'}
             </button>

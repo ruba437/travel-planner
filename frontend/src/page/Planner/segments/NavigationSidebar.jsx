@@ -92,15 +92,39 @@ const NavigationSidebar = () => {
         </button>
 
         {/* ── 使用者個人資訊與登出 ── */}
-        <div className="az-user-row">
-          <div className="az-avatar">{getUserInitial()}</div>
+        <div
+          className="az-user-row"
+          onClick={() => navigate('/settings/profile')}
+          title="個人設定"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && navigate('/settings/profile')}
+        >
+          <div
+            className="az-avatar"
+          >
+            {user?.profilephoto ? (
+              <img
+                src={user.profilephoto}
+                alt="頭像"
+                className="az-avatar-img"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            ) : (
+              getUserInitial()
+            )}
+          </div>
           {!sidebarCollapsed && (
             <>
               <div className="az-user-info">
                 <span className="az-user-name">{user?.displayName || user?.displayname || '使用者'}</span>
                 <span className="az-user-email">{user?.email}</span>
               </div>
-              <button className="az-user-chevron" onClick={logout} title="登出">
+              <button
+                className="az-user-chevron"
+                onClick={(e) => { e.stopPropagation(); logout(); }}
+                title="登出"
+              >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="6 9 12 3 18 9"/>
                   <polyline points="6 15 12 21 18 15"/>

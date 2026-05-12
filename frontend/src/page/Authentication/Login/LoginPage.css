@@ -112,6 +112,30 @@
 	line-height: 1.4;
 }
 
+.az-auth-row {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: -4px;
+}
+
+.az-auth-link {
+	color: var(--az-auth-teal);
+	font-size: 13px;
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.az-auth-link:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.az-auth-link:focus-visible {
+	outline: 2px solid rgba(12, 191, 176, 0.42);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
 .az-auth-submit-btn {
 	height: 44px;
 	border: none;

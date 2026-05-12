@@ -7,6 +7,9 @@ import './App.css' // 這裡保留基礎 Reset 樣式
 // 引入重構後的頁面
 import PlannerPage from './page/Planner/PlannerPage.jsx' 
 import LoginPage from './page/Authentication/Login/LoginPage.jsx'
+import ForgotPasswordPage from './page/Authentication/ForgotPassword/ForgotPasswordPage.jsx'
+import ResetPasswordPage from './page/Authentication/ResetPassword/ResetPasswordPage.jsx'
+import UserProfileSettingsPage from './page/UserProfile/UserProfileSettingsPage.jsx'
 import HomePage from './page/Home/HomePage.jsx'
 import GuideDetailPage from './page/Guide/GuideDetailPage.jsx'
 import CityGuidePage from './page/HotGuide/CityGuidePage.jsx' 
@@ -33,6 +36,9 @@ createRoot(document.getElementById('root')).render(
         <Routes>
           {/* 公開頁面 */}
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/settings/profile" element={<PrivateRoute><UserProfileSettingsPage /></PrivateRoute>} />
           <Route path="/" element={<HomePage />} />
           <Route path="/city/:city/guide" element={<CityGuidePage />} />
           <Route path="/u/:username/guide/:guideSlug" element={<GuideDetailPage />} />

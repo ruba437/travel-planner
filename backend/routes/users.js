@@ -1,68 +1,96 @@
-// backend/routes/pois.js
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken'); 
 const pool = require('../db');
+const authMiddleware = require('../middleware/auth');
 const { ok, err } = require('../utils/response');
 
-
-const optionalAuth = (req, _res, next) => {
-  req.userId = null;
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) return next();
+function normalizeProfilePhoto(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return null;
 
   try {
-    const token = header.slice(7);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.userId = Number(decoded?.id) || null;
+    const parsed = new URL(text);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    return parsed.toString();
   } catch (_e) {
-    req.userId = null;
+    return null;
   }
-  next();
-};
-// ═════════════════════════════════════════════════════════════════════
+}
 
-// POST /api/pois
-router.post('/', async (req, res) => {
+function normalizeDisplayName(value) {
+  const text = String(value || '').trim();
+  return text;
+}
+
+// GET /api/users/me
+router.get('/me', authMiddleware, async (req, res) => {
   try {
-    const { city_id, category, name, description, cover_image, star_rating, book_url, sort_order } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO public.city_pois
-         (city_id, category, name, description, cover_image, star_rating, book_url, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING *`,
-      [city_id, category, name, description, cover_image, star_rating ?? null, book_url ?? null, sort_order ?? 0]
+      'SELECT id, email, displayname, profilephoto FROM users WHERE id = $1',
+      [req.user.id]
     );
-    ok(res, rows[0]);
+
+    if (rows.length === 0) {
+      return err(res, '使用者不存在', 404);
+    }
+
+    return ok(res, rows[0]);
   } catch (e) {
-    console.error(e);
-    err(res, 'Failed to create POI');
+    console.error('Get user profile error:', e);
+    return err(res, '取得使用者資料失敗');
   }
 });
 
-// ════════════════════════════════════════════════════════════
-//  SAVED / FAVOURITES  (heart button)
-// ════════════════════════════════════════════════════════════
+// PATCH /api/users/me
+router.patch('/me', authMiddleware, async (req, res) => {
+  const canUpdateDisplayName = Object.prototype.hasOwnProperty.call(req.body || {}, 'displayname');
+  const canUpdateProfilePhoto = Object.prototype.hasOwnProperty.call(req.body || {}, 'profilephoto');
 
-// POST /api/pois/:id/save  — toggle save
-router.post('/:id/save', optionalAuth, async (req, res) => {
-  if (!req.userId) return err(res, 'Unauthorised', 401);
-  try {
-    const poiId = Number(req.params.id);
-    const existing = await pool.query(
-      `SELECT id FROM public.user_saved_pois WHERE userid = $1 AND poi_id = $2`,
-      [req.userId, poiId]
-    );
-    if (existing.rows.length) {
-      await pool.query(`DELETE FROM public.user_saved_pois WHERE userid = $1 AND poi_id = $2`, [req.userId, poiId]);
-      ok(res, { saved: false });
-    } else {
-      await pool.query(`INSERT INTO public.user_saved_pois (userid, poi_id) VALUES ($1,$2)`, [req.userId, poiId]);
-      ok(res, { saved: true });
+  if (!canUpdateDisplayName && !canUpdateProfilePhoto) {
+    return err(res, '可更新欄位僅支援 displayname 與 profilephoto', 400);
+  }
+
+  const values = [];
+  const assignments = [];
+
+  if (canUpdateDisplayName) {
+    const displayname = normalizeDisplayName(req.body.displayname);
+    if (!displayname || displayname.length > 60) {
+      return err(res, 'displayname 長度需介於 1 到 60 字', 400);
     }
+    values.push(displayname);
+    assignments.push(`displayname = $${values.length}`);
+  }
+
+  if (canUpdateProfilePhoto) {
+    const profilephoto = normalizeProfilePhoto(req.body.profilephoto);
+    if (req.body.profilephoto && !profilephoto) {
+      return err(res, 'profilephoto 必須是有效的 http/https URL', 400);
+    }
+    values.push(profilephoto);
+    assignments.push(`profilephoto = $${values.length}`);
+  }
+
+  values.push(req.user.id);
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users
+       SET ${assignments.join(', ')}, updatedat = CURRENT_TIMESTAMP
+       WHERE id = $${values.length}
+       RETURNING id, email, displayname, profilephoto`,
+      values
+    );
+
+    if (rows.length === 0) {
+      return err(res, '使用者不存在', 404);
+    }
+
+    return ok(res, rows[0]);
   } catch (e) {
-    console.error(e);
-    err(res, 'Failed to toggle save');
+    console.error('Update user profile error:', e);
+    return err(res, '更新使用者資料失敗');
   }
 });
 

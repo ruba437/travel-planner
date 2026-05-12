@@ -60,10 +60,67 @@ export function AuthProvider({ children }) {
     setToken(null);
     setUser(null);
   };
+
+  const forgotPassword = async (email) => {
+    const res = await fetch(`${API}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '忘記密碼請求失敗');
+    return data.message || '如果帳號存在，我們已寄出密碼重設信。';
+  };
+
+  const resetPassword = async (tokenValue, newPassword) => {
+    const res = await fetch(`${API}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tokenValue, newPassword }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '重設密碼失敗');
+    return data.message || '密碼已重設成功，請重新登入';
+  };
+
+  const updateProfile = async (fields) => {
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) throw new Error('未登入');
+
+    const res = await fetch(`${API}/api/users/me`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify(fields),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || '更新失敗');
+
+    // 同步更新 AuthContext 內的 user 狀態
+    setUser((prev) => ({ ...prev, ...data.data }));
+    return data.data;
+  };
   //
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        loading,
+        login,
+        register,
+        logout,
+        forgotPassword,
+        resetPassword,
+        updateProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

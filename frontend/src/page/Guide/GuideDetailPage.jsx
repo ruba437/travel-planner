@@ -261,7 +261,14 @@ export default function GuideDetailPage() {
           </button>
 
           {token ? (
-            <div className="az-user-row">
+            <div
+              className="az-user-row"
+              onClick={() => navigate('/settings/profile')}
+              role="button"
+              tabIndex={0}
+              title="個人設定"
+              onKeyDown={(e) => e.key === 'Enter' && navigate('/settings/profile')}
+            >
               <div className="az-avatar">{getUserInitial()}</div>
               {!sidebarCollapsed && (
                 <>
@@ -269,7 +276,7 @@ export default function GuideDetailPage() {
                     <span className="az-user-name">{user?.displayName || user?.displayname || ''}</span>
                     <span className="az-user-email">{user?.email}</span>
                   </div>
-                  <button className="az-user-chevron" onClick={logout} title="登出">
+                  <button className="az-user-chevron" onClick={(e) => { e.stopPropagation(); logout(); }} title="登出">
                     <ChevronUpDownIcon />
                   </button>
                 </>

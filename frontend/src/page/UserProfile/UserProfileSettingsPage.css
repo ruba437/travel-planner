@@ -1,0 +1,233 @@
+.az-profile-page {
+  --az-orange: #FF6934;
+  --az-teal: #0CBFB0;
+  --az-bg: #F5F5F7;
+  --az-surface: #FFFFFF;
+  --az-border: #E8E8EC;
+  --az-text: #1A1A2E;
+  --az-text-secondary: #6B7280;
+  --az-error: #dc2626;
+  --az-success-text: #0f766e;
+  --az-success-bg: #f0fdfa;
+  --az-success-border: #99f6e4;
+  --az-shadow: 0 24px 48px rgba(26, 26, 46, 0.12), 0 10px 20px rgba(26, 26, 46, 0.06);
+
+  min-height: 100vh;
+  display: grid;
+  place-items: start center;
+  padding: 48px 18px;
+  background: var(--az-bg);
+}
+
+.az-profile-shell {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.az-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.az-profile-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--az-border);
+  border-radius: 8px;
+  background: var(--az-surface);
+  color: var(--az-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.az-profile-back:hover {
+  color: var(--az-text);
+  border-color: #d1d5db;
+}
+
+.az-profile-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--az-text);
+  letter-spacing: -0.02em;
+}
+
+.az-profile-card {
+  background: var(--az-surface);
+  border: 1px solid var(--az-border);
+  border-radius: 18px;
+  padding: 32px 28px;
+  box-shadow: var(--az-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── Avatar ── */
+.az-profile-avatar-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.az-profile-avatar-img {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--az-border);
+}
+
+.az-profile-avatar-fallback {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, var(--az-orange), var(--az-teal));
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -0.01em;
+}
+
+/* ── Form ── */
+.az-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.az-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.az-profile-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--az-text);
+}
+
+.az-profile-optional {
+  margin-left: 4px;
+  font-weight: 400;
+  color: var(--az-text-secondary);
+}
+
+.az-profile-input {
+  height: 44px;
+  width: 100%;
+  border: 1px solid var(--az-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  color: var(--az-text);
+  font-size: 14px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  background: var(--az-surface);
+}
+
+.az-profile-input::placeholder {
+  color: #9ca3af;
+}
+
+.az-profile-input:focus {
+  outline: none;
+  border-color: var(--az-teal);
+  box-shadow: 0 0 0 3px rgba(12, 191, 176, 0.2);
+}
+
+/* ── Footer ── */
+.az-profile-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.az-profile-error {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: var(--az-error);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.az-profile-success {
+  border: 1px solid var(--az-success-border);
+  background: var(--az-success-bg);
+  color: var(--az-success-text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.az-profile-submit {
+  height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(120deg, var(--az-orange), #f1561f);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+  box-shadow: 0 8px 20px rgba(255, 105, 52, 0.24);
+}
+
+.az-profile-submit:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+}
+
+.az-profile-submit:active {
+  transform: translateY(0);
+}
+
+.az-profile-submit:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Email read-only meta ── */
+.az-profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--az-border);
+}
+
+.az-profile-meta-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--az-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.az-profile-meta-value {
+  font-size: 13px;
+  color: var(--az-text);
+}
+
+@media (max-width: 560px) {
+  .az-profile-page {
+    padding: 28px 12px;
+  }
+
+  .az-profile-card {
+    border-radius: 14px;
+    padding: 24px 18px;
+  }
+}
