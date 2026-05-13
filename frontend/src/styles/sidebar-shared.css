@@ -30,6 +30,13 @@
   gap: 10px;
   padding: 0 16px 20px;
   overflow: hidden;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  appearance: none;
+  cursor: pointer;
 }
 
 .az-logo-icon {

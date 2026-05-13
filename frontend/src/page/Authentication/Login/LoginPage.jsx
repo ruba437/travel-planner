@@ -40,8 +40,9 @@ export default function LoginPage() {
 
         <div className="az-auth-card">
           <div className="az-auth-header">
-            <span className="az-auth-dot" />
-            <span className="az-auth-title">旅遊聊天小助手</span>
+            {/* <span className="az-auth-dot" /> */}
+            <img src="/favicon.ico" alt="" className="az-auth-dot" />
+            <span className="az-auth-title">Rêverie 旅遊規劃器</span>
           </div>
 
           <h2 className="az-auth-heading">{isRegister ? '註冊帳號' : '登入'}</h2>
