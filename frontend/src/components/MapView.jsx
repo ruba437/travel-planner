@@ -434,6 +434,17 @@ function MapView({
         clickable: true,
         zIndex: 1,
         map: mapRef, 
+        // 🆕 新增：在路線上加上方向箭頭，讓「連續性」在地圖上更直觀！
+        icons: [{
+          icon: {
+            path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            strokeColor: '#ffffff', // 箭頭外框設為白色，增加立體感
+            fillColor: getDayColor(seg.day), // 箭頭內部顏色與路線一致
+            fillOpacity: 1,
+            scale: 3 // 箭頭大小
+          },
+          offset: '50%' // 讓箭頭顯示在兩點連線的正中間
+        }],
       });
       line.addListener('click', () => {
         // 1. 設定目前選中的線段
@@ -446,7 +457,7 @@ function MapView({
       segmentsRef.current.forEach(line => line.setMap(null));
       segmentsRef.current = [];
     };
-  }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]); 
+  }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]);
 
   useEffect(() => {
     if (!mapRef || !window.google || !window.google.maps) return;
