@@ -131,6 +131,10 @@ export default function CityGuidePage() {
   const currentSection = isAuthenticated ? activeSection : undefined;
   const visibleNavItems = NAV_ITEMS.filter(({ key }) => isAuthenticated || (key !== 'trips' && key !== 'saved'));
 
+  useEffect(() => {
+    document.title = cityText ? `${cityText} 城市指南 | Travel Planner` : '城市指南 | Travel Planner';
+  }, [cityText]);
+
   const getUserInitial = () => {
     const n = user?.displayName || user?.displayname || user?.email || '?';
     return n.charAt(0).toUpperCase();
@@ -232,15 +236,20 @@ export default function CityGuidePage() {
       {/* ── Sidebar ── */}
       <aside className={`az-sidebar${sidebarCollapsed ? ' az-sidebar--collapsed' : ''}`}>
         <div className="az-sidebar-inner">
-          <div className="az-logo">
+          <button
+            type="button"
+            className="az-logo"
+            onClick={() => navigate('/')}
+            title={sidebarCollapsed ? '回到首頁' : '回到首頁'}
+            aria-label="回到首頁"
+          >
             <div className="az-logo-icon">✈</div>
             {!sidebarCollapsed && (
               <div className="az-logo-texts">
-                <span className="az-logo-name">旅遊規劃器</span>
-                <span className="az-beta-badge">BETA</span>
+                <span className="az-logo-name">Rêverie 旅遊規劃器</span>
               </div>
             )}
-          </div>
+          </button>
 
           <nav className="az-nav">
             {visibleNavItems.map(({ key, label, icon, path }) => (

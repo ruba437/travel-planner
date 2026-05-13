@@ -1,8 +1,8 @@
 /* frontend/src/page/Authentication/Login/LoginPage.jsx */
-import './LoginPage.css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import './LoginPage.css';
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -12,6 +12,10 @@ export default function LoginPage() {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = `${isRegister ? '註冊帳號' : '登入'} | Travel Planner`;
+  }, [isRegister]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,8 +41,9 @@ export default function LoginPage() {
 
         <div className="az-auth-card">
           <div className="az-auth-header">
-            <span className="az-auth-dot" />
-            <span className="az-auth-title">旅遊聊天小助手</span>
+            {/* <span className="az-auth-dot" /> */}
+            <img src="/favicon.ico" alt="" className="az-auth-dot" />
+            <span className="az-auth-title">Rêverie 旅遊規劃器</span>
           </div>
 
           <h2 className="az-auth-heading">{isRegister ? '註冊帳號' : '登入'}</h2>

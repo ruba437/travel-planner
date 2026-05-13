@@ -58,6 +58,10 @@ const PlannerContent = ({ isPublicMode = false }) => {
   const { uuid: itineraryUuidParam } = useParams();
   const hasAppliedPrefill = useRef(false); // 用於確保自動發送只執行一次
 
+  useEffect(() => {
+    document.title = isPublicMode ? '公開行程預覽 | Travel Planner' : '行程規劃 | Travel Planner';
+  }, [isPublicMode]);
+
   // ── 🚀 自動處理首頁傳來的 AI 請求 ──
   useEffect(() => {
     // 只做一件事情：把首頁傳來的文字填入輸入框，其他的交給 Provider
