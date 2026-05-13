@@ -44,7 +44,14 @@ router.post('/register', async (req, res) => {
     const token = generateToken({ id: newId, email, displayName: displayName || email.split('@')[0] });
     res.status(201).json({
       token,
-      user: { id: newId, email, displayName: displayName || email.split('@')[0] },
+      user: {
+        id: newId,
+        email,
+        displayName: displayName || email.split('@')[0],
+        gender: null,
+        location: null,
+        birthday: null,
+      },
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -80,7 +87,14 @@ router.post('/login', async (req, res) => {
     const token = generateToken({ id: user.id, email: user.email, displayName: user.displayname || user.email.split('@')[0] });
     res.json({
       token,
-      user: { id: user.id, email: user.email, displayName: user.displayname || user.email.split('@')[0] },
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayname || user.email.split('@')[0],
+        gender: user.gender || null,
+        location: user.location || null,
+        birthday: user.birthday || null,
+      },
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -92,7 +106,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, email, displayname, profilephoto FROM users WHERE id = $1',
+      'SELECT id, email, displayname, gender, location, birthday FROM users WHERE id = $1',
       [req.user.id]
     );
     if (rows.length === 0) return res.status(404).json({ error: '使用者不存在' });

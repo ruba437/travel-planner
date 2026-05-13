@@ -69,34 +69,6 @@
   gap: 24px;
 }
 
-/* ── Avatar ── */
-.az-profile-avatar-wrap {
-  display: flex;
-  justify-content: center;
-}
-
-.az-profile-avatar-img {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 3px solid var(--az-border);
-}
-
-.az-profile-avatar-fallback {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: linear-gradient(140deg, var(--az-orange), var(--az-teal));
-  color: #fff;
-  font-size: 28px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  letter-spacing: -0.01em;
-}
-
 /* ── Form ── */
 .az-profile-form {
   display: flex;

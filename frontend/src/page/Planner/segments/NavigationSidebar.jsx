@@ -103,16 +103,7 @@ const NavigationSidebar = () => {
           <div
             className="az-avatar"
           >
-            {user?.profilephoto ? (
-              <img
-                src={user.profilephoto}
-                alt="頭像"
-                className="az-avatar-img"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            ) : (
-              getUserInitial()
-            )}
+            {getUserInitial()}
           </div>
           {!sidebarCollapsed && (
             <>

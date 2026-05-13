@@ -5,12 +5,21 @@ import './UserProfileSettingsPage.css';
 
 const API = import.meta.env.VITE_BACKEND_URL;
 
+function formatBirthdayForInput(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().split('T')[0];
+}
+
 export default function UserProfileSettingsPage() {
   const { user, token, updateProfile } = useAuth();
   const navigate = useNavigate();
 
   const [displayname, setDisplayname] = useState('');
-  const [profilephoto, setProfilephoto] = useState('');
+  const [gender, setGender] = useState('secret');
+  const [location, setLocation] = useState('');
+  const [birthday, setBirthday] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -20,17 +29,14 @@ export default function UserProfileSettingsPage() {
   useEffect(() => {
     if (user) {
       setDisplayname(user.displayname || user.displayName || '');
-      setProfilephoto(user.profilephoto || '');
+      setGender(user.gender || 'secret');
+      setLocation(user.location || '');
+      setBirthday(formatBirthdayForInput(user.birthday));
     }
   }, [user]);
 
   // 元件卸載時清掉計時器
   useEffect(() => () => clearTimeout(successTimer.current), []);
-
-  const getUserInitial = () => {
-    const n = user?.displayname || user?.displayName || user?.email || '?';
-    return n.charAt(0).toUpperCase();
-  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -46,8 +52,8 @@ export default function UserProfileSettingsPage() {
       setError('顯示名稱最多 60 字。');
       return;
     }
-    if (profilephoto.trim() && !/^https?:\/\/.+/.test(profilephoto.trim())) {
-      setError('頭像 URL 必須是 http 或 https 連結。');
+    if (location.trim().length > 120) {
+      setError('居住地最多 120 字。');
       return;
     }
 
@@ -55,7 +61,9 @@ export default function UserProfileSettingsPage() {
     try {
       await updateProfile({
         displayname: trimName,
-        profilephoto: profilephoto.trim() || null,
+        gender,
+        location: location.trim() || null,
+        birthday: birthday || null,
       });
       setSuccess('個人資料已更新！');
       successTimer.current = setTimeout(() => setSuccess(''), 3000);
@@ -71,8 +79,6 @@ export default function UserProfileSettingsPage() {
     return null;
   }
 
-  const avatarSrc = profilephoto.trim() || (user?.profilephoto || '');
-
   return (
     <div className="az-profile-page">
       <div className="az-profile-shell">
@@ -87,20 +93,6 @@ export default function UserProfileSettingsPage() {
         </div>
 
         <div className="az-profile-card">
-          {/* 頭像預覽 */}
-          <div className="az-profile-avatar-wrap">
-            {avatarSrc ? (
-              <img
-                src={avatarSrc}
-                alt="頭像預覽"
-                className="az-profile-avatar-img"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            ) : (
-              <div className="az-profile-avatar-fallback">{getUserInitial()}</div>
-            )}
-          </div>
-
           <form onSubmit={onSubmit} className="az-profile-form">
             <div className="az-profile-field">
               <label htmlFor="az-displayname" className="az-profile-label">顯示名稱</label>
@@ -117,16 +109,46 @@ export default function UserProfileSettingsPage() {
             </div>
 
             <div className="az-profile-field">
-              <label htmlFor="az-profilephoto" className="az-profile-label">
-                頭像圖片 URL
+              <label htmlFor="az-gender" className="az-profile-label">性別</label>
+              <select
+                id="az-gender"
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className="az-profile-input"
+              >
+                <option value="male">男性</option>
+                <option value="female">女性</option>
+                <option value="other">其他</option>
+                <option value="secret">保密</option>
+              </select>
+            </div>
+
+            <div className="az-profile-field">
+              <label htmlFor="az-location" className="az-profile-label">
+                居住地
                 <span className="az-profile-optional">（選填）</span>
               </label>
               <input
-                id="az-profilephoto"
-                type="url"
-                value={profilephoto}
-                onChange={(e) => setProfilephoto(e.target.value)}
-                placeholder="https://example.com/avatar.png"
+                id="az-location"
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="例如：台北市"
+                maxLength={120}
+                className="az-profile-input"
+              />
+            </div>
+
+            <div className="az-profile-field">
+              <label htmlFor="az-birthday" className="az-profile-label">
+                生日
+                <span className="az-profile-optional">（選填）</span>
+              </label>
+              <input
+                id="az-birthday"
+                type="date"
+                value={birthday}
+                onChange={(e) => setBirthday(e.target.value)}
                 className="az-profile-input"
               />
             </div>
