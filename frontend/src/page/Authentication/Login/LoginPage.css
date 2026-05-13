@@ -53,11 +53,11 @@
 }
 
 .az-auth-dot {
-	width: 12px;
-	height: 12px;
-	border-radius: 50%;
-	background: linear-gradient(140deg, var(--az-auth-orange), var(--az-auth-teal));
-	box-shadow: 0 0 0 5px rgba(255, 105, 52, 0.12);
+	width: 36px;
+	height: 36px;
+	/* border-radius: 50%; */
+	/* background: linear-gradient(140deg, var(--az-auth-orange), var(--az-auth-teal)); */
+	/* box-shadow: 0 0 0 5px rgba(255, 105, 52, 0.12); */
 }
 
 .az-auth-title {

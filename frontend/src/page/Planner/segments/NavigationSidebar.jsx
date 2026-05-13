@@ -23,15 +23,20 @@ const NavigationSidebar = () => {
     <aside className={`az-sidebar${sidebarCollapsed ? ' az-sidebar--collapsed' : ''}`}>
       <div className="az-sidebar-inner">
         {/* ── Logo 區塊 ── */}
-        <div className="az-logo">
+        <button
+          type="button"
+          className="az-logo"
+          onClick={() => navigate('/')}
+          title={sidebarCollapsed ? '回到首頁' : '回到首頁'}
+          aria-label="回到首頁"
+        >
           <div className="az-logo-icon">✈</div>
           {!sidebarCollapsed && (
             <div className="az-logo-texts">
-              <span className="az-logo-name">旅遊規劃器</span>
-              <span className="az-beta-badge">BETA</span>
+              <span className="az-logo-name">Rêverie 旅遊規劃器</span>
             </div>
           )}
-        </div>
+        </button>
 
         {/* ── 導航選單 ── */}
         <nav className="az-nav">

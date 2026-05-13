@@ -57,6 +57,10 @@ export default function GuideDetailPage() {
   const [error, setError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  useEffect(() => {
+    document.title = guide?.title ? `${guide.title} | Travel Planner` : '指南詳情 | Travel Planner';
+  }, [guide?.title]);
+
   const currentPath = location?.pathname || '/';
   const activeSection = new URLSearchParams(location?.search || '').get('section');
   const isGuidesView = (currentPath.startsWith('/u/') && currentPath.includes('/guide/')) || (currentPath === '/' && activeSection === 'guides');
@@ -224,15 +228,20 @@ export default function GuideDetailPage() {
     <div className="az-root guide-page-root">
       <aside className={`az-sidebar${sidebarCollapsed ? ' az-sidebar--collapsed' : ''}`}>
         <div className="az-sidebar-inner">
-          <div className="az-logo">
+          <button
+            type="button"
+            className="az-logo"
+            onClick={() => navigate('/')}
+            title={sidebarCollapsed ? '回到首頁' : '回到首頁'}
+            aria-label="回到首頁"
+          >
             <div className="az-logo-icon">✈</div>
             {!sidebarCollapsed && (
               <div className="az-logo-texts">
-                <span className="az-logo-name">旅遊規劃器</span>
-                <span className="az-beta-badge">BETA</span>
+                <span className="az-logo-name">Rêverie 旅遊規劃器</span>
               </div>
             )}
-          </div>
+          </button>
 
           <nav className="az-nav">
             {visibleNavItems.map(({ key, label, icon, path }) => (
