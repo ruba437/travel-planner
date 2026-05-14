@@ -532,18 +532,37 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
       if (data.plan) {
         const nextPlan = normalizePlannerPlan({ ...data.plan });
         if (nextPlan.days && Array.isArray(nextPlan.days)) {
+          
+          const globalSeenNames = new Set(); // 🆕 加入全域去重
+
           // 對 AI 回傳的每一天進行過濾、查座標、排序與時間重算
           nextPlan.days = await Promise.all(
-            nextPlan.days.map(async (day) => {
-              let validItems = (day.items || []).filter((item) => item && String(item.name || '').trim());
+            nextPlan.days.map(async (day, dayIndex) => {
+              day.day = dayIndex + 1; // 💡 防線 1：強制修正天數，確保不會一堆 Day 1
+
+              let validItems = (day.items || []).filter((item) => {
+                const name = String(item.name || '').trim();
+                if (!name) return false;
+                
+                const genericKeywords = ['早餐', '午餐', '晚餐', '回飯店', '飯店', '休息', '自由活動'];
+                const isGeneric = genericKeywords.some(k => name.includes(k));
+
+                // 💡 防線 2：跨天去重
+                if (!isGeneric && globalSeenNames.has(name)) {
+                   console.log(`[前端過濾] 移除重複景點：${name}`);
+                   return false;
+                }
+                if (!isGeneric) globalSeenNames.add(name);
+                return true;
+              });
+
               const dayStartTime = day.startTime || '09:00';
               const mode = day.transportMode || 'TRANSIT';
 
               // ==========================================
-              // 攔截 AI 的行程，自動查座標並順路排序
+              // 攔截 AI 的行程，自動查座標並順路排序 (保留你原本的邏輯)
               // ==========================================
               if (validItems.length > 2) {
-                // 1. 補齊 AI 景點的座標
                 validItems = await Promise.all(validItems.map(async (item) => {
                   if (Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng))) return normalizePlannerItem(item);
                   if (item.location?.lat && item.location?.lng) {
@@ -555,11 +574,11 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
                   return normalizePlannerItem(item);
                 }));
 
-                // 2. 分離有座標與無座標景點
+                // 分離有座標與無座標景點
                 const withCoords = validItems.filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
                 const withoutCoords = validItems.filter(item => !Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lng)));
 
-                // 3. 執行最短距離排序 (若有起點，先以起點做第一個參考點)
+                // 執行最短距離排序 (若有起點，先以起點做第一個參考點)
                 if (withCoords.length > 1) {
                   const effectiveStart = day.startLocation || nextPlan.startLocation;
                   let currentLocation = null;
@@ -608,7 +627,14 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
 
               // 拿著排序好的景點，去呼叫 Google 算精準交通時間！
               const recalculatedItems = await recalculateDayTimesAsync(validItems, dayStartTime, mode);
-              return { ...day, items: recalculatedItems };
+              
+              // 💡 防線 3：強制寫入正確的順序，解決 Timeline 畫面錯亂的問題
+              const finalizedItems = recalculatedItems.map((item, idx) => ({
+                ...item,
+                order: idx
+              }));
+
+              return { ...day, items: finalizedItems };
             })
           );
         }

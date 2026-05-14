@@ -10,14 +10,13 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 2. 定義 AI 工具
+// 2. 定義 AI 工具 (Function Calling)
 const tools = [
   {
     type: 'function',
     function: {
       name: 'update_itinerary',
-      // 🆕 修改：在描述中加上地理與連續性的強調
-      description: '【詳細規劃階段】生成包含每日時段、具體地點、座標與花費的完整 JSON。⚠️注意：所有地點必須嚴格限制在「單一具體城市」內。當使用者選定某個方案或要求詳細行程時呼叫。',
+      description: '【詳細規劃階段】生成包含每日時段、具體地點、座標與花費的完整 JSON。⚠️注意：所有地點必須嚴格限制在「單一具體城市」內。',
       parameters: {
         type: 'object',
         properties: {
@@ -105,6 +104,8 @@ router.post('/', async (req, res) => {
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
   const today = new Date().toISOString().split('T')[0];
+  
+  // 🛡️ 城市防呆：如果前端沒有傳來明確的城市，強制設定為未決定
   const city = (currentPlan?.city && currentPlan.city.trim() !== '') ? currentPlan.city : '未決定';
   
   // 🛡️ 強化版天數偵測 (避免出現 null)
@@ -125,6 +126,7 @@ router.post('/', async (req, res) => {
   const displayDays = expectedDays || "多";
   const daysCountText = expectedDays ? `${expectedDays} 天` : '依據對話判斷';
 
+  // 🧠 系統大腦核心設定
   let systemContent = `你是一位專業的全球旅遊規劃助理。今天是 ${today}。
 
     【語言規範：繁體中文】
@@ -167,11 +169,47 @@ router.post('/', async (req, res) => {
       const toolCall = responseMessage.tool_calls[0];
       const args = JSON.parse(toolCall.function.arguments);
 
+      // --- 詳細規劃階段 ---
       if (toolCall.function.name === 'update_itinerary') {
         let enrichedPlan = args;
         
-        if (expectedDays && enrichedPlan.days && enrichedPlan.days.length > expectedDays) {
-          enrichedPlan.days = enrichedPlan.days.slice(0, expectedDays);
+        // 🛡️ 強效資料清洗：強制校正天數與跨天去重
+        if (enrichedPlan.days && Array.isArray(enrichedPlan.days)) {
+          const globalSeenNames = new Set();
+
+          enrichedPlan.days = enrichedPlan.days.map((dayObj, index) => {
+            // 1. 強制重新編號天數
+            dayObj.day = index + 1;
+
+            // 2. 跨天去重邏輯
+            if (dayObj.items && Array.isArray(dayObj.items)) {
+              dayObj.items = dayObj.items.filter(item => {
+                const itemName = (item.name || '').trim();
+                if (!itemName) return false;
+
+                // 豁免清單：允許通用的日常行程重複出現
+                const genericKeywords = ['早餐', '午餐', '晚餐', '回飯店', '飯店', '休息', '自由活動'];
+                const isGeneric = genericKeywords.some(keyword => itemName.includes(keyword));
+
+                // 若非通用行程且已出現過，剔除
+                if (!isGeneric && globalSeenNames.has(itemName)) {
+                  console.log(`[資料清洗] 攔截並移除重複景點: ${itemName}`);
+                  return false; 
+                }
+
+                if (!isGeneric) {
+                  globalSeenNames.add(itemName);
+                }
+                return true;
+              });
+            }
+            return dayObj;
+          });
+
+          // 物理裁切：確保回傳天數與預期一致
+          if (expectedDays && enrichedPlan.days.length > expectedDays) {
+            enrichedPlan.days = enrichedPlan.days.slice(0, expectedDays);
+          }
         }
 
         try { enrichedPlan = await enrichItineraryImages(args); } catch (e) {}
@@ -183,6 +221,7 @@ router.post('/', async (req, res) => {
         });
       }
       
+      // --- 初步提案階段 ---
       if (toolCall.function.name === 'generate_proposals') {
         if (expectedDays) {
           args.proposals = args.proposals.map(p => ({
@@ -198,6 +237,7 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // 一般對話回覆 (純文字)
     return res.json({ role: 'assistant', content: responseMessage.content, plan: null });
 
   } catch (err) {

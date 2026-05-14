@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { PlannerProvider, usePlanner, API_BASE } from './PlannerProvider'; 
 
@@ -29,7 +29,7 @@ const PlannerContent = ({ isPublicMode = false }) => {
     isLoadingItinerary, setIsLoadingItinerary, plan, setPlan,
     activeLocation, setActiveLocation, activeDayIdx, setActiveDayIdx,
     recalculateDayTimesAsync, updateGlobalStartLocation, updateDayStartLocation,
-    token, handleSend, setInput, messages, setMessages,
+    token, setInput, messages, 
     currentProposals, setCurrentProposals
   } = usePlanner();
 
@@ -103,11 +103,11 @@ const PlannerContent = ({ isPublicMode = false }) => {
   const expandPlanDetail = async (proposalData) => {
     setIsLoadingItinerary(true);
     
-    // 1. 🛡️ 鎖定預期天數：優先從現有 plan 獲取，若無則從提案摘要長度判斷
+    // 1. 🛡️ 鎖定預期天數
     const expectedDays = 
-      plan?.days?.length ||                             // 來源 1: 現有的行程物件
-      proposalData?.daySummaries?.length ||            // 來源 2: 提案中的摘要陣列長度
-      (proposalData?.itineraryData?.days?.length) ||   // 來源 3: 提案內部的原始數據
+      plan?.days?.length ||                              
+      proposalData?.daySummaries?.length ||            
+      (proposalData?.itineraryData?.days?.length) ||   
       0;
     
     if (expectedDays <= 0) {
@@ -117,14 +117,16 @@ const PlannerContent = ({ isPublicMode = false }) => {
       return null;
     }
 
-    console.log(`[Debug] 鎖定擴充天數為: ${expectedDays} 天`);
-
     // 2. 準備提案基礎資訊
     const baseProposal = proposalData?.itineraryData || proposalData || {};
     const proposalTitle = proposalData?.title || baseProposal.summary || "選定方案";
-    const proposalDescription = proposalData?.description || '';
     
     try {
+      // 🆕 提取方案中的每日大綱，用來強制約束 AI 每一天都要寫不同的內容
+      const summariesText = (proposalData?.daySummaries || [])
+        .map((desc, idx) => `第 ${idx + 1} 天核心主軸：${desc}`)
+        .join('\n');
+
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 
@@ -138,13 +140,16 @@ const PlannerContent = ({ isPublicMode = false }) => {
               role: 'user',
               content: [
                 `我選定了方案：【${proposalTitle}】。`,
-                `請為這個方案生成詳細行程。`,
-                `⚠️【硬性限制】：`,
-                `1. 旅遊總天數必須「精確等於 ${expectedDays} 天」。`,
-                `2. 請完整規劃 Day 1 到 Day ${expectedDays} 的所有項目，嚴禁只給一天。`,
-                `3. 必須使用「繁體中文」產出所有景點名稱、說明與概要。`,
-                `4. 每日地點禁止重複，若同一地點有多個活動，請合併為一個項目並在 note 說明。`,
-                `請呼叫 update_itinerary 工具產出結果。`
+                `請根據以下這 ${expectedDays} 天的每日主軸，為我展開「每一天」的具體行程：`,
+                `----------------`,
+                summariesText || `請確保這 ${expectedDays} 天每天都有截然不同的行程。`,
+                `----------------`,
+                `⚠️【極度重要限制 - 嚴禁偷懶】：`,
+                `1. 旅遊總天數必須「精確等於 ${expectedDays} 天」，請產出 Day 1 到 Day ${expectedDays} 完整的 JSON。`,
+                `2. 每一天都必須安排 3~4 個「完全不同」的具體地點。`,
+                `3. 全程「嚴禁重複任何地點」！絕對不可以把第一天的景點複製到第二天或第三天。`,
+                `4. 必須使用「繁體中文」產出所有景點名稱、說明與概要。`,
+                `請立刻呼叫 update_itinerary 工具產出結果。`
               ].join('\n')
             }
           ],
@@ -165,27 +170,47 @@ const PlannerContent = ({ isPublicMode = false }) => {
           nextPlan.days = nextPlan.days.slice(0, expectedDays);
         }
 
-        // 4. 🛡️ 地點去重與時間軸自動校正
+        // 4. 🛡️ 核心修復：全域跨天去重與順序編號
         if (nextPlan.days) {
+          const globalSeenNames = new Set(); // 用來記錄跨天已經出現過的景點
+
           nextPlan.days = await Promise.all(
-            nextPlan.days.map(async (day) => {
-              const seenNames = new Set();
+            nextPlan.days.map(async (day, dayIndex) => {
+              day.day = dayIndex + 1; // 確保天數標號正確
+
               const uniqueItems = (day.items || []).filter(item => {
                 const name = item.name?.trim();
-                if (name && !seenNames.has(name)) {
-                  seenNames.add(name);
-                  return true;
+                if (!name) return false;
+
+                // 豁免清單：吃飯跟回飯店可以重複
+                const genericKeywords = ['早餐', '午餐', '晚餐', '回飯店', '飯店', '休息', '自由活動'];
+                const isGeneric = genericKeywords.some(k => name.includes(k));
+
+                // 🚨 如果不是通用行程，且別天已經出現過，就無情剔除
+                if (!isGeneric && globalSeenNames.has(name)) {
+                  console.log(`[提案轉行程過濾] 移除跨天重複景點：${name}`);
+                  return false;
                 }
-                return false;
+                
+                if (!isGeneric) {
+                  globalSeenNames.add(name);
+                }
+                return true;
               });
 
-              // 重新計算時間，確保行程連續且符合 startTime
+              // 重新計算交通時間，確保行程連續且符合 startTime
               const itemsWithTimes = await recalculateDayTimesAsync(
                 uniqueItems, 
                 day.startTime || '09:00'
               );
               
-              return { ...day, items: itemsWithTimes };
+              // 💡 強制賦予正確的順序編號 (order)，讓紅色圓圈依序變成 1, 2, 3...
+              const finalizedItems = itemsWithTimes.map((item, idx) => ({
+                ...item,
+                order: idx
+              }));
+
+              return { ...day, items: finalizedItems };
             })
           );
         }
