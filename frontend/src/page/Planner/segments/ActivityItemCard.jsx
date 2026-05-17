@@ -5,7 +5,7 @@ import { usePlanner } from '../PlannerProvider';
 // 類別對應圖示與顏色 (從原 App.jsx 搬移)
 const TYPE_ICON = { sight: '🗺️', food: '🍜', shopping: '🛍️', activity: '🎯', hotel: '🏨', transport: '🚌' };
 const TYPE_COLOR = { sight: '#0ea5e9', food: '#f97316', shopping: '#ec4899', activity: '#10b981', hotel: '#7c3aed', transport: '#6b7280' };
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL;
 const PHOTO_REF_CACHE = new Map();
 
 const getPhotoUrl = (photoReference) => {

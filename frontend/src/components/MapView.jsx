@@ -217,12 +217,12 @@ function MapView({
   const selectedMarkerIsPoi = Boolean(selectedMarker?.isPoi);
 
   const markerPlanSnapshot = useMemo(() => {
-    if (!plan || !Array.isArray(plan.days) || plan.days.length === 0) return null;
+    if (!plan) return null;
 
     return {
       city: String(plan.city || '').trim(),
       startLocation: getStartLocationText(plan.startLocation),
-      days: plan.days.map((day, index) => ({
+      days: Array.isArray(plan.days) ? plan.days.map((day, index) => ({
         day: Number(day?.day) || index + 1,
         startLocation: getStartLocationText(day?.startLocation),
         items: (Array.isArray(day?.items) ? day.items : []).map((item, index) => ({
@@ -232,7 +232,7 @@ function MapView({
           type: String(item?.type || ''),
           order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index,
         })),
-      })),
+      })) : [],
     };
   }, [plan]);
 
@@ -434,6 +434,17 @@ function MapView({
         clickable: true,
         zIndex: 1,
         map: mapRef, 
+        // 🆕 新增：在路線上加上方向箭頭，讓「連續性」在地圖上更直觀！
+        icons: [{
+          icon: {
+            path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            strokeColor: '#ffffff', // 箭頭外框設為白色，增加立體感
+            fillColor: getDayColor(seg.day), // 箭頭內部顏色與路線一致
+            fillOpacity: 1,
+            scale: 3 // 箭頭大小
+          },
+          offset: '50%' // 讓箭頭顯示在兩點連線的正中間
+        }],
       });
       line.addListener('click', () => {
         // 1. 設定目前選中的線段
@@ -446,7 +457,7 @@ function MapView({
       segmentsRef.current.forEach(line => line.setMap(null));
       segmentsRef.current = [];
     };
-  }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]); 
+  }, [daySegments, selectedDay, selectedSegmentId, mapRef, showAll]);
 
   useEffect(() => {
     if (!mapRef || !window.google || !window.google.maps) return;
@@ -815,7 +826,7 @@ function MapView({
 
       {renderRouteCard()}
 
-      {(!plan || !plan.days || plan.days.length === 0) ? (
+      {(!plan || (!plan.city && (!plan.days || plan.days.length === 0))) ? (
          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: '14px' }}>
            尚未產生行程，暫不顯示地圖。
          </div>

@@ -1627,3 +1627,493 @@ input, textarea { font-family: var(--font); }
   .az-trip-panel { display: none; }
   .az-map-panel { flex: 1; }
 }
+
+/* 容器捲動 */
+.az-proposal-view {
+  background: #fff;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow: hidden; /* 由子容器處理捲動 */
+}
+
+.az-proposal-scroll-area {
+  flex: 1;
+  overflow-y: auto; /* 核心：允許上下捲動 */
+  padding-right: 10px;
+}
+
+.az-proposal-scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.az-proposal-scroll-area::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 10px;
+}
+
+.az-proposal-header {
+  margin-bottom: 24px;
+}
+
+.az-proposal-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.az-proposal-title-row h3 {
+  font-size: 1.5rem;
+  color: #1f2937;
+  margin: 0;
+}
+
+.az-proposal-subtitle {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-top: 8px;
+}
+
+.az-proposal-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* 卡片容器 */
+.az-proposal-list-container {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 20px;
+}
+
+/* 方案卡片本體 */
+.az-proposal-item-card {
+  flex: 0 0 350px;
+  height: 620px; /* 固定高度防止按鈕移位 */
+  background: white;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.az-proposal-item-card:hover {
+  border-color: #f97316;
+  box-shadow: 0 10px 15px -3px rgba(249, 115, 22, 0.1);
+}
+
+/* 卡片裝飾線 */
+.az-card-accent {
+  height: 4px;
+  background: linear-gradient(90deg, #f97316, #fb923c);
+}
+
+.az-card-content {
+  padding: 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 鎖定內部 */
+}
+
+.az-card-tag {
+  display: inline-block;
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  margin-bottom: 12px;
+}
+
+.az-card-content h4 {
+  font-size: 1.2rem;
+  margin: 0 0 10px 0;
+  color: #111827;
+}
+
+.az-card-desc {
+  font-size: 0.9rem;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.az-card-hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.az-card-hashtags span {
+  font-size: 0.8rem;
+  color: #f97316;
+  font-weight: 500;
+}
+
+/* 景點預覽區 */
+.az-card-preview {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  flex: 1; /* 自動吸收剩餘空間 */
+  overflow-y: auto; /* 核心：當天數長時出現內部滾動條 */
+  border: 1px solid #f3f4f6;
+}
+
+.az-card-preview h5 {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.az-card-preview ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.az-card-preview li {
+  margin-bottom: 4px;
+}
+
+/* 選定按鈕 */
+.az-card-select-btn {
+  width: 100%;
+  background: #1f2937; /* 深色背景 */
+  color: #ffffff;
+  border: none;
+  padding: 14px;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 10px;
+}
+
+.az-card-select-btn:hover {
+  background: #f97316; /* 懸停變橘色 */
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.2);
+}
+
+.az-card-select-btn:active {
+  transform: translateY(0);
+}
+
+.az-proposal-footer-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin-top: 16px;
+}
+
+.az-card-actions {
+  margin-top: auto;
+  padding-top: 10px;
+  flex-shrink: 0; /* 禁止按鈕被壓縮 */
+}
+
+.az-card-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.az-btn-preview {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.az-btn-preview:hover {
+  background: #e5e7eb;
+}
+
+.az-btn-confirm {
+  background: #1f2937;
+  color: #fff;
+}
+
+.az-btn-confirm:hover {
+  background: #f97316; /* 懸停變橘色 */
+}
+
+.az-proposal-summary-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.az-proposal-summary-list li {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.az-proposal-summary-list li:last-child {
+  border-bottom: none;
+}
+
+.az-proposal-summary-list strong {
+  color: #f97316;
+  margin-right: 4px;
+}
+
+.az-day-label {
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.az-day-text {
+  font-size: 0.9rem;
+  color: #374151;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.az-q-tag {
+  font-size: 0.75rem;
+  color: #6b7280; /* 改為較淡的灰色 */
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  border: 1px solid #e5e7eb;
+}
+
+/* 移除橘色邊框，改用低調的灰色，讓畫面不雜亂 */
+.az-q-tag:hover {
+  color: #ea580c;
+  border-color: #fb923c;
+  background: #fff7ed;
+}
+
+/* --- AI 提案比較頁面核心樣式 --- */
+
+.az-proposal-view {
+  padding: 24px;
+  background: #f9fafb;
+  min-height: 100%;
+}
+
+.az-proposal-header {
+  margin-bottom: 20px;
+}
+
+.az-proposal-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.az-proposal-title-row h3 {
+  font-size: 1.5rem;
+  color: #111827;
+  margin: 0;
+}
+
+.az-proposal-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.az-proposal-subtitle {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+/* 方案卡片容器 */
+.az-proposal-scroll-area {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  padding-bottom: 20px;
+  /* 讓滾動更平滑 */
+  scroll-snap-type: x mandatory;
+}
+
+.az-proposal-item-card {
+  flex: 0 0 350px;
+  height: 620px; /* 🚀 視情況調整，例如 620px 或 650px */
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+}
+
+.az-card-accent {
+  height: 6px;
+  background: linear-gradient(90deg, #f97316, #fb923c);
+}
+
+.az-card-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* 佔滿剩餘空間 */
+  overflow: hidden; /* 防止內部溢出 */
+}
+
+.az-card-tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #f97316;
+  background: #fff7ed;
+  width: fit-content;
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+
+.az-card-content h4 {
+  font-size: 1.25rem;
+  margin-bottom: 8px;
+  color: #1f2937;
+}
+
+.az-card-desc {
+  font-size: 0.9rem;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* Hashtag 樣式 */
+.az-card-hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 60px; /* 限制 Hashtag 區域高度 */
+  overflow: hidden;
+}
+
+.az-q-tag {
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+}
+
+/* 🚀 每日行程概要列表樣式 */
+.az-card-preview {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  flex: 1; /* 吸收剩餘高度 */
+  overflow-y: auto; /* 當天數多或字多時顯示滾動條 */
+  border: 1px solid #f3f4f6;
+}
+
+.az-card-preview h5 {
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.az-proposal-summary-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.az-proposal-summary-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #e5e7eb;
+}
+
+.az-proposal-summary-list li:last-child {
+  border-bottom: none;
+}
+
+.az-day-label {
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.az-day-text {
+  font-size: 0.88rem;
+  color: #4b5563;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+/* 按鈕樣式 */
+.az-card-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.az-btn-confirm {
+  background: #1f2937;
+  color: white;
+}
+
+.az-btn-confirm:hover {
+  background: #111827;
+  transform: translateY(-1px);
+}
+
+/* 滾動條美化 (可選) */
+.az-card-preview::-webkit-scrollbar {
+  width: 4px;
+}
+.az-card-preview::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 10px;
+}

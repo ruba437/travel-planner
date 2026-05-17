@@ -1,3 +1,4 @@
+// backend/routes/chat.js
 const express = require('express');
 const router = express.Router();
 const OpenAI = require('openai');
@@ -9,36 +10,22 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 2. 定義 AI 工具 (Function Calling)
 const tools = [
   {
     type: 'function',
     function: {
       name: 'update_itinerary',
-      description: '【僅在確認起點與時間後呼叫】生成包含起點與出發時間的完整旅遊行程。',
+      description: '【詳細規劃階段】生成包含每日時段、具體地點、座標與花費的完整 JSON。⚠️注意：所有地點必須嚴格限制在「單一具體城市」內。',
       parameters: {
         type: 'object',
         properties: {
-          summary: { type: 'string', description: '行程的簡短中文概要' },
-          currency: { 
-            type: 'string', 
-            description: '根據使用者要求的旅遊目的地，自動判定當地的通用貨幣，並回傳標準的 ISO 4217 三碼字串（例如去日本請回傳 "JPY"，去韓國回傳 "KRW"，去台灣回傳 "TWD"，去美國回傳 "USD" 等）。' 
-          },
-          totalBudget: { 
-            type: "number", 
-            description: "根據行程預估的總花費建議，或使用者要求的預算上限" 
-          },
-          city: { 
-            type: 'string', 
-            description: '旅遊目的地城市。⚠️重要：若為國外城市，請務必包含國家名稱 (例如: "義大利威尼斯")。' 
-          },
-          startDate: { 
-            type: 'string', 
-            description: '旅遊開始日期，格式為 YYYY-MM-DD。' 
-          },
-          startTime: { 
-            type: 'string', 
-            description: '第一天開始行程的時間，格式為 HH:mm (例如 "09:00")' 
-          },
+          summary: { type: 'string', description: '行程的簡短繁體中文概要' },
+          currency: { type: 'string', description: '標準 ISO 4217 三碼字串（例如 "JPY", "TWD"）。' },
+          totalBudget: { type: "number", description: "預估總花費" },
+          city: { type: 'string', description: '單一具體的目的地城市（例如："台北市", "京都市", "巴黎"）。⚠️嚴禁僅填寫國家名稱。' },
+          startDate: { type: 'string', description: 'YYYY-MM-DD' },
+          startTime: { type: 'string', description: 'HH:mm (例如 "09:00")' },
           days: {
             type: 'array',
             items: {
@@ -46,155 +33,212 @@ const tools = [
               properties: {
                 day: { type: 'number' },
                 title: { type: 'string' },
-                startLocation: {
-                  type: 'string',
-                  description: '該日出發起點（例如：飯店名稱、機場或車站）'
-                },
                 items: {
                   type: 'array',
                   items: {
                     type: 'object',
                     properties: {
-                      time: { 
-                        type: 'string', 
-                        description: '該行程的預估時間區間，請務必使用 24 小時制並以波浪號分隔 (例如 "09:30~11:30")。請根據景點特性預估合理的停留時間與交通時間。' 
-                      },
-                      name: { type: 'string', description: '地點的具體名稱，只能放地名，不要放完整敘述或時間資訊' },
+                      time: { type: 'string', description: '24小時制波浪號分隔 (例如 "09:30~11:30")' },
+                      name: { type: 'string', description: '地點名稱。⚠️禁止與同日內重複。' },
                       type: { type: 'string', enum: ['sight', 'food', 'shopping', 'activity'] },
                       note: { type: 'string' },
-                      placeId: { type: 'string', description: 'Google Places place_id，若已知請一併填寫' },
-                      address: { type: 'string', description: '地點地址，若已知請一併填寫' },
-                      lat: { type: 'number', description: '地點緯度，若已知請一併填寫' },
-                      lng: { type: 'number', description: '地點經度，若已知請一併填寫' },
-                      cost: { 
-                        type: "number", 
-                        description: "該項目的預估花費（以當地貨幣估算，僅數字）。【極度重要：當地物價數量級】所有的 cost 必須嚴格使用你判定的 currency（當地貨幣）的真實物價水準來估算！絕不可使用美金 (USD) 的數字直接套用。參考基準：如果是 JPY (日圓)：一般小吃/簡餐約 1000~2000，正式餐廳 3000~5000，景點門票約 1500~3000。如果是 KRW (韓元)：一般簡餐約 10000~15000，咖啡廳約 5000~8000。如果是 TWD (台幣)：一般小吃約 100~200，餐廳約 500~1000。免費景點（如公園、走路逛街）請嚴格填寫 0。請確保生成的數字符合當地的真實生活成本！" 
-                      }
+                      lat: { type: 'number' },
+                      lng: { type: 'number' },
+                      cost: { type: "number" }
                     },
-                    required: ['time', 'name', 'type', "cost"],
-                  },
-                },
-              },
-              required: ['day', 'items'],
-            },
-          },
+                    required: ['time', 'name', 'type', 'cost']
+                  }
+                }
+              }
+            } 
+          }
         },
         required: ['summary', 'currency', 'city', 'days', 'startTime'],
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_proposals',
+      description: '【初步提案階段】產生 3 個風格大綱。此階段「禁止」產出詳細 items 地點清單。',
+      parameters: {
+        type: 'object',
+        properties: {
+          proposals: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                description: { type: 'string', description: '方案風格與價值的中文描述。' },
+                highlights: { 
+                  type: 'array', 
+                  items: { type: 'string' }, 
+                  description: '氛圍標籤，嚴禁與標題重複。' 
+                },
+                daySummaries: { 
+                  type: 'array', 
+                  items: { type: 'string' }, 
+                  description: '每日一句話摘要。⚠️禁止包含 "Day X" 字樣。' 
+                },
+                itineraryData: { 
+                  type: 'object', 
+                  properties: { city: { type: 'string' } },
+                  required: ['city'] 
+                }
+              },
+              required: ['id', 'title', 'description', 'highlights', 'daySummaries', 'itineraryData']
+            }
+          }
+        },
+        required: ['proposals'],
+      },
+    },
+  },
 ];
 
-// ------------------ API: Chat Endpoint ------------------
 router.post('/', async (req, res) => {
-  const systemMsg = {
-    role: 'system',
-    content: `你是一個旅遊助手。當使用者提及預算限制（例如：我的預算是兩萬）或要求行程時：
-    1. 請估算各項活動 cost。
-    2. 請在 update_itinerary 的 totalBudget 欄位填入：
-      - 若使用者有指定預算，則填入該金額。
-      - 若使用者沒指定，則填入你估算完所有活動後的總和加 10% 作為緩衝。`
-  };
   const { messages, currentPlan } = req.body; 
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' });
 
   const today = new Date().toISOString().split('T')[0];
+  
+  // 🛡️ 城市防呆：如果前端沒有傳來明確的城市，強制設定為未決定
+  const city = (currentPlan?.city && currentPlan.city.trim() !== '') ? currentPlan.city : '未決定';
+  
+  // 🛡️ 強化版天數偵測 (避免出現 null)
+  let expectedDays = (currentPlan?.days && currentPlan.days.length > 0) ? currentPlan.days.length : null;
+  
+  if (!expectedDays) {
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || "";
+    const match = lastUserMsg.match(/(\d+)\s*天/);
+    if (match) {
+      expectedDays = parseInt(match[1]);
+    } else {
+      const fullText = messages.map(m => m.content).join(" ");
+      const globalMatch = fullText.match(/(\d+)\s*天/);
+      if (globalMatch) expectedDays = parseInt(globalMatch[1]);
+    }
+  }
 
-  const city = currentPlan?.city || '依據對話判斷';
-  const daysCount = currentPlan?.days?.length ? `${currentPlan.days.length} 天` : '依據對話判斷';
+  const displayDays = expectedDays || "多";
+  const daysCountText = expectedDays ? `${expectedDays} 天` : '依據對話判斷';
 
-  // 🔥 構建 System Prompt：調整為「主動型」助理
-  let systemContent = `你是一位專業的全球旅遊行程規劃助理。今天是 ${today}。
-    【核心任務】
-    1. 若使用者提供具體目的地：請安排該城市最經典、熱門且順路的行程。
-    2. 若使用者提供客製化需求（如：預算、寵物、特定愛好）：
-      - 你必須優先滿足這些「標籤條件」。
-      - 如果使用者沒指定城市，請根據需求推薦最適合的城市並說明原因。
-      - 解析需求中的情緒價值（如「放鬆」= 行程不要太趕）。
+  // 🧠 系統大腦核心設定
+  let systemContent = `你是一位專業的全球旅遊規劃助理。今天是 ${today}。
 
-    【貨幣判定規則】：請根據使用者要求的旅遊目的地，自動判定當地的通用貨幣，並在 "currency" 欄位中回傳標準的 ISO 4217 三碼字串（例如去日本請回傳 "JPY"，去韓國回傳 "KRW"，去台灣回傳 "TWD"，去美國回傳 "USD" 等）。
+    【語言規範：繁體中文】
+    - ⚠️ 你必須「全程使用繁體中文」回答。
 
-    【目前的行程背景資訊】
-    - 目的地：${city}
-    - 旅遊天數：${daysCount} 天
-    - 出發與日期資訊：(請參考使用者的第一句對話)
+    【互動與流程邏輯】
+    你具有三種回應模式，請務必依據使用者的對話意圖，選擇最適合的模式：
+    1. 🗣️ 一般對話 (不呼叫工具)：
+       - 觸發時機：使用者「明確」針對某個細節提問、閒聊，或是針對現有行程提出單一修改討論。
+    2. 💡 方案提案 (generate_proposals)：
+       - 觸發時機：使用者要求規劃全新行程、換城市，或「尚未決定目的地」時呼叫。
+       - ⚠️【強制提案規則】：如果系統紀錄的目的地是「未決定」，你「必須立刻」呼叫此工具提供 3 個不同城市的提案，**絕對禁止反問使用者想去哪裡或要求更多偏好**。請直接根據你專業的判斷，給出 3 個特色迥異的城市選擇！
+       - 提供 3 個方案大綱，'daySummaries' 長度必須精確等於 ${displayDays}。
+    3. 📅 詳細規劃 (update_itinerary)：
+       - 觸發時機：當使用者明確選定方案後呼叫。
+       - 'days' 陣列長度必須「精確等於」${displayDays} 天。
 
-    【關於時間安排的特殊指令】
-    1. 若使用者要求「不要時間限制」或表現出隨性意圖：
-      - 在 'update_itinerary' 的 items[].time 欄位中，不要填寫具體時間（如 09:00~11:00）。
-      - 請改填寫「建議時段」，例如：「上午」、「午餐後」、「下午」、「傍晚」或「彈性」。
-      - 確保行程的順序依然是合理的地理路徑，但不再受具體小時限制。
+    【目的地與硬性規則】
+    - 系統目前紀錄的目的地：${city === '未決定' ? '未決定（⚠️請立刻推薦3個不同城市，嚴禁反問任何問題）' : city} | 天數：${daysCountText}。
+    - 🔄【動態變更目的地機制】：如果使用者在對話中明確表示要換城市或換國家，你必須優先遵從使用者的最新指令。
+    - ⚠️【單一城市與連續性限制】：單一行程必須「嚴格限制在單一具體城市內」。如果使用者只說了國家，請自動挑選該國最適合的一個主要城市。
+    - 每天路線必須具備地理連續性。地點嚴禁重複。`;
 
-    【行程規劃標準作業程序 (SOP)】：
-    系統已經透過前端介面獲取了上述的旅遊資訊，請依照以下最高指導原則進行對話與規劃：
-    一、 對話與互動邏輯
-    1. 【禁止確認已知資訊】：絕對不要再向使用者詢問「目的地在哪」、「去幾天」或「從哪裡出發/住宿地點」。
-    2. 【大方給予推薦】：當使用者單純詢問「推薦美食」、「推薦住宿」、「交通方式」或「景點介紹」時，請發揮在地專家的精神，**直接用文字給出豐富、具體的推薦名單與詳細介紹**。絕對禁止回答「我無法推薦」或「我只能規劃行程」。
-    3. 【保護現有行程 (⚠️極重要)】：在回答上述的「一般問答與推薦」時，**絕對不要呼叫 'update_itinerary' 工具**去覆蓋或修改使用者現有的行程！請單純用文字回覆即可。只有當使用者明確指示「請幫我把這些加入行程」或「幫我重新排行程」時，才可以使用工具。
-    4. 【直接給予規劃】：當使用者明確說「幫我排行程」或要求生成完整路線時，請直接呼叫 'update_itinerary' 工具生成行程，不要拖泥帶水。
-    5. 【欄位格式約束】：items[].name 只能寫單一地點名稱，不能寫成一整段描述、建議或時間說明；若需要補充說明，請放到 note。若你知道地點資訊，請盡量同時填入 placeId、address、lat、lng，不要把這些資訊混進 name。
-
-    二、 行程生成規則 (⚠️極重要，攸關系統運作⚠️)
-    當你明確收到指令並呼叫 'update_itinerary' 工具時，必須嚴格遵守以下系統層級的限制：
-    1. 【嚴格限制地理範圍】：所有安排的景點、餐廳與活動，必須嚴格位於「${city}」這個城市或其合理的周邊通勤範圍內。絕對禁止產生跨越極遠縣市的行程（例如：台北的行程絕對不能出現南投、高雄的景點）。請在加入清單前，務必確認該地點的真實地理位置。
-    2. 【禁止生成交通與過渡節點】：前端系統具有「自動計算真實交通時間」的功能！行程清單 (items) 中 只能包含實際造訪的實體「景點」、「餐廳」或「店家」。
-      - ❌ 絕對禁止產生：「搭乘捷運」、「步行前往」、「交通時間」、「回到住宿休息」、「自由活動」等非實體地點項目。
-    3. 【停留時間設定】：請為每個實體景點評估合理的停留時間區間（格式為 "HH:mm~HH:mm"，例如 "09:30~11:30"）。
-      - 評估基準：大型景點 2-3 小時、小型景點 1 小時、用餐 1.5 小時。
-      - ⚠️ 注意：你只需要給出該景點的「停留時間」，絕對不需要在兩個景點之間手動預留交通空檔，系統會自己把後續時間往後推算。
-    4. 【每日起始位置】(可選)：如果有明確的出發起點（例如飯店、機場或車站），可在 days[].startLocation 填寫；若無特定起點，可留空讓使用者自行設定。
-    5. 【每日統一出發時間】：每一天的第一個景點，請一律預設從 "09:00" 開始安排（除非使用者明確要求其他時間）。`;
-
-  // 注入記憶
   if (currentPlan) {
-    systemContent += `
-    
-    --------------------------------------------------
-    【⚠️ 目前已有的行程資料 (Current Itinerary)】
-    以下是使用者目前的行程表，請基於此資料進行修改，不要刪除既有內容：
-    ${JSON.stringify(currentPlan)}
-    --------------------------------------------------
-    `;
+    systemContent += `\n【⚠️ 目前已有的行程資料背景】\n${JSON.stringify(currentPlan)}`;
   }
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini', 
-      messages: [
-        { role: 'system', content: systemContent },
-        ...messages
-      ],
+      messages: [{ role: 'system', content: systemContent }, ...messages],
       tools: tools,
       tool_choice: 'auto',
+      temperature: 0.3, 
     });
 
     const responseMessage = completion.choices[0].message;
 
     if (responseMessage.tool_calls) {
       const toolCall = responseMessage.tool_calls[0];
-      if (toolCall.function.name === 'update_itinerary') {
-        const itineraryArgs = JSON.parse(toolCall.function.arguments);
-        let enrichedPlan = itineraryArgs;
+      const args = JSON.parse(toolCall.function.arguments);
 
-        try {
-          enrichedPlan = await enrichItineraryImages(itineraryArgs);
-        } catch (error) {
-          console.warn('Itinerary image enrichment failed:', error.message || error);
+      // --- 詳細規劃階段 ---
+      if (toolCall.function.name === 'update_itinerary') {
+        let enrichedPlan = args;
+        
+        // 🛡️ 強效資料清洗：強制校正天數與跨天去重
+        if (enrichedPlan.days && Array.isArray(enrichedPlan.days)) {
+          const globalSeenNames = new Set();
+
+          enrichedPlan.days = enrichedPlan.days.map((dayObj, index) => {
+            // 1. 強制重新編號天數
+            dayObj.day = index + 1;
+
+            // 2. 跨天去重邏輯
+            if (dayObj.items && Array.isArray(dayObj.items)) {
+              dayObj.items = dayObj.items.filter(item => {
+                const itemName = (item.name || '').trim();
+                if (!itemName) return false;
+
+                // 豁免清單：允許通用的日常行程重複出現
+                const genericKeywords = ['早餐', '午餐', '晚餐', '回飯店', '飯店', '休息', '自由活動'];
+                const isGeneric = genericKeywords.some(keyword => itemName.includes(keyword));
+
+                // 若非通用行程且已出現過，剔除
+                if (!isGeneric && globalSeenNames.has(itemName)) {
+                  console.log(`[資料清洗] 攔截並移除重複景點: ${itemName}`);
+                  return false; 
+                }
+
+                if (!isGeneric) {
+                  globalSeenNames.add(itemName);
+                }
+                return true;
+              });
+            }
+            return dayObj;
+          });
+
+          // 物理裁切：確保回傳天數與預期一致
+          if (expectedDays && enrichedPlan.days.length > expectedDays) {
+            enrichedPlan.days = enrichedPlan.days.slice(0, expectedDays);
+          }
         }
 
-        return res.json({
-          role: 'assistant',
-          content: `沒問題！已為您生成行程：${enrichedPlan.summary} ${enrichedPlan.startDate ? `(出發日: ${enrichedPlan.startDate})` : ''}，您可以再告訴我需要調整哪裡。`,
-          plan: enrichedPlan,
+        try { enrichedPlan = await enrichItineraryImages(args); } catch (e) {}
+        
+        return res.json({ 
+          role: 'assistant', 
+          content: `好的！這是我為您詳細規劃的 ${displayDays} 天行程。`, 
+          plan: enrichedPlan 
+        });
+      }
+      
+      // --- 初步提案階段 ---
+      if (toolCall.function.name === 'generate_proposals') {
+        if (expectedDays) {
+          args.proposals = args.proposals.map(p => ({
+            ...p,
+            daySummaries: p.daySummaries.slice(0, expectedDays)
+          }));
+        }
+        return res.json({ 
+          role: 'assistant', 
+          content: `我為您準備了 3 個提案：`, 
+          proposals: args.proposals 
         });
       }
     }
 
-    return res.json({
-      role: 'assistant',
-      content: responseMessage.content,
-      plan: null,
-    });
+    // 一般對話回覆 (純文字)
+    return res.json({ role: 'assistant', content: responseMessage.content, plan: null });
 
   } catch (err) {
     console.error('OpenAI Error:', err);
