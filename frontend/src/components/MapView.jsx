@@ -7,6 +7,7 @@ import {
   InfoWindow,
   useJsApiLoader,
 } from '@react-google-maps/api';
+import FavoriteButton from './FavoriteButton';
 import { useAuth } from '../page/Authentication/AuthContext';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL;
@@ -898,6 +899,24 @@ function MapView({
                   <div style={{color: '#6b7280', marginBottom: '4px'}}>{selectedMarker.address}</div>
                   
                   <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedMarker.name)}`} target="_blank" rel="noreferrer" style={{color: '#2563eb', textDecoration: 'none', display: 'block', marginBottom: '8px'}}>在 Google Maps 中開啟 →</a>
+
+                  {selectedMarkerIsPoi && selectedMarker.placeId && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <FavoriteButton
+                        itemId={String(selectedMarker.placeId)}
+                        itemType="poi"
+                        metadata={{
+                          name: selectedMarker.name,
+                          image_url: selectedMarker.photoReference ? getPhotoUrl(selectedMarker.photoReference) : null,
+                          address: selectedMarker.address || null,
+                          lat: selectedMarker.lat,
+                          lng: selectedMarker.lng,
+                        }}
+                        size="md"
+                      />
+                      <span style={{ color: '#6b7280', fontSize: '11px' }}>收藏此景點</span>
+                    </div>
+                  )}
 
                   {!isReadOnly && selectedMarkerStartName && (
                     <div style={{ marginBottom: '8px' }}>
