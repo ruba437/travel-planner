@@ -1,0 +1,121 @@
+/* frontend/src/styles/favorite-button.css */
+
+.favorite-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: #999;
+  transition: all 0.2s ease;
+  position: relative;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.favorite-button:hover {
+  color: #ff4458;
+  transform: scale(1.1);
+}
+
+.favorite-button.is-saved {
+  color: #ff4458;
+}
+
+.favorite-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Size variants */
+.favorite-button-sm {
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+}
+
+.favorite-button-sm .favorite-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.favorite-button-md {
+  font-size: 16px;
+  width: 36px;
+  height: 36px;
+}
+
+.favorite-button-md .favorite-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.favorite-button-lg {
+  font-size: 18px;
+  width: 44px;
+  height: 44px;
+}
+
+.favorite-button-lg .favorite-icon {
+  width: 24px;
+  height: 24px;
+}
+
+/* Icon animation */
+.favorite-icon {
+  transition: transform 0.2s ease;
+}
+
+.favorite-button:active .favorite-icon {
+  transform: scale(0.85);
+}
+
+.favorite-button.is-saved .favorite-icon {
+  animation: heartPulse 0.3s ease;
+}
+
+@keyframes heartPulse {
+  0% {
+    transform: scale(0.8);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Loading spinner */
+.loading-spinner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 68, 88, 0.3);
+  border-top-color: #ff4458;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .favorite-button {
+    color: #666;
+  }
+
+  .favorite-button:hover {
+    color: #ff6b7a;
+  }
+
+  .favorite-button.is-saved {
+    color: #ff6b7a;
+  }
+}

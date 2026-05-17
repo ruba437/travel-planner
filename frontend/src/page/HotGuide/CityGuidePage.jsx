@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
+import { useFavorites } from '../Authentication/FavoritesContext';
+import FavoriteButton from '../../components/FavoriteButton';
 import '../../styles/sidebar-shared.css';
 import './CityGuidePage.css';
 
@@ -58,7 +60,23 @@ function SkeletonCard() {
   );
 }
 
-function CardRow({ title, categoryKey, items, transport = false, onToggleSave, savedSet, loading }) {
+const POI_CATEGORY_MAP = {
+  places: 'place',
+  hotels: 'hotel',
+  restaurants: 'restaurant',
+  activities: 'activity',
+  transport: 'transport',
+};
+
+function CardRow({
+  title,
+  categoryKey,
+  items,
+  transport = false,
+  loading,
+  isFavorited,
+  onAddToItinerary,
+}) {
   return (
     <section className="cg-section">
       <h2 className="cg-section-title">{title}</h2>
@@ -69,7 +87,6 @@ function CardRow({ title, categoryKey, items, transport = false, onToggleSave, s
             ? <p className="cg-empty">暫無資料</p>
             : items.map((item) => {
                 const canSave = !!categoryKey;
-                const isSaved = savedSet.has(`${categoryKey}:${item.id}`);
                 return (
                   <article key={item.id} className="cg-book-card">
                     <div className="cg-book-card-img">
@@ -78,12 +95,38 @@ function CardRow({ title, categoryKey, items, transport = false, onToggleSave, s
                         : <img src={item.cover_image} alt={item.name} loading="lazy" />
                       }
                       {canSave && (
+                        <FavoriteButton
+                          itemId={item.id}
+                          itemType="poi"
+                          metadata={{
+                            name: item.name,
+                            image_url: item.cover_image,
+                            address: item.description,
+                            lat: null,
+                            lng: null,
+                          }}
+                          size="md"
+                          className="cg-favorite-btn"
+                          onToggle={(saved) => {
+                            if (saved) {
+                              onAddToItinerary?.({
+                                ...item,
+                                poiCategory: POI_CATEGORY_MAP[categoryKey] || item.category || 'place',
+                              });
+                            }
+                          }}
+                        />
+                      )}
+                      {canSave && isFavorited?.(item.id, 'poi') && (
                         <button
-                          className={`cg-heart ${isSaved ? 'is-saved' : ''}`}
-                          onClick={() => onToggleSave(categoryKey, item.id)}
                           type="button"
+                          className="cg-add-btn"
+                          onClick={() => onAddToItinerary?.({
+                            ...item,
+                            poiCategory: POI_CATEGORY_MAP[categoryKey] || item.category || 'place',
+                          })}
                         >
-                          {isSaved ? '♥' : '♡'}
+                          加入行程
                         </button>
                       )}
                     </div>
@@ -117,13 +160,22 @@ export default function CityGuidePage() {
   const navigate    = useNavigate();
   const location    = useLocation();
   const { user, token, logout } = useAuth();
+  const { isFavorited } = useFavorites();
   const isAuthenticated = Boolean(token);
 
   const [guideData, setGuideData]           = useState(null);      // null = 尚未載入
-  const [savedSet,  setSavedSet]            = useState(new Set());
   const [loading,   setLoading]             = useState(true);
   const [error,     setError]               = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [itineraries, setItineraries] = useState([]);
+  const [itinerariesLoading, setItinerariesLoading] = useState(false);
+  const [selectedItineraryUuid, setSelectedItineraryUuid] = useState('');
+  const [selectedItineraryDetail, setSelectedItineraryDetail] = useState(null);
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [activePoi, setActivePoi] = useState(null);
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addError, setAddError] = useState('');
 
   const cityText   = useMemo(() => slugToCityText(city), [city]);
   const currentPath = location?.pathname || '/';
@@ -135,22 +187,151 @@ export default function CityGuidePage() {
     document.title = cityText ? `${cityText} 城市指南 | Travel Planner` : '城市指南 | Travel Planner';
   }, [cityText]);
 
+  const loadItineraries = useCallback(async () => {
+    if (!token) {
+      setItineraries([]);
+      return;
+    }
+
+    setItinerariesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/itineraries`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.itineraries) throw new Error('取得行程列表失敗');
+      setItineraries(Array.isArray(json.itineraries) ? json.itineraries : []);
+    } catch (fetchError) {
+      console.error(fetchError);
+      setItineraries([]);
+    } finally {
+      setItinerariesLoading(false);
+    }
+  }, [token]);
+
+  const loadItineraryDetail = useCallback(async (uuid) => {
+    if (!uuid || !token) {
+      setSelectedItineraryDetail(null);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/itineraries/${encodeURIComponent(uuid)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.itineraryData) throw new Error('取得行程詳情失敗');
+      setSelectedItineraryDetail(json);
+      setSelectedDayIndex(0);
+    } catch (fetchError) {
+      console.error(fetchError);
+      setSelectedItineraryDetail(null);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (token) {
+      loadItineraries();
+    } else {
+      setItineraries([]);
+      setSelectedItineraryUuid('');
+      setSelectedItineraryDetail(null);
+    }
+  }, [token, loadItineraries]);
+
+  useEffect(() => {
+    if (!isAddModalOpen || !selectedItineraryUuid) return;
+    loadItineraryDetail(selectedItineraryUuid);
+  }, [isAddModalOpen, selectedItineraryUuid, loadItineraryDetail]);
+
+  useEffect(() => {
+    if (!isAddModalOpen) {
+      setActivePoi(null);
+      setAddError('');
+      setAddSubmitting(false);
+    }
+  }, [isAddModalOpen]);
+
+  useEffect(() => {
+    if (isAddModalOpen && itineraries.length > 0 && !selectedItineraryUuid) {
+      setSelectedItineraryUuid(itineraries[0].uuid);
+    }
+  }, [isAddModalOpen, itineraries, selectedItineraryUuid]);
+
+  const openAddToItineraryModal = useCallback((poi) => {
+    if (!token) {
+      alert('請先登入');
+      return;
+    }
+
+    setActivePoi({
+      id: String(poi.id),
+      name: poi.name,
+      image_url: poi.cover_image,
+      address: poi.description,
+      poiCategory: poi.poiCategory || poi.category || 'place',
+    });
+    setAddError('');
+    setIsAddModalOpen(true);
+    if (itineraries.length === 0) {
+      loadItineraries();
+    }
+    if (itineraries[0]?.uuid) {
+      setSelectedItineraryUuid((current) => current || itineraries[0].uuid);
+    }
+  }, [itineraries, loadItineraries, token]);
+
+  const closeAddToItineraryModal = useCallback(() => {
+    setIsAddModalOpen(false);
+    setActivePoi(null);
+    setAddError('');
+  }, []);
+
+  const handleAddToItinerary = useCallback(async () => {
+    if (!token) {
+      alert('請先登入');
+      return;
+    }
+    if (!activePoi || !selectedItineraryUuid) {
+      setAddError('請先選擇行程');
+      return;
+    }
+
+    setAddSubmitting(true);
+    setAddError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/itineraries/${encodeURIComponent(selectedItineraryUuid)}/add-favorite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          itemId: String(activePoi.id),
+          itemType: 'poi',
+          targetDayIndex: selectedDayIndex,
+          poiCategory: activePoi.poiCategory,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || '加入行程失敗');
+      }
+
+      closeAddToItineraryModal();
+      alert('已加入行程');
+    } catch (submitError) {
+      setAddError(submitError.message || '加入行程失敗');
+    } finally {
+      setAddSubmitting(false);
+    }
+  }, [activePoi, closeAddToItineraryModal, selectedDayIndex, selectedItineraryUuid, token]);
+
   const getUserInitial = () => {
     const n = user?.displayName || user?.displayname || user?.email || '?';
     return n.charAt(0).toUpperCase();
   };
-
-  // ── 初始化 savedSet（從 API 回傳的 is_saved 欄位）──────────
-  const initSavedSet = useCallback((data) => {
-    const s = new Set();
-    const cats = ['places','hotels','restaurants','activities'];
-    cats.forEach(cat => {
-      (data[cat] || []).forEach(item => {
-        if (item.is_saved) s.add(`${cat}:${item.id}`);
-      });
-    });
-    setSavedSet(s);
-  }, []);
 
   // ── 載入城市 guide ─────────────────────────────────────────
   useEffect(() => {
@@ -171,7 +352,6 @@ export default function CityGuidePage() {
         const json = await res.json();
         if (!json.success || !json.data) throw new Error('資料格式錯誤');
         setGuideData(json.data);
-        initSavedSet(json.data);
       } catch (e) {
         if (e.name === 'AbortError') return;
         setError(e.message || '載入失敗');
@@ -182,37 +362,7 @@ export default function CityGuidePage() {
 
     loadGuide();
     return () => controller.abort();
-  }, [cityText, token, initSavedSet]);
-
-  // ── 收藏 toggle ────────────────────────────────────────────
-  const onToggleSave = useCallback(async (categoryKey, id) => {
-    if (!token) { navigate('/login'); return; }
-
-    const key    = `${categoryKey}:${id}`;
-    const wasSaved = savedSet.has(key);
-
-    // optimistic update
-    setSavedSet(prev => {
-      const next = new Set(prev);
-      wasSaved ? next.delete(key) : next.add(key);
-      return next;
-    });
-
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/pois/${categoryKey}/${id}/save`,
-        { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (!res.ok) throw new Error('Save failed');
-    } catch {
-      // rollback
-      setSavedSet(prev => {
-        const next = new Set(prev);
-        wasSaved ? next.add(key) : next.delete(key);
-        return next;
-      });
-    }
-  }, [token, savedSet, navigate]);
+  }, [cityText, token]);
 
   // ─── Error / Empty state ──────────────────────────────────
   if (!loading && error) {
@@ -230,6 +380,7 @@ export default function CityGuidePage() {
 
   const guide = guideData || {};
   const cityData = guide.city || {};
+  const selectedItineraryDays = selectedItineraryDetail?.itineraryData?.days || [];
 
   return (
     <div className="cg-root">
@@ -354,18 +505,43 @@ export default function CityGuidePage() {
                   : (guide.places || []).length === 0
                     ? <p className="cg-empty">暫無景點資料</p>
                     : (guide.places || []).map((p) => {
-                        const isSaved = savedSet.has(`places:${p.id}`);
                         return (
                           <article key={p.id} className="cg-place-pill">
                             <img src={p.cover_image} alt={p.name} loading="lazy" />
                             <div className="cg-place-overlay">{p.name}</div>
-                            <button
-                              className={`cg-heart ${isSaved ? 'is-saved' : ''}`}
-                              onClick={() => onToggleSave('places', p.id)}
-                              type="button"
-                            >
-                              {isSaved ? '♥' : '♡'}
-                            </button>
+                            <FavoriteButton
+                              itemId={p.id}
+                              itemType="poi"
+                              metadata={{
+                                name: p.name,
+                                image_url: p.cover_image,
+                                address: p.description,
+                                lat: null,
+                                lng: null,
+                              }}
+                              size="md"
+                              className="cg-favorite-btn"
+                              onToggle={(saved) => {
+                                if (saved) {
+                                  openAddToItineraryModal({
+                                    ...p,
+                                    poiCategory: 'place',
+                                  });
+                                }
+                              }}
+                            />
+                            {isFavorited(p.id, 'poi') && (
+                              <button
+                                type="button"
+                                className="cg-add-btn cg-add-btn--pill"
+                                onClick={() => openAddToItineraryModal({
+                                  ...p,
+                                  poiCategory: 'place',
+                                })}
+                              >
+                                加入行程
+                              </button>
+                            )}
                           </article>
                         );
                       })
@@ -373,13 +549,87 @@ export default function CityGuidePage() {
               </div>
             </section>
 
-            <CardRow title="Hotels"        categoryKey="hotels"      items={guide.hotels      || []} onToggleSave={onToggleSave} savedSet={savedSet} loading={loading} />
-            <CardRow title="Restaurants"   categoryKey="restaurants" items={guide.restaurants  || []} onToggleSave={onToggleSave} savedSet={savedSet} loading={loading} />
-            <CardRow title="Things to Do"  categoryKey="activities"  items={guide.activities   || []} onToggleSave={onToggleSave} savedSet={savedSet} loading={loading} />
-            <CardRow title="Getting There" categoryKey={null}        items={guide.transport    || []} transport onToggleSave={onToggleSave} savedSet={savedSet} loading={loading} />
+            <CardRow title="Hotels"        categoryKey="hotels"      items={guide.hotels      || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
+            <CardRow title="Restaurants"   categoryKey="restaurants" items={guide.restaurants  || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
+            <CardRow title="Things to Do"  categoryKey="activities"  items={guide.activities   || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
+            <CardRow title="Getting There" categoryKey={null}        items={guide.transport    || []} transport loading={loading} />
           </div>
         </div>
       </div>
+
+      {isAddModalOpen && (
+        <div className="cg-modal-backdrop" role="presentation" onClick={closeAddToItineraryModal}>
+          <div className="cg-modal" role="dialog" aria-modal="true" aria-label="加入行程" onClick={(e) => e.stopPropagation()}>
+            <div className="cg-modal-header">
+              <div>
+                <div className="cg-modal-kicker">加入行程</div>
+                <h3>{activePoi?.name || '選擇景點'}</h3>
+              </div>
+              <button type="button" className="cg-modal-close" onClick={closeAddToItineraryModal}>×</button>
+            </div>
+
+            <div className="cg-modal-body">
+              <div className="cg-modal-preview">
+                {activePoi?.image_url ? <img src={activePoi.image_url} alt={activePoi?.name || '景點'} /> : <div className="cg-modal-preview-fallback">✈</div>}
+                <div>
+                  <div className="cg-modal-title">{activePoi?.name || ''}</div>
+                  <div className="cg-modal-text">{activePoi?.address || '這個景點會被加入到選定行程的當天尾端。'}</div>
+                </div>
+              </div>
+
+              <label className="cg-modal-field">
+                <span>選擇行程</span>
+                <select
+                  value={selectedItineraryUuid}
+                  onChange={(e) => setSelectedItineraryUuid(e.target.value)}
+                  disabled={itinerariesLoading || itineraries.length === 0}
+                >
+                  {itineraries.length === 0 ? (
+                    <option value="">沒有可用行程</option>
+                  ) : itineraries.map((itinerary) => (
+                    <option key={itinerary.uuid} value={itinerary.uuid}>
+                      {itinerary.title || itinerary.summary || itinerary.uuid}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="cg-modal-field">
+                <span>選擇天數</span>
+                <select
+                  value={selectedDayIndex}
+                  onChange={(e) => setSelectedDayIndex(Number(e.target.value))}
+                  disabled={!selectedItineraryDays.length}
+                >
+                  {selectedItineraryDays.length === 0 ? (
+                    <option value="0">沒有可用天數</option>
+                  ) : selectedItineraryDays.map((day, index) => (
+                    <option key={index} value={index}>
+                      第 {index + 1} 天{day?.title ? `：${day.title}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {addError && <div className="cg-modal-error">{addError}</div>}
+            </div>
+
+            <div className="cg-modal-footer">
+              <button type="button" className="cg-modal-secondary" onClick={closeAddToItineraryModal}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="cg-modal-primary"
+                onClick={handleAddToItinerary}
+                disabled={addSubmitting || !selectedItineraryUuid || !selectedItineraryDays.length}
+              >
+                {addSubmitting ? '加入中…' : '加入行程'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

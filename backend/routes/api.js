@@ -14,6 +14,7 @@ const guidesRoutes = require('./guides');
 const homeRoutes = require('./home');
 const uRoutes = require('./u');
 const weatherRoutes = require('./weather');
+const favoritesRoutes = require('./favorites');
 
 // 2. 系統健康檢查 (唯一留下來的獨立 API)
 router.get('/health', (req, res) => res.json({ status: 'ok' }));
@@ -30,6 +31,7 @@ router.use('/guides', guidesRoutes);
 router.use('/home', homeRoutes);
 router.use('/u', uRoutes);
 router.use('/weather', weatherRoutes);
+router.use('/favorites', favoritesRoutes);
 
 // 4. 匯出 router
 module.exports = router;
