@@ -11,6 +11,7 @@ import ForgotPasswordPage from './page/Authentication/ForgotPassword/ForgotPassw
 import ResetPasswordPage from './page/Authentication/ResetPassword/ResetPasswordPage.jsx'
 import UserProfileSettingsPage from './page/UserProfile/UserProfileSettingsPage.jsx'
 import HomePage from './page/Home/HomePage.jsx'
+import FavoritesPage from './page/Favorites/FavoritesPage.jsx'
 import GuideDetailPage from './page/Guide/GuideDetailPage.jsx'
 import CityGuidePage from './page/HotGuide/CityGuidePage.jsx' 
 import { AuthProvider, useAuth } from './page/Authentication/AuthContext.jsx'
@@ -42,6 +43,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/settings/profile" element={<PrivateRoute><UserProfileSettingsPage /></PrivateRoute>} />
             <Route path="/" element={<HomePage />} />
+            <Route path="/saved" element={<PrivateRoute><FavoritesPage /></PrivateRoute>} />
             <Route path="/city/:city/guide" element={<CityGuidePage />} />
             <Route path="/u/:username/guide/:guideSlug" element={<GuideDetailPage />} />
             

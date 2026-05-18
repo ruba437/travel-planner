@@ -1,5 +1,5 @@
 // frontend/src/page/Authentication/FavoritesContext.jsx
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 
 const FavoritesContext = createContext(null);
@@ -20,7 +20,7 @@ export function FavoritesProvider({ children }) {
   /**
    * 初始化：從後端獲取用戶的所有收藏
    */
-  const fetchFavorites = async () => {
+  const fetchFavorites = useCallback(async () => {
     if (!token) {
       setFavoritesList([]);
       return;
@@ -41,7 +41,7 @@ export function FavoritesProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   /**
    * 檢查項目是否已收藏
@@ -132,7 +132,7 @@ export function FavoritesProvider({ children }) {
     } else {
       setFavoritesList([]);
     }
-  }, [token]);
+  }, [token, fetchFavorites]);
 
   const value = {
     favoritesList,
