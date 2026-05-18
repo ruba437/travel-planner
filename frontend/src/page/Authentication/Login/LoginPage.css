@@ -81,6 +81,24 @@
 	gap: 12px;
 }
 
+.az-auth-input-wrap {
+	position: relative;
+	width: 100%;
+}
+
+.az-auth-input-icon {
+	position: absolute;
+	left: 12px;
+	top: 50%;
+	transform: translateY(-50%);
+	color: #9ca3af;
+	pointer-events: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	transition: color 0.16s ease;
+}
+
 .az-auth-input {
 	height: 44px;
 	width: 100%;
@@ -92,14 +110,22 @@
 	transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
+.az-auth-input--with-icon {
+	padding-left: 40px;
+}
+
 .az-auth-input::placeholder {
 	color: #9ca3af;
 }
 
 .az-auth-input:focus {
 	outline: none;
-	border-color: var(--az-auth-teal);
-	box-shadow: 0 0 0 3px rgba(12, 191, 176, 0.2);
+	border-color: #0aa89a;
+	box-shadow: 0 0 0 3px rgba(12, 191, 176, 0.24);
+}
+
+.az-auth-input-wrap:focus-within .az-auth-input-icon {
+	color: var(--az-auth-teal);
 }
 
 .az-auth-error {

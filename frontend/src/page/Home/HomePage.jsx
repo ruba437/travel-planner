@@ -55,8 +55,8 @@ function FeedbackIcon() {
 function SidebarIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>;
 }
-function ChevronUpDownIcon() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 3 18 9"/><polyline points="6 15 12 21 18 15"/></svg>;
+function LogoutIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
 }
 
 const NAV_ITEMS = [
@@ -309,7 +309,7 @@ export default function HomePage() {
                     <span className="az-user-email">{user?.email}</span>
                   </div>
                   <button className="az-user-chevron" onClick={(e) => { e.stopPropagation(); logout(); }} title="登出">
-                    <ChevronUpDownIcon />
+                    <LogoutIcon />
                   </button>
                 </>
               )}
