@@ -38,6 +38,13 @@ export default function UserProfileSettingsPage() {
   // 元件卸載時清掉計時器
   useEffect(() => () => clearTimeout(successTimer.current), []);
 
+  const getUserInitial = () => {
+    const n = user?.displayname || user?.displayName || user?.email || '?';
+    return n.charAt(0).toUpperCase();
+  };
+
+  const avatarSrc = typeof user?.profilephoto === 'string' ? user.profilephoto.trim() : '';
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -82,17 +89,30 @@ export default function UserProfileSettingsPage() {
   return (
     <div className="az-profile-page">
       <div className="az-profile-shell">
-        <div className="az-profile-header">
-          <button className="az-profile-back" onClick={() => navigate(-1)} aria-label="返回">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-            返回
-          </button>
-          <h1 className="az-profile-title">個人設定</h1>
-        </div>
-
         <div className="az-profile-card">
+          <div className="az-profile-header az-profile-header--inside">
+            <button className="az-profile-back" onClick={() => navigate(-1)} aria-label="返回">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              返回
+            </button>
+            <h1 className="az-profile-title">個人設定</h1>
+          </div>
+
+          <div className="az-profile-avatar-wrap" aria-hidden="true">
+            {avatarSrc ? (
+              <img
+                src={avatarSrc}
+                alt=""
+                className="az-profile-avatar-img"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            ) : (
+              <div className="az-profile-avatar-fallback">{getUserInitial()}</div>
+            )}
+          </div>
+
           <form onSubmit={onSubmit} className="az-profile-form">
             <div className="az-profile-field">
               <label htmlFor="az-displayname" className="az-profile-label">顯示名稱</label>
@@ -105,6 +125,18 @@ export default function UserProfileSettingsPage() {
                 maxLength={60}
                 required
                 className="az-profile-input"
+              />
+            </div>
+
+            <div className="az-profile-field">
+              <label htmlFor="az-email" className="az-profile-label">Email</label>
+              <input
+                id="az-email"
+                type="email"
+                value={user?.email || ''}
+                readOnly
+                disabled
+                className="az-profile-input az-profile-input--readonly"
               />
             </div>
 
@@ -161,11 +193,6 @@ export default function UserProfileSettingsPage() {
               </button>
             </div>
           </form>
-
-          <div className="az-profile-meta">
-            <span className="az-profile-meta-label">Email</span>
-            <span className="az-profile-meta-value">{user?.email || ''}</span>
-          </div>
         </div>
       </div>
     </div>

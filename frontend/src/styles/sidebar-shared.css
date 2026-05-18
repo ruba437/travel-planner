@@ -137,12 +137,13 @@
   cursor: pointer;
   border-radius: 8px;
   overflow: hidden;
-  transition: background 0.12s;
+  transition: background 0.16s ease, transform 0.16s ease;
   margin: 0 8px;
 }
 
 .az-user-row:hover {
-  background: var(--az-sidebar-hover-bg, #f3f4f6);
+  background: color-mix(in srgb, var(--az-sidebar-hover-bg, #f3f4f6) 78%, #ffedd5 22%);
+  transform: translateY(-1px);
 }
 
 .az-avatar {
@@ -204,7 +205,7 @@
 }
 
 .az-user-chevron:hover {
-  color: #374151;
+  color: #111827;
 }
 
 @media (max-width: 768px) {
