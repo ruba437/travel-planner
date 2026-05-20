@@ -734,9 +734,18 @@ export default function CityGuidePage() {
             </section>
 
             <CardRow title="Hotels"        categoryKey="hotels"      items={guide.hotels      || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
-            <CardRow title="Restaurants"   categoryKey="restaurants" items={guide.restaurants  || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
+            {(loading || (guide.restaurants || []).length > 0) && (
+              <CardRow
+                title="Restaurants"
+                categoryKey="restaurants"
+                items={guide.restaurants || []}
+                loading={loading}
+                isFavorited={isFavorited}
+                onAddToItinerary={openAddToItineraryModal}
+              />
+            )}
             <CardRow title="Things to Do"  categoryKey="activities"  items={guide.activities   || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
-            {/* <CardRow title="Getting There" categoryKey={null}        items={guide.transport    || []} transport loading={loading} /> */}
+
           </div>
         </div>
       </div>
