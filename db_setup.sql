@@ -150,6 +150,8 @@ CREATE TABLE public.city_pois (
   name character varying NOT NULL,
   description text,
   cover_image text,
+  latitude numeric,
+  longitude numeric,
   star_rating integer CHECK (star_rating >= 1 AND star_rating <= 5),
   book_url text,
   sort_order integer DEFAULT 0,

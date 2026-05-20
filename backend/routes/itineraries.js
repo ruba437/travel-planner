@@ -645,6 +645,14 @@ function normalizeDirectionPoint(point) {
   return name || null;
 }
 
+function toFiniteCoordinate(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function buildItineraryItemFromFavorite(favoriteRow, poiCategory) {
   const metadata = favoriteRow?.metadata && typeof favoriteRow.metadata === 'object'
     ? favoriteRow.metadata
@@ -658,8 +666,12 @@ function buildItineraryItemFromFavorite(favoriteRow, poiCategory) {
     transport: 'transport',
   };
 
-  const lat = Number(metadata.lat);
-  const lng = Number(metadata.lng);
+  const dbLat = toFiniteCoordinate(favoriteRow?.poi_latitude);
+  const dbLng = toFiniteCoordinate(favoriteRow?.poi_longitude);
+  const metaLat = toFiniteCoordinate(metadata.lat);
+  const metaLng = toFiniteCoordinate(metadata.lng);
+  const lat = dbLat ?? metaLat;
+  const lng = dbLng ?? metaLng;
   const item = {
     name: String(metadata.name || favoriteRow?.poi_name || '').trim(),
     type: typeMap[category] || 'sight',
@@ -669,7 +681,7 @@ function buildItineraryItemFromFavorite(favoriteRow, poiCategory) {
     imageUrl: metadata.image_url || favoriteRow?.poi_image_url || null,
   };
 
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+  if (lat !== null && lng !== null) {
     item.lat = lat;
     item.lng = lng;
     item.location = { lat, lng };
@@ -738,7 +750,8 @@ async function recalculateDayItemsTimes(items, dayStartTime, mode = 'TRANSIT') {
 async function appendFavoriteToItinerary(client, uuid, userId, payload = {}) {
   const { rows } = await client.query(
     `SELECT uf.item_id, uf.item_type, uf.metadata, cp.category,
-            cp.name AS poi_name, cp.cover_image AS poi_image_url, cp.description AS poi_address
+            cp.name AS poi_name, cp.cover_image AS poi_image_url, cp.description AS poi_address,
+            cp.latitude AS poi_latitude, cp.longitude AS poi_longitude
      FROM user_favorites uf
      LEFT JOIN city_pois cp ON uf.item_type = 'poi' AND uf.item_id = cp.id::text
      WHERE uf.userid = $1 AND uf.item_id = $2 AND uf.item_type = $3

@@ -5,7 +5,14 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "import:tokyo-guide": "node scripts/import-tokyo-guide.js",
+    "import:hong-kong-guide": "node scripts/import-hong-kong-guide.js",
+    "import:bangkok-guide": "node scripts/import-bangkok-guide.js",
+    "import:osaka-guide": "node scripts/import-osaka-guide.js",
+    "import:seoul-guide": "node scripts/import-seoul-guide.js",
+    "backfill:poi-coordinates": "node scripts/backfill-poi-coordinates.js",
+    "backfill:poi-coordinates:tokyo": "node scripts/backfill-poi-coordinates.js tokyo"
   },
   "keywords": [],
   "author": "",

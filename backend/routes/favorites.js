@@ -82,9 +82,9 @@ router.get('/', authMiddleware, async (req, res) => {
         uf.item_type,
         COALESCE(uf.metadata->>'name', cp.name, i.title) AS name,
         COALESCE(uf.metadata->>'image_url', cp.cover_image) AS image_url,
-        COALESCE(uf.metadata->>'address') AS address,
-        COALESCE(uf.metadata->>'lat') AS lat,
-        COALESCE(uf.metadata->>'lng') AS lng,
+        COALESCE(uf.metadata->>'address', cp.description) AS address,
+        COALESCE(cp.latitude::text, uf.metadata->>'lat') AS lat,
+        COALESCE(cp.longitude::text, uf.metadata->>'lng') AS lng,
         uf.created_at
       FROM user_favorites uf
       LEFT JOIN public.city_pois cp ON uf.item_type = 'poi' AND uf.item_id = cp.id::text

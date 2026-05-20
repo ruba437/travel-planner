@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from '@react-google-maps/api';
 import { useAuth } from '../Authentication/AuthContext';
 import { useFavorites } from '../Authentication/FavoritesContext';
 import FavoriteButton from '../../components/FavoriteButton';
@@ -7,6 +8,8 @@ import '../../styles/sidebar-shared.css';
 import './CityGuidePage.css';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const GOOGLE_LIBRARIES = [];
+const DEFAULT_CENTER = { lat: 35.6762, lng: 139.6503 };
 
 // ─── 分類對應後端 category key ────────────────────────────────
 const CATEGORY_KEY = {
@@ -17,12 +20,34 @@ const CATEGORY_KEY = {
   // transport 不支援收藏
 };
 
-function buildMapSrc(city) {
-  if (!city) return 'https://www.google.com/maps?q=35.6762,139.6503&z=11&output=embed';
-  if (city.latitude && city.longitude)
-    return `https://www.google.com/maps?q=${city.latitude},${city.longitude}&z=11&output=embed`;
-  const q = encodeURIComponent(`${city.city || ''} ${city.country || ''}`.trim());
-  return `https://www.google.com/maps?q=${q}&z=11&output=embed`;
+function toFiniteCoord(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function getCityCenter(city) {
+  const lat = toFiniteCoord(city?.latitude);
+  const lng = toFiniteCoord(city?.longitude);
+  if (lat !== null && lng !== null) return { lat, lng };
+  return DEFAULT_CENTER;
+}
+
+function buildPlaceMarkers(places = []) {
+  return places
+    .map((place) => {
+      const lat = toFiniteCoord(place?.latitude);
+      const lng = toFiniteCoord(place?.longitude);
+      if (lat === null || lng === null) return null;
+
+      return {
+        id: String(place.id),
+        position: { lat, lng },
+        name: place.name || '景點',
+        description: place.description || '',
+        image: place.cover_image || '',
+      };
+    })
+    .filter(Boolean);
 }
 
 function slugToCityText(raw) {
@@ -102,8 +127,8 @@ function CardRow({
                             name: item.name,
                             image_url: item.cover_image,
                             address: item.description,
-                            lat: null,
-                            lng: null,
+                            lat: item.latitude ?? null,
+                            lng: item.longitude ?? null,
                           }}
                           size="md"
                           className="cg-favorite-btn"
@@ -176,6 +201,10 @@ export default function CityGuidePage() {
   const [activePoi, setActivePoi] = useState(null);
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [addError, setAddError] = useState('');
+  const [mapRef, setMapRef] = useState(null);
+  const [activeMarkerId, setActiveMarkerId] = useState(null);
+  const [placeDetailsByMarkerId, setPlaceDetailsByMarkerId] = useState({});
+  const [placeDetailsLoadingId, setPlaceDetailsLoadingId] = useState(null);
 
   const cityText   = useMemo(() => slugToCityText(city), [city]);
   const currentPath = location?.pathname || '/';
@@ -381,6 +410,86 @@ export default function CityGuidePage() {
   const guide = guideData || {};
   const cityData = guide.city || {};
   const selectedItineraryDays = selectedItineraryDetail?.itineraryData?.days || [];
+  const { isLoaded } = useJsApiLoader({
+    id: 'city-guide-map-script',
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_LIBRARIES,
+  });
+  const placeMarkers = useMemo(() => buildPlaceMarkers(guide.places || []), [guide.places]);
+  const mapCenter = useMemo(() => getCityCenter(cityData), [cityData]);
+
+  useEffect(() => {
+    setActiveMarkerId(null);
+    setPlaceDetailsByMarkerId({});
+    setPlaceDetailsLoadingId(null);
+  }, [cityText]);
+
+  useEffect(() => {
+    if (!mapRef || !window.google?.maps) return;
+
+    if (placeMarkers.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds();
+      placeMarkers.forEach((marker) => bounds.extend(marker.position));
+      mapRef.fitBounds(bounds);
+      return;
+    }
+
+    mapRef.panTo(mapCenter);
+    mapRef.setZoom(12);
+  }, [mapCenter, mapRef, placeMarkers]);
+
+  const activeMarker = placeMarkers.find((marker) => marker.id === activeMarkerId) || null;
+  const activeMarkerDetails = activeMarker ? placeDetailsByMarkerId[activeMarker.id] : null;
+
+  const loadMarkerDetails = useCallback(async (marker) => {
+    if (!marker) return;
+    if (placeDetailsByMarkerId[marker.id]) return;
+
+    setPlaceDetailsLoadingId(marker.id);
+    try {
+      const searchRes = await fetch(`${API_BASE}/api/places/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: marker.name,
+          city: cityData.city || cityText,
+          center: mapCenter,
+        }),
+      });
+
+      const searchJson = await searchRes.json();
+      const placeId = searchJson?.places?.[0]?.placeId;
+      if (!placeId) {
+        setPlaceDetailsByMarkerId((current) => ({
+          ...current,
+          [marker.id]: { error: '找不到 Google Place 資料' },
+        }));
+        return;
+      }
+
+      const detailRes = await fetch(`${API_BASE}/api/places/details?placeId=${encodeURIComponent(placeId)}`);
+      const detailJson = await detailRes.json();
+      setPlaceDetailsByMarkerId((current) => ({
+        ...current,
+        [marker.id]: detailJson || { error: '取得 Google 詳情失敗' },
+      }));
+    } catch (err) {
+      setPlaceDetailsByMarkerId((current) => ({
+        ...current,
+        [marker.id]: { error: err?.message || '取得 Google 詳情失敗' },
+      }));
+    } finally {
+      setPlaceDetailsLoadingId((current) => (current === marker.id ? null : current));
+    }
+  }, [cityData.city, cityText, mapCenter, placeDetailsByMarkerId]);
+
+  useEffect(() => {
+    if (!activeMarker) return;
+    loadMarkerDetails(activeMarker);
+  }, [activeMarker, loadMarkerDetails]);
+
+  const activeMarkerPhotoRef = activeMarkerDetails?.photos?.[0]?.photo_reference || null;
+  const activeMarkerReviews = Array.isArray(activeMarkerDetails?.reviews) ? activeMarkerDetails.reviews.slice(0, 2) : [];
 
   return (
     <div className="cg-root">
@@ -486,9 +595,84 @@ export default function CityGuidePage() {
               : <p className="cg-description">{cityData.description}</p>
             }
 
-            {!loading && cityData.latitude && (
+            {!loading && (
               <div className="cg-map-wrap">
-                <iframe title="city map" src={buildMapSrc(cityData)} loading="lazy" />
+                {!isLoaded ? (
+                  <div className="cg-map-loading">地圖載入中…</div>
+                ) : (
+                  <GoogleMap
+                    mapContainerClassName="cg-map"
+                    center={mapCenter}
+                    zoom={12}
+                    onLoad={(map) => setMapRef(map)}
+                    onClick={() => setActiveMarkerId(null)}
+                    options={{
+                      disableDefaultUI: false,
+                      clickableIcons: false,
+                      fullscreenControl: false,
+                      mapTypeControl: false,
+                      streetViewControl: false,
+                    }}
+                  >
+                    {placeMarkers.map((marker) => (
+                      <Marker
+                        key={marker.id}
+                        position={marker.position}
+                        onClick={() => {
+                          setActiveMarkerId(marker.id);
+                        }}
+                      />
+                    ))}
+
+                    {activeMarker && (
+                      <InfoWindow
+                        position={activeMarker.position}
+                        onCloseClick={() => setActiveMarkerId(null)}
+                      >
+                        <div className="cg-map-info-window">
+                          <div className="cg-map-info-title">{activeMarker.name}</div>
+                          {placeDetailsLoadingId === activeMarker.id ? (
+                            <div className="cg-map-info-text">載入 Google 圖片與評論中…</div>
+                          ) : activeMarkerDetails?.error ? (
+                            <div className="cg-map-info-text">{activeMarkerDetails.error}</div>
+                          ) : (
+                            <>
+                              {activeMarkerPhotoRef && (
+                                <img
+                                  className="cg-map-info-photo"
+                                  src={`${API_BASE}/api/places/photo?ref=${encodeURIComponent(activeMarkerPhotoRef)}&maxwidth=320`}
+                                  alt={activeMarker.name}
+                                />
+                              )}
+                              {typeof activeMarkerDetails?.rating === 'number' && (
+                                <div className="cg-map-info-rating">
+                                  {activeMarkerDetails.rating} ★
+                                  {activeMarkerDetails.user_ratings_total ? ` · ${activeMarkerDetails.user_ratings_total} 則評論` : ''}
+                                </div>
+                              )}
+                              {activeMarker.description && (
+                                <div className="cg-map-info-text">{activeMarker.description}</div>
+                              )}
+                              {activeMarkerReviews.length > 0 && (
+                                <div className="cg-map-info-reviews">
+                                  {activeMarkerReviews.map((review, index) => (
+                                    <div key={`${review.author_name || 'review'}-${index}`} className="cg-map-review-item">
+                                      <div className="cg-map-review-meta">
+                                        <span>{review.author_name || '匿名評論者'}</span>
+                                        {review.rating ? <span>{review.rating} ★</span> : null}
+                                      </div>
+                                      <div className="cg-map-review-text">{review.text}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </InfoWindow>
+                    )}
+                  </GoogleMap>
+                )}
               </div>
             )}
 
@@ -516,8 +700,8 @@ export default function CityGuidePage() {
                                 name: p.name,
                                 image_url: p.cover_image,
                                 address: p.description,
-                                lat: null,
-                                lng: null,
+                                lat: p.latitude ?? null,
+                                lng: p.longitude ?? null,
                               }}
                               size="md"
                               className="cg-favorite-btn"
@@ -552,7 +736,7 @@ export default function CityGuidePage() {
             <CardRow title="Hotels"        categoryKey="hotels"      items={guide.hotels      || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
             <CardRow title="Restaurants"   categoryKey="restaurants" items={guide.restaurants  || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
             <CardRow title="Things to Do"  categoryKey="activities"  items={guide.activities   || []} loading={loading} isFavorited={isFavorited} onAddToItinerary={openAddToItineraryModal} />
-            <CardRow title="Getting There" categoryKey={null}        items={guide.transport    || []} transport loading={loading} />
+            {/* <CardRow title="Getting There" categoryKey={null}        items={guide.transport    || []} transport loading={loading} /> */}
           </div>
         </div>
       </div>
