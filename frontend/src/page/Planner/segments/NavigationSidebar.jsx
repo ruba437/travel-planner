@@ -79,7 +79,7 @@ const NavigationSidebar = () => {
             {!sidebarCollapsed && <span>旅遊指南</span>}
           </button>
 
-          <button className="az-nav-item" title={sidebarCollapsed ? '收藏' : ''}>
+          <button className="az-nav-item" onClick={() => navigate('/saved')} title={sidebarCollapsed ? '收藏' : ''}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
             </svg>

@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const authMiddleware = require('../middleware/auth');
 const OpenAI = require('openai');
+const axios = require('axios');
 const { ok, err } = require('../utils/response');
 const { toHHmm } = require('../utils/formatters');
 const crypto = require('crypto');
@@ -615,6 +616,216 @@ async function itineraryBelongsToUser(clientOrPool, uuid, userId) {
   return rows.length > 0;
 }
 
+function normalizeDayStartTime(day, itineraryData) {
+  return toHHmm(day?.startTime || itineraryData?.startTime) || '09:00';
+}
+
+function normalizeDirectionPoint(point) {
+  if (!point) return null;
+
+  if (typeof point === 'string') {
+    const text = point.trim();
+    return text || null;
+  }
+
+  if (typeof point !== 'object') return null;
+
+  const placeId = String(point.placeId || point.place_id || '').trim();
+  if (placeId) {
+    return `place_id:${placeId}`;
+  }
+
+  const lat = Number(point.lat ?? point.location?.lat);
+  const lng = Number(point.lng ?? point.location?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `${lat},${lng}`;
+  }
+
+  const name = String(point.name || '').trim();
+  return name || null;
+}
+
+function toFiniteCoordinate(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildItineraryItemFromFavorite(favoriteRow, poiCategory) {
+  const metadata = favoriteRow?.metadata && typeof favoriteRow.metadata === 'object'
+    ? favoriteRow.metadata
+    : {};
+  const category = String(poiCategory || favoriteRow?.item_category || '').trim().toLowerCase();
+  const typeMap = {
+    place: 'sight',
+    hotel: 'hotel',
+    restaurant: 'food',
+    activity: 'activity',
+    transport: 'transport',
+  };
+
+  const dbLat = toFiniteCoordinate(favoriteRow?.poi_latitude);
+  const dbLng = toFiniteCoordinate(favoriteRow?.poi_longitude);
+  const metaLat = toFiniteCoordinate(metadata.lat);
+  const metaLng = toFiniteCoordinate(metadata.lng);
+  const lat = dbLat ?? metaLat;
+  const lng = dbLng ?? metaLng;
+  const item = {
+    name: String(metadata.name || favoriteRow?.poi_name || '').trim(),
+    type: typeMap[category] || 'sight',
+    time: '',
+    cost: 0,
+    note: String(metadata.address || favoriteRow?.poi_address || '').trim() || '從收藏加入',
+    imageUrl: metadata.image_url || favoriteRow?.poi_image_url || null,
+  };
+
+  if (lat !== null && lng !== null) {
+    item.lat = lat;
+    item.lng = lng;
+    item.location = { lat, lng };
+  }
+
+  return item;
+}
+
+async function fetchTravelTime(originItem, destItem, mode = 'TRANSIT') {
+  const origin = normalizeDirectionPoint(originItem);
+  const destination = normalizeDirectionPoint(destItem);
+  if (!origin || !destination) return 15;
+
+  try {
+    const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
+      params: {
+        origin,
+        destination,
+        mode: String(mode || 'TRANSIT').toLowerCase(),
+        language: 'zh-TW',
+        key: process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+      },
+    });
+
+    const durationSeconds = response.data?.routes?.[0]?.legs?.[0]?.duration?.value;
+    if (Number.isFinite(Number(durationSeconds))) {
+      return Math.ceil(Math.ceil(Number(durationSeconds) / 60) / 15) * 15 || 15;
+    }
+  } catch (error) {
+    console.warn('fetchTravelTime failed:', error.response?.data || error.message);
+  }
+
+  return 15;
+}
+
+async function recalculateDayItemsTimes(items, dayStartTime, mode = 'TRANSIT') {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  let currentStartTime = dayStartTime || '09:00';
+  const newItems = [];
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = { ...items[index] };
+    const travelTime = index > 0
+      ? await fetchTravelTime(newItems[index - 1], item, newItems[index - 1].travelMode || mode)
+      : 0;
+
+    const [startHour, startMinute] = String(currentStartTime || '09:00').split(':').map(Number);
+    const arrivalDate = new Date();
+    arrivalDate.setHours(startHour || 0, (startMinute || 0) + travelTime, 0, 0);
+
+    const startTimeStr = `${String(arrivalDate.getHours()).padStart(2, '0')}:${String(arrivalDate.getMinutes()).padStart(2, '0')}`;
+    const [assignedHour, assignedMinute] = startTimeStr.split(':').map(Number);
+    const assignedEndDate = new Date();
+    assignedEndDate.setHours(assignedHour || 0, (assignedMinute || 0) + 120, 0, 0);
+
+    const endTimeStr = `${String(assignedEndDate.getHours()).padStart(2, '0')}:${String(assignedEndDate.getMinutes()).padStart(2, '0')}`;
+    item.time = `${startTimeStr}~${endTimeStr}`;
+    newItems.push(item);
+    currentStartTime = endTimeStr;
+  }
+
+  return newItems;
+}
+
+async function appendFavoriteToItinerary(client, uuid, userId, payload = {}) {
+  const { rows } = await client.query(
+    `SELECT uf.item_id, uf.item_type, uf.metadata, cp.category,
+            cp.name AS poi_name, cp.cover_image AS poi_image_url, cp.description AS poi_address,
+            cp.latitude AS poi_latitude, cp.longitude AS poi_longitude
+     FROM user_favorites uf
+     LEFT JOIN city_pois cp ON uf.item_type = 'poi' AND uf.item_id = cp.id::text
+     WHERE uf.userid = $1 AND uf.item_id = $2 AND uf.item_type = $3
+     LIMIT 1`,
+    [userId, String(payload.itemId || ''), String(payload.itemType || 'poi')]
+  );
+
+  if (!rows.length) {
+    const error = new Error('收藏不存在或無權限');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const favoriteRow = rows[0];
+  const itineraryResult = await client.query(
+    'SELECT itinerarydata, starttime FROM itineraries WHERE uuid = $1 AND userid = $2 LIMIT 1',
+    [uuid, userId]
+  );
+  if (!itineraryResult.rows.length) {
+    const error = new Error('行程不存在或無權限');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  let itineraryData;
+  try {
+    itineraryData = normalizeItineraryData(JSON.parse(itineraryResult.rows[0].itinerarydata));
+  } catch (_error) {
+    itineraryData = { days: [] };
+  }
+
+  const days = Array.isArray(itineraryData.days) ? [...itineraryData.days] : [];
+  const targetDayIndex = Math.max(0, Math.min(Number(payload.targetDayIndex) || 0, Math.max(days.length - 1, 0)));
+  while (days.length <= targetDayIndex) {
+    days.push({ day: days.length + 1, items: [] });
+  }
+
+  const targetDay = { ...days[targetDayIndex] };
+  const currentItems = Array.isArray(targetDay.items) ? [...targetDay.items] : [];
+  const newItem = buildItineraryItemFromFavorite(favoriteRow, payload.poiCategory || favoriteRow.category);
+  currentItems.push(newItem);
+
+  const normalizedItems = await recalculateDayItemsTimes(
+    currentItems,
+    normalizeDayStartTime(targetDay, itineraryData),
+    targetDay.transportMode || 'TRANSIT'
+  );
+
+  days[targetDayIndex] = {
+    ...targetDay,
+    day: targetDayIndex + 1,
+    items: normalizedItems,
+  };
+
+  const nextItineraryData = {
+    ...itineraryData,
+    days,
+  };
+
+  await client.query(
+    `UPDATE itineraries
+     SET itinerarydata = $1,
+         updatedat = CURRENT_TIMESTAMP
+     WHERE uuid = $2 AND userid = $3`,
+    [JSON.stringify(nextItineraryData), uuid, userId]
+  );
+
+  return {
+    itineraryData: nextItineraryData,
+    addedItem: newItem,
+    dayIndex: targetDayIndex,
+  };
+}
+
 // ------------------ 行前清單 CRUD ------------------
 // GET /api/itineraries/:uuid/checklist
 router.get('/:uuid/checklist', async (req, res) => {
@@ -1041,6 +1252,49 @@ router.get('/:uuid', async (req, res) => {
   } catch (err) {
     console.error('Get itinerary error:', err);
     res.status(500).json({ error: '取得行程失敗' });
+  }
+});
+
+// POST /api/itineraries/:uuid/add-favorite
+router.post('/:uuid/add-favorite', async (req, res) => {
+  const { uuid } = req.params;
+  const { itemId, itemType = 'poi', targetDayIndex = 0, poiCategory } = req.body || {};
+
+  if (!itemId || typeof itemId !== 'string') {
+    return res.status(400).json({ error: 'itemId is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const allowed = await itineraryBelongsToUser(client, uuid, req.user.id);
+    if (!allowed) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '行程不存在或無權限' });
+    }
+
+    const result = await appendFavoriteToItinerary(client, uuid, req.user.id, {
+      itemId,
+      itemType,
+      targetDayIndex,
+      poiCategory,
+    });
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      uuid,
+      dayIndex: result.dayIndex,
+      itineraryData: result.itineraryData,
+      addedItem: result.addedItem,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Add favorite to itinerary error:', error);
+    return res.status(error.statusCode || 500).json({ error: error.message || '加入行程失敗' });
+  } finally {
+    client.release();
   }
 });
 

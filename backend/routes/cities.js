@@ -92,7 +92,8 @@ router.get('/:city/pois', optionalAuth, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT p.id, p.category, p.name, p.description, p.cover_image,
-              p.star_rating, p.book_url, p.sort_order
+              p.star_rating, p.book_url, p.sort_order,
+              p.latitude, p.longitude
               ${savedCol}
        FROM   public.city_pois p
        ${savedJoin}
@@ -126,7 +127,8 @@ router.get('/:city/guide', optionalAuth, async (req, res) => {
 
     const { rows: pois } = await pool.query(
       `SELECT p.id, p.category, p.name, p.description, p.cover_image,
-              p.star_rating, p.book_url, p.sort_order ${savedCol}
+              p.star_rating, p.book_url, p.sort_order,
+              p.latitude, p.longitude ${savedCol}
        FROM   public.city_pois p ${savedJoin}
        WHERE  p.city_id = $1 AND p.is_active = true
        ORDER  BY p.sort_order ASC`,
