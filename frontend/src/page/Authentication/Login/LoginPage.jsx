@@ -1,17 +1,20 @@
 /* frontend/src/page/Authentication/Login/LoginPage.jsx */
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import './LoginPage.css';
 
 export default function LoginPage() {
   const { login, register } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const fromPath = location.state?.from || '/';
 
   useEffect(() => {
     document.title = `${isRegister ? '註冊帳號' : '登入'} | Travel Planner`;
@@ -27,6 +30,7 @@ export default function LoginPage() {
       } else {
         await login(email, password);
       }
+      navigate(fromPath, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

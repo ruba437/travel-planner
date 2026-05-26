@@ -987,6 +987,48 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     }
   }, [itineraryUuid, isPublicMode, token, plan]);
 
+  // ====== 發布 / 取消發布 行程 ======
+  const publishItinerary = useCallback(async (uuidParam, isPublic) => {
+    if (!uuidParam || !token) return { success: false };
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/itineraries/${encodeURIComponent(uuidParam)}/publish`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ispublic: Boolean(isPublic) })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || '更新公開狀態失敗');
+      }
+
+      const data = await res.json();
+      // 更新本地 plan 標記，方便 UI 顯示
+      setPlan((prev) => prev ? { ...prev, ispublic: Boolean(data?.itinerary?.ispublic) } : prev);
+      setSaveMsg(data.success ? (data.itinerary.ispublic ? '已公開行程' : '已設為私密') : '');
+      setTimeout(() => setSaveMsg(null), 2000);
+      return { success: true, data };
+    } catch (error) {
+      console.error('publishItinerary error:', error);
+      setSaveMsg('更新公開狀態失敗：' + (error.message || ''));
+      setTimeout(() => setSaveMsg(null), 3000);
+      return { success: false };
+    } finally {
+      setIsSaving(false);
+    }
+  }, [token]);
+
+  const togglePublish = useCallback(async () => {
+    if (!itineraryUuid) {
+      setSaveMsg('請先儲存行程後再公開');
+      setTimeout(() => setSaveMsg(null), 2000);
+      return { success: false };
+    }
+    const currently = Boolean(plan?.ispublic);
+    return publishItinerary(itineraryUuid, !currently);
+  }, [itineraryUuid, plan, publishItinerary]);
+
   // 更新單一景點的預算成本
   const updateItemCost = useCallback((dayIndex, itemIndex, newCost) => {
     if (!plan || !plan.days || !plan.days[dayIndex] || !plan.days[dayIndex].items) return;
@@ -1062,6 +1104,8 @@ export const PlannerProvider = ({ children, isPublicMode = false }) => {
     generateChecklist,
     setSaveMsg,
     isPublicMode,
+    publishItinerary,
+    togglePublish,
     optimizeDayRoute,
     updateItemCost,
     updateGlobalStartLocation,

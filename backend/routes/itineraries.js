@@ -1358,6 +1358,38 @@ router.put('/:uuid', async (req, res) => {
   }
 });
 
+// PUT /api/itineraries/:uuid/publish (設定或切換公開狀態)
+router.put('/:uuid/publish', async (req, res) => {
+  const { uuid } = req.params;
+  const { ispublic } = req.body;
+
+  if (typeof ispublic !== 'boolean') {
+    return res.status(400).json({ error: 'ispublic 必須為 boolean' });
+  }
+
+  try {
+    // 檢查是否為該使用者的行程
+    const belongs = await itineraryBelongsToUser(pool, uuid, req.user.id);
+    if (!belongs) return res.status(404).json({ error: '行程不存在或無權限' });
+
+    const { rowCount, rows } = await pool.query(
+      `UPDATE itineraries
+       SET ispublic = $1,
+           updatedat = CURRENT_TIMESTAMP
+       WHERE uuid = $2 AND userid = $3
+       RETURNING uuid, ispublic`
+      , [ispublic, uuid, req.user.id]
+    );
+
+    if (rowCount === 0) return res.status(404).json({ error: '行程不存在或無權限' });
+
+    return res.json({ success: true, itinerary: rows[0] });
+  } catch (error) {
+    console.error('Publish itinerary error:', error);
+    return res.status(500).json({ error: '更新公開狀態失敗' });
+  }
+});
+
 // DELETE /api/itineraries/:uuid (刪除行程)
 router.delete('/:uuid', async (req, res) => {
   const { uuid } = req.params;

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { usePlanner } from '../PlannerProvider';
+import { useAuth } from '../../Authentication/AuthContext';
 
 const HERO_CITY_IMAGE_MAP = {
   東京: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&auto=format&fit=crop',
@@ -38,7 +40,13 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
     setPlan, 
     recalculateDayTimesAsync,
     token,
+    saveItinerary,
+    isSaving,
+    togglePublish,
   } = usePlanner();
+  const { user, loading: isAuthLoading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // 內部編輯狀態 (原 App.jsx 內的 hero edit 邏輯)
   const [isEditingHero, setIsEditingHero] = useState(false);
@@ -124,6 +132,16 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
 
   const heroImageUrl = resolveHeroImageUrl(plan?.city);
 
+  const handleCopyPublicItinerary = async () => {
+    if (isAuthLoading) return;
+    if (!user) {
+      navigate('/login', { state: { from: `${location.pathname}${location.search}` } });
+      return;
+    }
+
+    await saveItinerary();
+  };
+
   return (
     <div className="az-hero">
       <div className="az-hero-overlay" />
@@ -139,15 +157,32 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
       />
       
       <div className="az-hero-content">
-        <h1 className="az-hero-title">
-          {tripTitle}
+        <h1
+          className="az-hero-title"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{tripTitle}</span>
+
           {!isReadOnly && (
-            <button className="az-hero-edit-btn" onClick={openHeroEditor} aria-label="編輯行程資訊">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                className={`az-hero-publish-btn ${plan?.ispublic ? 'az-hero-publish-btn--public' : 'az-hero-publish-btn--private'}`}
+                onClick={async () => {
+                  if (!togglePublish) return;
+                  await togglePublish();
+                }}
+                aria-label="切換公開狀態"
+              >
+                {plan?.ispublic ? '公開' : '私密'}
+              </button>
+
+              <button className="az-hero-edit-btn" onClick={openHeroEditor} aria-label="編輯行程資訊">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+            </div>
           )}
         </h1>
 
@@ -169,6 +204,19 @@ const TripHeroHeader = ({ isReadOnly = false }) => {
               <span className="az-hero-author-label">作者：</span>
               <span className="az-hero-author-name">{plan.sourceAuthor.displayName}</span>
             </div>
+          </div>
+        )}
+
+        {isReadOnly && (
+          <div className="az-hero-public-info" style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button
+              className="az-hero-publish-btn az-hero-publish-btn--public"
+              onClick={handleCopyPublicItinerary}
+              disabled={isSaving || isAuthLoading}
+              aria-label={user ? '複製成我的行程' : '登入後複製行程'}
+            >
+              {isSaving ? '複製中...' : user ? '複製成我的行程' : '登入後複製'}
+            </button>
           </div>
         )}
 

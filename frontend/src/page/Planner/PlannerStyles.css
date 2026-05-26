@@ -213,6 +213,45 @@ input, textarea { font-family: var(--font); }
   transition: background var(--transition);
 }
 
+.az-hero-publish-btn {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  border-radius: 20px;
+  height: 28px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background var(--transition), border-color var(--transition);
+  letter-spacing: 0.01em;
+}
+
+.az-hero-publish-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.50);
+}
+
+/* 公開狀態 — 帶一點品牌 teal */
+.az-hero-publish-btn--public {
+  background: rgba(12, 191, 176, 0.25);
+  border-color: rgba(12, 191, 176, 0.45);
+}
+
+.az-hero-publish-btn--public:hover {
+  background: rgba(12, 191, 176, 0.38);
+}
+
+/* 私密狀態 — 偏中性 */
+.az-hero-publish-btn--private {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
 .az-hero-edit-btn:hover { background: rgba(255,255,255,.32); }
 
 .az-hero-edit-panel {
