@@ -9,7 +9,13 @@ function formatBirthdayForInput(value) {
   if (!value) return '';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toISOString().split('T')[0];
+  
+  // 💡 正確解法：手動抓取「瀏覽器所在時區」的年、月、日，不要經過 ISO 轉換
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
 }
 
 export default function UserProfileSettingsPage() {

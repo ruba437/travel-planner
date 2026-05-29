@@ -50,7 +50,7 @@ const tools = [
                   }
                 }
               }
-            } 
+            }
           }
         },
         required: ['summary', 'currency', 'city', 'days', 'startTime'],
@@ -67,6 +67,9 @@ const tools = [
         properties: {
           proposals: {
             type: 'array',
+            description: '⚠️ 極度重要：你必須「精確產出 3 個」截然不同的提案物件，絕對不允許只產出 1 個！',
+            minItems: 3, 
+            maxItems: 3, 
             items: {
               type: 'object',
               properties: {
@@ -105,10 +108,7 @@ router.post('/', async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
   
-  // 🛡️ 城市防呆：如果前端沒有傳來明確的城市，強制設定為未決定
   const city = (currentPlan?.city && currentPlan.city.trim() !== '') ? currentPlan.city : '未決定';
-  
-  // 🛡️ 強化版天數偵測 (避免出現 null)
   let expectedDays = (currentPlan?.days && currentPlan.days.length > 0) ? currentPlan.days.length : null;
   
   if (!expectedDays) {
@@ -126,7 +126,6 @@ router.post('/', async (req, res) => {
   const displayDays = expectedDays || "多";
   const daysCountText = expectedDays ? `${expectedDays} 天` : '依據對話判斷';
 
-  // 🧠 系統大腦核心設定
   let systemContent = `你是一位專業的全球旅遊規劃助理。今天是 ${today}。
 
     【語言規範：繁體中文】
@@ -134,20 +133,15 @@ router.post('/', async (req, res) => {
 
     【互動與流程邏輯】
     你具有三種回應模式，請務必依據使用者的對話意圖，選擇最適合的模式：
-    1. 🗣️ 一般對話 (不呼叫工具)：
-       - 觸發時機：使用者「明確」針對某個細節提問、閒聊，或是針對現有行程提出單一修改討論。
+    1. 🗣️ 一般對話 (不呼叫工具)
     2. 💡 方案提案 (generate_proposals)：
-       - 觸發時機：使用者要求規劃全新行程、換城市，或「尚未決定目的地」時呼叫。
-       - ⚠️【強制提案規則】：如果系統紀錄的目的地是「未決定」，你「必須立刻」呼叫此工具提供 3 個不同城市的提案，**絕對禁止反問使用者想去哪裡或要求更多偏好**。請直接根據你專業的判斷，給出 3 個特色迥異的城市選擇！
-       - 提供 3 個方案大綱，'daySummaries' 長度必須精確等於 ${displayDays}。
+       - 如果系統紀錄的目的地是「未決定」，必須立刻呼叫此工具提供 3 個不同城市的提案。
     3. 📅 詳細規劃 (update_itinerary)：
-       - 觸發時機：當使用者明確選定方案後呼叫。
+       - 當使用者明確選定方案後呼叫。
        - 'days' 陣列長度必須「精確等於」${displayDays} 天。
 
     【目的地與硬性規則】
     - 系統目前紀錄的目的地：${city === '未決定' ? '未決定（⚠️請立刻推薦3個不同城市，嚴禁反問任何問題）' : city} | 天數：${daysCountText}。
-    - 🔄【動態變更目的地機制】：如果使用者在對話中明確表示要換城市或換國家，你必須優先遵從使用者的最新指令。
-    - ⚠️【單一城市與連續性限制】：單一行程必須「嚴格限制在單一具體城市內」。如果使用者只說了國家，請自動挑選該國最適合的一個主要城市。
     - 每天路線必須具備地理連續性。地點嚴禁重複。`;
 
   if (currentPlan) {
@@ -173,33 +167,34 @@ router.post('/', async (req, res) => {
       if (toolCall.function.name === 'update_itinerary') {
         let enrichedPlan = args;
         
-        // 🛡️ 強效資料清洗：強制校正天數與跨天去重
+        // 🛡️ 修復版資料清洗：純名稱比對，放棄不可靠的 AI 座標去重
         if (enrichedPlan.days && Array.isArray(enrichedPlan.days)) {
           const globalSeenNames = new Set();
 
           enrichedPlan.days = enrichedPlan.days.map((dayObj, index) => {
-            // 1. 強制重新編號天數
             dayObj.day = index + 1;
 
-            // 2. 跨天去重邏輯
             if (dayObj.items && Array.isArray(dayObj.items)) {
               dayObj.items = dayObj.items.filter(item => {
                 const itemName = (item.name || '').trim();
                 if (!itemName) return false;
 
-                // 豁免清單：允許通用的日常行程重複出現
-                const genericKeywords = ['早餐', '午餐', '晚餐', '回飯店', '飯店', '休息', '自由活動'];
+                // 豁免清單：這些詞不管出現幾次都沒關係
+                const genericKeywords = ['早餐', '午餐', '晚餐', '餐廳', '回飯店', '飯店', '休息', '自由活動', '機場', '車站'];
                 const isGeneric = genericKeywords.some(keyword => itemName.includes(keyword));
 
-                // 若非通用行程且已出現過，剔除
-                if (!isGeneric && globalSeenNames.has(itemName)) {
-                  console.log(`[資料清洗] 攔截並移除重複景點: ${itemName}`);
-                  return false; 
+                // 🆕 取代之前的嚴格正則：只轉小寫並消除空白符號，保留日文/韓文等所有文字
+                const normalizedName = itemName.toLowerCase().replace(/\s+/g, '');
+
+                // 判斷是否重複
+                if (!isGeneric) {
+                  if (globalSeenNames.has(normalizedName)) {
+                    console.log(`[資料清洗] 攔截並移除重複名稱景點: ${itemName}`);
+                    return false; 
+                  }
+                  globalSeenNames.add(normalizedName);
                 }
 
-                if (!isGeneric) {
-                  globalSeenNames.add(itemName);
-                }
                 return true;
               });
             }
@@ -237,7 +232,6 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // 一般對話回覆 (純文字)
     return res.json({ role: 'assistant', content: responseMessage.content, plan: null });
 
   } catch (err) {

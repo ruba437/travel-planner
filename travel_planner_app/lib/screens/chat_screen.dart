@@ -15,7 +15,6 @@ class _ChatScreenState extends State<ChatScreen> {
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
 
-  // 讓聊天室自動捲動到最底部的輔助函式
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -28,12 +27,53 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  // 🆕 核心強效跳轉機制：跳出強制讀取圈圈，並在完成時百分之百執行跳轉
+  Future<void> _executePlanGeneration(Future<bool> task) async {
+    // 1. 跳出強制阻斷的載入視窗，避免使用者亂點，同時鎖定當前的 BuildContext
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const PopScope(
+        canPop: false, // 禁用返回鍵，確保安全
+        child: Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF0F766E)),
+                  SizedBox(height: 16),
+                  Text('AI 正在為您量身打造行程...', style: TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 2. 執行 AI 規劃任務
+    final bool success = await task;
+
+    // 3. 關閉剛剛的載入視窗
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+
+    // 4. 只要成功拿到 Plan，強制推入 ItineraryScreen 畫面！
+    if (success && mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (context) => const ItineraryScreen()),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final planner = Provider.of<PlannerProvider>(context);
 
-    // 每次對話列表有更新，自動捲動到最下面
     _scrollToBottom();
 
     return Scaffold(
@@ -60,7 +100,6 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          // 1. 訊息對話列表區
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -77,22 +116,17 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-
-          // 如果 AI 正在思考中，顯示一個小小的載入提示
           if (planner.isSending)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
               child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
             ),
-
-          // 2. 底部輸入框區
           _buildInputArea(planner, auth.token ?? ''),
         ],
       ),
     );
   }
 
-  // 輔助畫面：對話氣泡
   Widget _buildChatBubble(bool isUser, String content) {
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -118,48 +152,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // 輔助畫面：輸入框
-  Widget _buildInputArea(PlannerProvider planner, String token) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.black12)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _textController,
-              decoration: const InputDecoration(
-                hintText: '輸入目的地、天數（如：東京玩5天）...',
-                border: InputBorder.none,
-              ),
-              onSubmitted: (text) {
-                if (!planner.isSending) {
-                  final msg = _textController.text;
-                  _textController.clear();
-                  planner.handleSend(msg, token);
-                }
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.send, color: Color(0xFF0F766E)),
-            onPressed: planner.isSending
-                ? null
-                : () {
-                    final msg = _textController.text;
-                    _textController.clear();
-                    planner.handleSend(msg, token);
-                  },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 🆕 輔助畫面：渲染橫向滑動的 3 個城市提案卡片
   Widget _buildProposalCards(PlannerProvider planner, String token) {
     final proposals = planner.currentProposals ?? [];
     
@@ -167,7 +159,7 @@ class _ChatScreenState extends State<ChatScreen> {
       height: 220,
       margin: const EdgeInsets.symmetric(vertical: 16),
       child: ListView.builder(
-        scrollDirection: Axis.horizontal, // 橫向滑動！
+        scrollDirection: Axis.horizontal,
         itemCount: proposals.length,
         itemBuilder: (context, idx) {
           final p = proposals[idx];
@@ -208,9 +200,10 @@ class _ChatScreenState extends State<ChatScreen> {
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
+                        // 🆕 修改：按下去時，使用客製化的 _executePlanGeneration 接管非同步跳轉
                         onPressed: planner.isSending 
                             ? null 
-                            : () => planner.expandPlanDetail(p, token), // 點擊觸發詳細規劃！
+                            : () => _executePlanGeneration(planner.expandPlanDetail(p, token)),
                         child: const Text('選擇此方案', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
@@ -220,6 +213,49 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildInputArea(PlannerProvider planner, String token) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.black12)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _textController,
+              decoration: const InputDecoration(
+                hintText: '輸入目的地、天數（如：東京玩5天）...',
+                border: InputBorder.none,
+              ),
+              onSubmitted: (text) {
+                if (!planner.isSending && text.trim().isNotEmpty) {
+                  final msg = _textController.text;
+                  _textController.clear();
+                  // 🆕 修改：按下 Enter 時同樣交給 _executePlanGeneration 控制
+                  _executePlanGeneration(planner.handleSend(msg, token));
+                }
+              },
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.send, color: Color(0xFF0F766E)),
+            onPressed: planner.isSending
+                ? null
+                : () {
+                    final msg = _textController.text;
+                    if (msg.trim().isEmpty) return;
+                    _textController.clear();
+                    // 🆕 修改：點擊發送按鈕時交給 _executePlanGeneration 控制
+                    _executePlanGeneration(planner.handleSend(msg, token));
+                  },
+          ),
+        ],
       ),
     );
   }

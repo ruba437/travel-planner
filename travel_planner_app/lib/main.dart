@@ -4,7 +4,7 @@ import 'package:travel_planner_app/providers/planner_provider.dart';
 
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
-import 'screens/home_screen.dart'; // 🆕 1. 取消註解，引入剛寫好的 HomeScreen
+import 'screens/main_screen.dart'; // 🆕 引入帶有底部導覽列的主框架 MainScreen
 
 void main() {
   runApp(
@@ -36,8 +36,8 @@ class MyApp extends StatelessWidget {
           }
 
           if (auth.isAuthenticated) {
-            // 🆕 2. 登入成功後，直接回傳 HomeScreen！
-            return const HomeScreen();
+            // 🆕 登入成功後，直接進入帶有底部導覽列的 MainScreen！
+            return const MainScreen();
           }
 
           return const LoginScreen();

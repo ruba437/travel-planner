@@ -956,7 +956,7 @@ router.post('/:uuid/generate-checklist', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT uuid, title, summary, city, startdate, starttime, createdat, updatedat FROM itineraries WHERE userid = $1 ORDER BY updatedat DESC',
+      'SELECT uuid, title, summary, city, startdate, starttime, createdat, updatedat, itinerarydata FROM itineraries WHERE userid = $1 ORDER BY updatedat DESC',
       [req.user.id]
     );
     // 確保上方有引入 toHHmm

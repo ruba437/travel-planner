@@ -114,4 +114,12 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove('token');
     notifyListeners();
   }
+
+  // 放在 auth_provider.dart 類別裡面的任何地方
+  void updateUserData(Map<String, dynamic> newData) {
+    if (_user != null) {
+      _user = {..._user!, ...newData}; // 合併新舊資料
+      notifyListeners(); // 廣播給所有畫面：「資料換囉！快更新顯示！」
+    }
+  }
 }

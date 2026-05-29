@@ -12,7 +12,6 @@ class PlannerProvider with ChangeNotifier {
     return 'http://127.0.0.1:8888';
   }
 
-  // 儲存對話紀錄，預設有一句歡迎詞
   List<Map<String, String>> _messages = [
     {'role': 'assistant', 'content': '嗨，我是旅遊小助手！我可以幫你安排行程。'}
   ];
@@ -25,23 +24,75 @@ class PlannerProvider with ChangeNotifier {
   dynamic get currentPlan => _currentPlan;
   List<dynamic>? get currentProposals => _currentProposals;
 
-  // 🆕 新增這個函數：對應 React 版的 expandPlanDetail
-  Future<void> expandPlanDetail(dynamic proposal, String token) async {
+  // 1. 發送訊息給 AI (回傳 bool 代表是否成功拿到詳細行程)
+  Future<bool> handleSend(String text, String token) async {
+    if (text.trim().isEmpty || _isSending) return false;
+
+    _messages.add({'role': 'user', 'content': text});
     _isSending = true;
     notifyListeners();
 
-    // 1. 抓取這筆提案的資訊
-    final String proposalTitle = proposal['title'] ?? '選定方案';
-    final int expectedDays = (proposal['daySummaries'] as List?)?.length ?? 3; // 預設 3 天
+    bool hasNewPlan = false;
+
+    try {
+      final res = await http.post(
+        Uri.parse('$_baseUrl/api/chat'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'messages': _messages,
+          'currentPlan': _currentPlan,
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+
+        if (data['content'] != null) {
+          _messages.add({'role': 'assistant', 'content': data['content']});
+        }
+        
+        if (data['proposals'] != null) {
+          _currentProposals = data['proposals'];
+        }
+        
+        if (data['plan'] != null) {
+          _currentPlan = data['plan'];
+          hasNewPlan = true;
+        }
+      } else {
+        _messages.add({'role': 'assistant', 'content': '抱歉，連線後端失敗了，請稍後再試。'});
+      }
+    } catch (e) {
+      print('AI 請求失敗: $e');
+      _messages.add({'role': 'assistant', 'content': '連線發生錯誤，請檢查網路。'});
+    } finally {
+      _isSending = false;
+      notifyListeners();
+    }
     
-    // 建立每日大綱的文字提示詞，拿來逼 AI 不要偷懶
+    return hasNewPlan;
+  }
+
+  // 2. 展開詳細行程的 API (回傳 bool 代表是否成功拿到詳細行程)
+  Future<bool> expandPlanDetail(dynamic proposal, String token) async {
+    _isSending = true;
+    _currentProposals = null; // 點擊瞬間清空卡片，讓畫面乾淨！
+    notifyListeners();
+
+    bool hasNewPlan = false;
+
+    final String proposalTitle = proposal['title'] ?? '選定方案';
+    final int expectedDays = (proposal['daySummaries'] as List?)?.length ?? 3;
+    
     final List<dynamic> summaries = proposal['daySummaries'] ?? [];
     String summariesText = '';
     for (int i = 0; i < summaries.length; i++) {
       summariesText += '第 ${i + 1} 天核心主軸：${summaries[i]}\n';
     }
 
-    // 2. 建立要塞給 AI 的強制指令（把我們在 React 版調整完美的 Prompt 搬過來）
     final String prompt = [
       '我選定了方案：【$proposalTitle】。',
       '請根據以下這 $expectedDays 天的每日主軸，為我展開「每一天」的具體行程：',
@@ -56,7 +107,6 @@ class PlannerProvider with ChangeNotifier {
       '請立刻呼叫 update_itinerary 工具產出結果。'
     ].join('\n');
 
-    // 3. 把這句選定方案的指令加進對話紀錄裡
     _messages.add({'role': 'user', 'content': '我選定了方案：【$proposalTitle】，開始生成詳細行程！'});
 
     try {
@@ -68,10 +118,10 @@ class PlannerProvider with ChangeNotifier {
         },
         body: jsonEncode({
           'messages': [
-            ..._messages.sublist(0, _messages.length - 1), // 扣掉剛剛手動加的，改放詳細的 Prompt 帶去後端
+            ..._messages.sublist(0, _messages.length - 1),
             {'role': 'user', 'content': prompt}
           ],
-          'currentPlan': {'days': List.filled(expectedDays, {})} // 給後端一個基本背景天數
+          'currentPlan': {'days': List.filled(expectedDays, {})}
         }),
       );
 
@@ -82,10 +132,9 @@ class PlannerProvider with ChangeNotifier {
           _messages.add({'role': 'assistant', 'content': data['content']});
         }
         
-        // 🚨 成功拿到詳細行程 JSON！
         if (data['plan'] != null) {
           _currentPlan = data['plan'];
-          _currentProposals = null; // 既然選好了，就把 3 個提案卡片收起來
+          hasNewPlan = true;
         }
       } else {
         _messages.add({'role': 'assistant', 'content': '產生行程失敗，後端未正確回傳。'});
@@ -95,66 +144,13 @@ class PlannerProvider with ChangeNotifier {
       _messages.add({'role': 'assistant', 'content': '連線錯誤，無法產生詳細行程。'});
     } finally {
       _isSending = false;
-      _currentProposals = null; // 關閉卡片
       notifyListeners();
     }
+
+    return hasNewPlan;
   }
 
-  // 發送訊息給 AI (對應 React 版的 handleSend)
-  Future<void> handleSend(String text, String token) async {
-    if (text.trim().isEmpty || _isSending) return;
-
-    // 1. 先把使用者的訊息加進對話列表，讓畫面立刻顯示
-    _messages.add({'role': 'user', 'content': text});
-    _isSending = true;
-    notifyListeners(); // 刷新 UI
-
-    try {
-      // 2. 發送請求給你的 Node.js 後端
-      final res = await http.post(
-        Uri.parse('$_baseUrl/api/chat'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'messages': _messages,
-          'currentPlan': _currentPlan, // 帶入目前的行程背景
-        }),
-      );
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-
-        // 3. 處理 AI 的文字回覆
-        if (data['content'] != null) {
-          _messages.add({'role': 'assistant', 'content': data['content']});
-        }
-
-        // 4. 處理 AI 回傳的方案提案 (Proposals)
-        if (data['proposals'] != null) {
-          _currentProposals = data['proposals'];
-          // 這裡我們之後可以做成漂亮的卡片讓使用者選城市！
-        }
-
-        // 5. 處理 AI 回傳的詳細 JSON 行程 (Plan)
-        if (data['plan'] != null) {
-          _currentPlan = data['plan'];
-          // 這裡就是我們之前清洗過、完美的詳細行程資料！
-        }
-      } else {
-        _messages.add({'role': 'assistant', 'content': '抱歉，連線後端失敗了，請稍後再試。'});
-      }
-    } catch (e) {
-      print('AI 請求失敗: $e');
-      _messages.add({'role': 'assistant', 'content': '連線發生錯誤，請檢查網路。'});
-    } finally {
-      _isSending = false;
-      notifyListeners(); // 再次刷新 UI
-    }
-  }
-
-  // 清空聊天室 (開新行程用)
+  // 3. 清空聊天室 (開新行程用)
   void clearChat() {
     _messages = [
       {'role': 'assistant', 'content': '嗨，我是旅遊小助手！我可以幫你安排行程。'}
@@ -162,5 +158,56 @@ class PlannerProvider with ChangeNotifier {
     _currentPlan = null;
     _currentProposals = null;
     notifyListeners();
+  }
+
+  // 4. 將目前的 AI 行程儲存到後端資料庫
+  Future<bool> saveItinerary(String token) async {
+    if (_currentPlan == null) {
+      print('❌ 儲存失敗：目前沒有 currentPlan 資料');
+      return false;
+    }
+
+    try {
+      final String title = _currentPlan['city'] ?? '我的精彩行程';
+      final String url = '$_baseUrl/api/itineraries';
+
+      print('--- 準備儲存行程 ---');
+      print('網址: $url');
+      print('Token: ${token.substring(0, 10)}...'); // 只印前10碼確保隱私
+
+      final res = await http.post(
+        Uri.parse('$_baseUrl/api/itineraries'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'title': title,
+          'startDate': _currentPlan['startDate'] ?? '',
+          'startTime': _currentPlan['startTime'] ?? '09:00',
+          'itineraryData': _currentPlan,
+        }),
+      );
+
+      print('後端回傳狀態碼: ${res.statusCode}');
+      print('後端回傳內容: ${res.body}');
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        print('行程儲存成功！');
+        return true;
+      }else{
+        print('❌ 後端拒絕儲存');
+      }
+    } catch (e) {
+      print('儲存行程發生錯誤: $e');
+    }
+    return false;
+  }
+
+  // 🆕 新增這個方法：讓首頁點擊舊行程時，可以把歷史 JSON 塞回 currentPlan 狀態中
+  void setCurrentPlan(dynamic plan) {
+    _currentPlan = plan;
+    _currentProposals = null; // 確保歷史行程不會被提案卡片干擾
+    notifyListeners(); // 刷新狀態
   }
 }
