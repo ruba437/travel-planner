@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import 'itinerary_screen.dart';
+import '../theme/app_theme.dart';
 
 class AiPlannerScreen extends StatefulWidget {
   const AiPlannerScreen({super.key});
@@ -163,12 +163,8 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text('✨ AI 行程精靈', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 1,
       ),
       body: Column(
         children: [
@@ -190,7 +186,7 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
           // ⌨️ 輸入框區域
           Container(
             padding: EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12 + MediaQuery.of(context).viewPadding.bottom),
-            decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+            decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, -2))]),
             child: Row(
               children: [
                 Expanded(
@@ -198,8 +194,6 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                     controller: _textController,
                     decoration: InputDecoration(
                       hintText: '告訴我你想去哪裡...',
-                      filled: true,
-                      fillColor: Colors.grey[100],
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                     ),
@@ -208,7 +202,7 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                 ),
                 const SizedBox(width: 8),
                 CircleAvatar(
-                  backgroundColor: const Color(0xFF0F766E),
+                  backgroundColor: AppColors.orange,
                   child: IconButton(
                     icon: const Icon(Icons.send, color: Colors.white, size: 20),
                     onPressed: () => _sendMessage(_textController.text),
@@ -236,14 +230,14 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               if (!isUser) ...[
-                const CircleAvatar(backgroundColor: Color(0xFF0F766E), radius: 16, child: Icon(Icons.auto_awesome, color: Colors.white, size: 18)),
+                const CircleAvatar(backgroundColor: AppColors.orange, radius: 16, child: Icon(Icons.auto_awesome, color: Colors.white, size: 18)),
                 const SizedBox(width: 8),
               ],
               Flexible(
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: isUser ? const Color(0xFF0F766E) : Colors.white,
+                    color: isUser ? AppColors.orange : Colors.white,
                     borderRadius: BorderRadius.circular(16).copyWith(
                       bottomRight: isUser ? const Radius.circular(0) : const Radius.circular(16),
                       bottomLeft: !isUser ? const Radius.circular(0) : const Radius.circular(16),
@@ -281,14 +275,13 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(p['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F766E)), maxLines: 2, overflow: TextOverflow.ellipsis),
+                            Text(p['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.text), maxLines: 2, overflow: TextOverflow.ellipsis),
                             const SizedBox(height: 8),
-                            Expanded(child: Text(p['description'] ?? '', style: const TextStyle(fontSize: 13, color: Colors.black87), maxLines: 3, overflow: TextOverflow.ellipsis)),
+                            Expanded(child: Text(p['description'] ?? '', style: const TextStyle(fontSize: 13, color: AppColors.textSecondary), maxLines: 3, overflow: TextOverflow.ellipsis)),
                             SizedBox(
                               width: double.infinity,
                               child: OutlinedButton(
                                 onPressed: () => _onProposalSelected(p),
-                                style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFF0F766E)), foregroundColor: const Color(0xFF0F766E)),
                                 child: const Text('選擇此方案'),
                               ),
                             )
@@ -311,7 +304,6 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
                 },
                 icon: const Icon(Icons.check_circle),
                 label: const Text('行程已儲存！點擊返回首頁查看'),
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
               ),
             )
         ],
@@ -328,8 +320,8 @@ class _AiPlannerScreenState extends State<AiPlannerScreen> {
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16).copyWith(bottomLeft: const Radius.circular(0)), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))]),
-            child: const Text('AI 正在思考中...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16).copyWith(bottomLeft: const Radius.circular(0)), boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 4, offset: Offset(0, 2))]),
+            child: const Text('AI 正在思考中...', style: TextStyle(color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
           ),
         ],
       ),

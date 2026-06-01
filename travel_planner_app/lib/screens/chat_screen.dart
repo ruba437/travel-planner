@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/planner_provider.dart';
 import 'itinerary_screen.dart';
@@ -34,7 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => const PopScope(
-        canPop: false, // 禁用返回鍵，確保安全
+        canPop: false,
         child: Center(
           child: Card(
             child: Padding(
@@ -42,7 +43,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: Color(0xFF0F766E)),
+                  CircularProgressIndicator(color: AppColors.orange),
                   SizedBox(height: 16),
                   Text('AI 正在為您量身打造行程...', style: TextStyle(fontWeight: FontWeight.bold)),
                 ],
@@ -79,16 +80,16 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('AI 旅遊規劃助理'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: AppColors.surface,
         elevation: 1,
         actions: [
           if (planner.currentPlan != null)
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: TextButton.icon(
-                icon: const Icon(Icons.calendar_month, color: Color(0xFF0F766E)),
-                label: const Text('查看行程', style: TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.bold)),
+                    icon: const Icon(Icons.calendar_month, color: AppColors.orange),
+                    label: const Text('查看行程', style: TextStyle(color: AppColors.orange, fontWeight: FontWeight.bold)),
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => const ItineraryScreen()),
@@ -135,7 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
-          color: isUser ? const Color(0xFF0F766E) : Colors.grey[200],
+              color: isUser ? AppColors.orange : Colors.grey[200],
           borderRadius: BorderRadius.circular(16).copyWith(
             bottomRight: isUser ? const Radius.circular(0) : const Radius.circular(16),
             topLeft: isUser ? const Radius.circular(16) : const Radius.circular(0),
@@ -144,7 +145,7 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Text(
           content,
           style: TextStyle(
-            color: isUser ? Colors.white : Colors.black87,
+                color: isUser ? Colors.white : AppColors.text,
             fontSize: 16,
           ),
         ),
@@ -170,7 +171,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Card(
               elevation: 4,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              color: Colors.white,
+              color: AppColors.surface,
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
@@ -178,7 +179,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Text(
                       p['title'] ?? '精選提案',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.orange),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -186,7 +187,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     Expanded(
                       child: Text(
                         p['description'] ?? '',
-                        style: const TextStyle(fontSize: 14, color: Colors.black54),
+                        style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -196,7 +197,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0F766E),
+                              backgroundColor: AppColors.orange,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
@@ -221,8 +222,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.black12)),
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
@@ -244,7 +245,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.send, color: Color(0xFF0F766E)),
+            icon: const Icon(Icons.send, color: AppColors.orange),
             onPressed: planner.isSending
                 ? null
                 : () {

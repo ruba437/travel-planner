@@ -5,6 +5,7 @@ import 'package:travel_planner_app/providers/planner_provider.dart';
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_screen.dart'; // 🆕 引入帶有底部導覽列的主框架 MainScreen
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(
@@ -25,10 +26,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Travel Planner',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0F766E)),
-        useMaterial3: true,
-      ),
+      theme: buildTravelPlannerTheme(),
       home: Consumer<AuthProvider>(
         builder: (context, auth, child) {
           if (auth.isLoading) {

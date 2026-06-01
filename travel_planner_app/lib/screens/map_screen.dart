@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../theme/app_theme.dart';
 
 class MapScreen extends StatefulWidget {
   final dynamic plan; 
@@ -24,13 +25,13 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? _initialTarget; 
 
   final List<Color> _lineColors = [
-    Colors.blue,
-    Colors.red,
-    Colors.green,
-    Colors.orange,
+    AppColors.teal,
+    AppColors.orange,
+    AppColors.orangeStrong,
     Colors.purple,
     Colors.cyan,
     Colors.pink,
+    AppColors.text,
   ];
 
   @override
@@ -214,10 +215,10 @@ class _MapScreenState extends State<MapScreen> {
     final List<dynamic> daysList = widget.plan['days'] ?? [];
 
     return Scaffold(
-      appBar: AppBar(
+          appBar: AppBar(
         title: Text('$city • 路線圖', style: const TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF0F766E),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.text,
         elevation: 0,
       ),
       body: Stack(
@@ -249,10 +250,10 @@ class _MapScreenState extends State<MapScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
-                    _buildDayButton(
-                      label: '全部路線',
-                      isSelected: _selectedDay == null,
-                      color: Colors.black87,
+                            _buildDayButton(
+                              label: '全部路線',
+                              isSelected: _selectedDay == null,
+                              color: AppColors.text,
                       onTap: () {
                         setState(() => _selectedDay = null);
                         _updateMapData(); 

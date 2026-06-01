@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'city_guide_screen.dart';
+import '../theme/app_theme.dart';
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -58,12 +59,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('探索世界', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 1,
       ),
       body: _buildBody(),
     );
@@ -71,7 +68,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF0F766E)));
+      return const Center(child: CircularProgressIndicator());
     }
     
     if (_errorMessage != null) {
@@ -89,7 +86,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 });
                 _fetchCities();
               },
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
               child: const Text('重試'),
             )
           ],
@@ -98,7 +94,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     if (_cities.isEmpty) {
-      return const Center(child: Text('目前還沒有熱門城市喔！', style: TextStyle(color: Colors.grey)));
+      return const Center(child: Text('目前還沒有熱門城市喔！', style: TextStyle(color: AppColors.textSecondary)));
     }
 
     return GridView.builder(
@@ -130,7 +126,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 3))],
+              boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0, 4))],
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
@@ -153,7 +149,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Colors.black.withOpacity(0.7)],
+                        colors: [Colors.transparent, Colors.black.withValues(alpha: 0.68)],
                       ),
                     ),
                   ),
@@ -162,7 +158,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     left: 16,
                     child: Text(
                       cityName,
-                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        shadows: [Shadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2))],
+                      ),
                     ),
                   ),
                 ],

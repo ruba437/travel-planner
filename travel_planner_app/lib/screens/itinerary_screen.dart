@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/auth_provider.dart';
 import 'map_screen.dart';
 import 'checklist_screen.dart'; // 🆕 引入你寫好的行前清單畫面
+import '../theme/app_theme.dart';
 
 class ItineraryScreen extends StatefulWidget {
   final Map<String, dynamic>? tripData; 
@@ -106,15 +107,15 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
     return DefaultTabController(
       length: days.length,
       child: Scaffold(
-        backgroundColor: Colors.grey[50],
+        backgroundColor: AppColors.bg,
         appBar: AppBar(
           title: Text(_displayTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
-          backgroundColor: Colors.white, surfaceTintColor: Colors.white, elevation: 1,
+          backgroundColor: AppColors.surface, surfaceTintColor: AppColors.surface, elevation: 1,
           actions: [
             // 🎒 🆕 行前清單按鈕 (只有已經存檔的舊行程才能使用清單，因為需要 UUID 去呼叫 API)
             if (widget.tripData != null)
               IconButton(
-                icon: const Icon(Icons.luggage_outlined, color: Color(0xFF0F766E)),
+                icon: const Icon(Icons.luggage_outlined, color: AppColors.orange),
                 tooltip: '行前行李清單',
                 onPressed: () {
                   Navigator.push(
@@ -128,15 +129,15 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                   );
                 },
               ),
-            IconButton(icon: const Icon(Icons.map_outlined, color: Color(0xFF0F766E)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MapScreen(plan: plan)))),
-            IconButton(icon: const Icon(Icons.edit_note, color: Color(0xFF0F766E)), onPressed: _editItineraryInfo),
+            IconButton(icon: const Icon(Icons.map_outlined, color: AppColors.orange), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MapScreen(plan: plan)))),
+            IconButton(icon: const Icon(Icons.edit_note, color: AppColors.orange), onPressed: _editItineraryInfo),
           ],
-          bottom: TabBar(isScrollable: days.length > 4, indicatorColor: const Color(0xFF0F766E), labelColor: const Color(0xFF0F766E), tabs: days.map((dayObj) => Tab(text: '第 ${dayObj['day'] ?? 1} 天')).toList()),
+          bottom: TabBar(isScrollable: days.length > 4, indicatorColor: AppColors.orange, labelColor: AppColors.orange, tabs: days.map((dayObj) => Tab(text: '第 ${dayObj['day'] ?? 1} 天')).toList()),
         ),
         body: Column(children: [
-          Container(width: double.infinity, padding: const EdgeInsets.all(16), color: const Color(0xFFE6F4F1), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('💡 概要：$summary', style: const TextStyle(fontSize: 14, color: Color(0xFF0F766E), fontWeight: FontWeight.bold)),
-            if (_displayNote.isNotEmpty) ...[const SizedBox(height: 8), Text('📝 筆記：$_displayNote', style: const TextStyle(fontSize: 13, color: Color(0xFF0D5F58)))]
+          Container(width: double.infinity, padding: const EdgeInsets.all(16), color: AppColors.teal.withOpacity(0.08), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('💡 概要：$summary', style: const TextStyle(fontSize: 14, color: AppColors.orange, fontWeight: FontWeight.bold)),
+            if (_displayNote.isNotEmpty) ...[const SizedBox(height: 8), Text('📝 筆記：$_displayNote', style: const TextStyle(fontSize: 13, color: AppColors.teal))]
           ])),
           Expanded(child: TabBarView(children: days.map((dayObj) {
             final List<dynamic> items = dayObj['items'] ?? [];
@@ -152,17 +153,71 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
   }
 
   Widget _buildTimelineTile({required String time, required String name, required String type, required String note, required num cost, required String currency, required bool isLast, double? lat, double? lng}) {
-    IconData iconData = Icons.place; Color iconColor = const Color(0xFF0F766E);
-    if (type == 'food') { iconData = Icons.restaurant; iconColor = Colors.orange; } else if (type == 'shopping') { iconData = Icons.shopping_bag; iconColor = Colors.purple; } else if (type == 'activity') { iconData = Icons.local_activity; iconColor = Colors.blue; }
-    return IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Column(children: [Container(width: 32, height: 32, decoration: BoxDecoration(color: iconColor.withOpacity(0.15), shape: BoxShape.circle), child: Icon(iconData, size: 18, color: iconColor)), Expanded(child: isLast ? const SizedBox(height: 20) : Container(width: 2, color: Colors.grey[300]))]),
-      const SizedBox(width: 16),
-      Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 24.0), child: Card(margin: EdgeInsets.zero, elevation: 1, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), color: Colors.white, child: Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(time, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)), if (cost > 0) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(4)), child: Text('$currency $cost', style: TextStyle(color: Colors.amber[800], fontSize: 12, fontWeight: FontWeight.bold)))]),
-        const SizedBox(height: 6), Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        if (note.isNotEmpty) ...[const SizedBox(height: 8), Text(note, style: TextStyle(fontSize: 14, color: Colors.grey))],
-        if (lat != null && lng != null) ...[const SizedBox(height: 12), Align(alignment: Alignment.centerRight, child: FilledButton.icon(onPressed: () => _launchMaps(lat, lng, name), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF0FDFA), foregroundColor: const Color(0xFF0F766E), elevation: 0), icon: const Icon(Icons.directions_walk, size: 18), label: const Text('帶我去')))]
-      ])))))
-    ]));
+    IconData iconData = Icons.place;
+    Color iconColor = AppColors.orange;
+    if (type == 'food') {
+      iconData = Icons.restaurant;
+      iconColor = AppColors.orange;
+    } else if (type == 'shopping') {
+      iconData = Icons.shopping_bag;
+      iconColor = Colors.purple;
+    } else if (type == 'activity') {
+      iconData = Icons.local_activity;
+      iconColor = Colors.blue;
+    }
+    return IntrinsicHeight(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Column(children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(color: iconColor.withOpacity(0.15), shape: BoxShape.circle),
+            child: Icon(iconData, size: 18, color: iconColor),
+          ),
+          Expanded(child: isLast ? const SizedBox(height: 20) : Container(width: 2, color: AppColors.border))
+        ]),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24.0),
+            child: Card(
+              margin: EdgeInsets.zero,
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              color: AppColors.surface,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    Text(time, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                    if (cost > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(4)),
+                        child: Text('$currency $cost', style: TextStyle(color: Colors.amber[800], fontSize: 12, fontWeight: FontWeight.bold)),
+                      )
+                  ]),
+                  const SizedBox(height: 6),
+                  Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  if (note.isNotEmpty) ...[const SizedBox(height: 8), Text(note, style: TextStyle(fontSize: 14, color: Colors.grey))],
+                    if (lat != null && lng != null) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed: () => _launchMaps(lat, lng, name),
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white, elevation: 0),
+                        icon: const Icon(Icons.directions_walk, size: 18),
+                        label: const Text('帶我去'),
+                      ),
+                    )
+                  ]
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
   }
 }

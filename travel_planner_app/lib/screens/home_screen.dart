@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'itinerary_screen.dart';
 import 'ai_planner_screen.dart'; // 🆕 引入 AI 規劃器
+import '../theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -83,12 +84,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('我的行程', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 1,
       ),
       
       // 🤖 🆕 整合 AI 行程產生器入口
@@ -103,9 +100,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _fetchItineraries();
           });
         },
-        backgroundColor: const Color(0xFF0F766E),
-        icon: const Icon(Icons.auto_awesome, color: Colors.white),
-        label: const Text('AI 幫我排', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        icon: const Icon(Icons.auto_awesome),
+        label: const Text('AI 幫我排', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
 
       body: _buildBody(),
@@ -114,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF0F766E)));
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_errorMessage != null) {
@@ -129,7 +125,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() => _isLoading = true);
                 _fetchItineraries();
               },
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
               child: const Text('重試'),
             )
           ],
@@ -143,11 +138,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.flight_takeoff, size: 80, color: Colors.grey),
+            const Icon(Icons.flight_takeoff, size: 80, color: AppColors.textMuted),
             const SizedBox(height: 16),
-            const Text('還沒有任何行程喔！', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+            const Text('還沒有任何行程喔！', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.text)),
             const SizedBox(height: 8),
-            const Text('點擊右下角讓 AI 幫你規劃一趟完美旅程吧', style: TextStyle(color: Colors.grey)),
+            const Text('點擊右下角讓 AI 幫你規劃一趟完美旅程吧', style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 40), // 預留空間給 FAB
           ],
         ),
@@ -156,7 +151,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 📜 行程列表
     return RefreshIndicator(
-      color: const Color(0xFF0F766E),
       onRefresh: _fetchItineraries, // 下拉重整
       child: ListView.builder(
         padding: const EdgeInsets.only(top: 16, left: 16, right: 16, bottom: 80), // 底部留白避免被按鈕擋住
@@ -172,7 +166,8 @@ class _HomeScreenState extends State<HomeScreen> {
             margin: const EdgeInsets.only(bottom: 16),
             elevation: 2,
             shadowColor: Colors.black12,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            color: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: () {
@@ -193,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // 上半部：標題與地點
                   Container(
                     width: double.infinity,
-                    color: const Color(0xFF0F766E).withOpacity(0.05),
+                    color: AppColors.teal.withOpacity(0.06),
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,25 +199,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(
                               child: Text(
                                 title,
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.text),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const Icon(Icons.chevron_right, color: Colors.grey),
+                            const Icon(Icons.chevron_right, color: AppColors.textMuted),
                           ],
                         ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                            const Icon(Icons.location_on, size: 14, color: AppColors.textMuted),
                             const SizedBox(width: 4),
-                            Text(city, style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                            Text(city, style: const TextStyle(fontSize: 14, color: AppColors.text)),
                             if (startDate.isNotEmpty) ...[
                               const SizedBox(width: 12),
-                              const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
+                              const Icon(Icons.calendar_today, size: 14, color: AppColors.textMuted),
                               const SizedBox(width: 4),
-                              Text(startDate.substring(0, 10), style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                              Text(startDate.substring(0, 10), style: const TextStyle(fontSize: 14, color: AppColors.text)),
                             ]
                           ],
                         ),
@@ -235,7 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.all(16),
                       child: Text(
                         summary,
-                        style: const TextStyle(fontSize: 14, color: Colors.black54, height: 1.4),
+                        style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),

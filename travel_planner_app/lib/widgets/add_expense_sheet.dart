@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class AddExpenseSheet extends StatefulWidget {
   final String tripId; // 綁定這筆花費是屬於哪個行程的
@@ -110,7 +111,7 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
           TextField(
             controller: _amountController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.orange),
             decoration: const InputDecoration(
               prefixText: '\$ ',
               prefixStyle: TextStyle(fontSize: 32, color: Colors.black54),
@@ -131,9 +132,9 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
               return ChoiceChip(
                 label: Text('${entry.value['icon']} ${entry.value['label']}'),
                 selected: isSelected,
-                selectedColor: const Color(0xFF0F766E).withOpacity(0.2),
+                    selectedColor: AppColors.orange.withOpacity(0.18),
                 labelStyle: TextStyle(
-                  color: isSelected ? const Color(0xFF0F766E) : Colors.black87,
+                      color: isSelected ? AppColors.orange : AppColors.text,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
                 onSelected: (bool selected) {
@@ -162,7 +163,7 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
             child: FilledButton(
               onPressed: _isLoading ? null : _submitExpense,
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF0F766E),
+                    backgroundColor: AppColors.orange,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               child: _isLoading 

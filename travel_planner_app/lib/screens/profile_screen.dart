@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -81,7 +82,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('編輯個人資料', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F766E))),
+                    const Text('編輯個人資料', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.orange)),
                     const SizedBox(height: 24),
 
                     TextField(
@@ -124,17 +125,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           firstDate: DateTime(1900),
                           lastDate: DateTime.now(),
                           builder: (context, child) {
-                            return Theme(
-                              data: Theme.of(context).copyWith(
-                                colorScheme: const ColorScheme.light(
-                                  primary: Color(0xFF0F766E),
-                                  onPrimary: Colors.white,
-                                  onSurface: Colors.black,
+                              return Theme(
+                                data: Theme.of(context).copyWith(
+                                  colorScheme: const ColorScheme.light(
+                                    primary: AppColors.orange,
+                                    onPrimary: Colors.white,
+                                    onSurface: Colors.black,
+                                  ),
                                 ),
-                              ),
-                              child: child!,
-                            );
-                          },
+                                child: child!,
+                              );
+                            },
                         );
                         if (pickedDate != null) {
                           setModalState(() {
@@ -149,7 +150,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       width: double.infinity,
                       height: 50,
                       child: FilledButton(
-                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.orange),
                         onPressed: () async {
                           if (nameCtrl.text.trim().isEmpty) {
                             ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('顯示名稱不能為空！')));
@@ -227,11 +228,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (displayBirthday.isEmpty) displayBirthday = '未設定';
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: AppColors.bg,
       appBar: AppBar(
         title: const Text('我的帳號', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: AppColors.surface,
         elevation: 1,
       ),
       body: ListView(
@@ -239,15 +240,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Card(
             elevation: 0,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey[200]!)),
+            color: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
                   CircleAvatar(
                     radius: 36,
-                    backgroundColor: const Color(0xFF0F766E),
+                    backgroundColor: AppColors.orange,
                     child: Text(
                       userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
                       style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold),
@@ -260,7 +261,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(userName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
-                        Text(userEmail, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                        Text(userEmail, style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
                       ],
                     ),
                   ),
@@ -272,31 +273,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 24),
           const Padding(
             padding: EdgeInsets.only(left: 8, bottom: 8),
-            child: Text('詳細資訊', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+            child: Text('詳細資訊', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
           ),
 
           Card(
             elevation: 0,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey[200]!)),
+            color: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.wc, color: Color(0xFF0F766E)),
-                  title: const Text('性別', style: TextStyle(color: Colors.grey, fontSize: 14)),
-                  subtitle: Text(_translateGender(user['gender']), style: const TextStyle(color: Colors.black87, fontSize: 16)),
+                  leading: const Icon(Icons.wc, color: AppColors.orange),
+                  title: const Text('性別', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                  subtitle: Text(_translateGender(user['gender']), style: const TextStyle(color: AppColors.text, fontSize: 16)),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
-                  leading: const Icon(Icons.location_on, color: Color(0xFF0F766E)),
-                  title: const Text('居住地', style: TextStyle(color: Colors.grey, fontSize: 14)),
-                  subtitle: Text(user['location']?.isNotEmpty == true ? user['location'] : '未設定', style: const TextStyle(color: Colors.black87, fontSize: 16)),
+                  leading: const Icon(Icons.location_on, color: AppColors.orange),
+                  title: const Text('居住地', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                  subtitle: Text(user['location']?.isNotEmpty == true ? user['location'] : '未設定', style: const TextStyle(color: AppColors.text, fontSize: 16)),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
-                  leading: const Icon(Icons.cake, color: Color(0xFF0F766E)),
-                  title: const Text('生日', style: TextStyle(color: Colors.grey, fontSize: 14)),
-                  subtitle: Text(displayBirthday, style: const TextStyle(color: Colors.black87, fontSize: 16)),
+                  leading: const Icon(Icons.cake, color: AppColors.orange),
+                  title: const Text('生日', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                  subtitle: Text(displayBirthday, style: const TextStyle(color: AppColors.text, fontSize: 16)),
                 ),
               ],
             ),
@@ -305,26 +306,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 24),
           const Padding(
             padding: EdgeInsets.only(left: 8, bottom: 8),
-            child: Text('帳號設定', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+            child: Text('帳號設定', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
           ),
 
           Card(
             elevation: 0,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey[200]!)),
+            color: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.edit, color: Color(0xFF0F766E)),
+                  leading: const Icon(Icons.edit, color: AppColors.orange),
                   title: const Text('編輯個人資料'),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary),
                   onTap: () => _openEditProfileSheet(context, auth, user),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
-                  leading: const Icon(Icons.lock_outline, color: Color(0xFF0F766E)),
+                  leading: const Icon(Icons.lock_outline, color: AppColors.orange),
                   title: const Text('重設密碼'),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary),
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('密碼功能即將開放')));
                   },
