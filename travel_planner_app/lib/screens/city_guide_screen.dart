@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class CityGuideScreen extends StatefulWidget {
   final String cityName; // 中文顯示用 (例如：東京)
@@ -126,7 +127,7 @@ class _CityGuideScreenState extends State<CityGuideScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF0F766E))));
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator(color: AppColors.orange)));
     if (_errorMessage != null) {
       return Scaffold(
         appBar: AppBar(title: Text(widget.cityName)),
@@ -150,7 +151,7 @@ class _CityGuideScreenState extends State<CityGuideScreen> {
           SliverAppBar(
             expandedHeight: 250.0,
             pinned: true,
-            backgroundColor: const Color(0xFF0F766E),
+            backgroundColor: AppColors.orange,
             foregroundColor: Colors.white,
             flexibleSpace: FlexibleSpaceBar(
               title: Text(widget.cityName, style: const TextStyle(fontWeight: FontWeight.bold, textBaseline: TextBaseline.alphabetic, shadows: [Shadow(color: Colors.black45, blurRadius: 10)])),
@@ -187,8 +188,8 @@ class _CityGuideScreenState extends State<CityGuideScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
             child: Row(
-              children: [
-                Icon(icon, color: const Color(0xFF0F766E), size: 20),
+                children: [
+                Icon(icon, color: AppColors.orange, size: 20),
                 const SizedBox(width: 8),
                 Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ],

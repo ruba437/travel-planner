@@ -206,7 +206,11 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                       alignment: Alignment.centerRight,
                       child: FilledButton.icon(
                         onPressed: () => _launchMaps(lat, lng, name),
-                        style: FilledButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white, elevation: 0),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFF0FDFA),
+                          foregroundColor: AppColors.orange,
+                          elevation: 0,
+                        ),
                         icon: const Icon(Icons.directions_walk, size: 18),
                         label: const Text('帶我去'),
                       ),
