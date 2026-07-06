@@ -1,83 +1,46 @@
-# 🧭 Travel Planner｜旅遊行程規劃系統
+# Rêverie 旅遊規劃器 ✈️
 
-一個結合 AI 行程產生與 Google Maps 視覺化的旅遊規劃 Web 應用，  
-使用者可透過自然語言描述旅遊需求，即時產生多日行程，並在地圖上查看路線與景點。
+> 專為解決旅遊規劃資訊破碎、檢索耗時與動線盲區所設計的「一站式智慧旅遊規劃系統」。
+
+本專案旨在解決現行旅遊規劃中，使用者需在搜尋引擎、地圖與試算表間頻繁切換的痛點。透過整合 **大語言模型 (LLM)** 語意理解與 **地圖空間視覺化** 技術，將行程編排、智能問答與輔助清單集中於單一平台，提供具備高度可行性的智慧旅遊解決方案。
+
+## ✨ 核心功能與實作亮點
+
+- **🤖 AI 智能語音行程建議 (LLM 動態語意解析)**
+  - 支援 Web Audio API 語音輸入，解決查資料耗時的問題。
+  - 後端動態封裝系統提示詞，強制 LLM 輸出符合規範的結構化 JSON 數據，將景點資料直接渲染至前端介面，實現流暢的智能問答。
+- **🗺️ 一站式地圖與時間軸編排 (雙向綁定)**
+  - 深度整合 Google Maps API，解決地理動線難以直覺掌握的空間障礙。
+  - 在左側時間軸調整行程順序時，右側地圖會即時發動狀態更新，精準重新渲染標記點與交通折線，達成「時間與空間」的無縫連動。
+- **☁️ 跨平台同步與隨身輔助**
+  - 採用雲端雙端同步架構，確保網頁端與行動端資料即時同步。
+  - 內建花費追蹤與行前清單等實用輔助工具，資料即時寫入雲端資料庫，完美支援旅途中隨身記帳與點檢的需求。
+
+## 🛠️ 系統架構與技術棧
+
+本系統採用經典的三層式架構（3-Tier Architecture），涵蓋前端展示端、雲端後端服務端與資料儲存端：
+
+### 前端 (Frontend)
+- **Framework:** React
+- **Build Tool:** Vite
+- **Key APIs:** Web Audio API, Google Maps API
+
+### 後端 (Backend)
+- **Runtime:** Node.js
+- **Architecture:** RESTful API
+- **AI Integration:** LLM API 串接與 Prompt Engineering
+
+### 基礎設施與資料庫 (Infrastructure & Database)
+- **Cloud Provider:** Google Cloud (GCP)
+- **Database:** SQL 關聯式資料庫 (管理 Users, Itineraries, POIs)
+
+## 👨‍💻 團隊成員
+
+- **指導教授：** 劉建宏 教授
+- **專題參與人員：**
+  - 112590033 何益森
+  - 110590057 蔡昀祐
+  - 112370102 楊子力
 
 ---
-
-## 🔧 技術架構
-
-### Frontend
-- React (Vite)
-- @react-google-maps/api
-- JavaScript / CSS
-
-### Backend
-- Node.js
-- Express
-- PostgreSQL / Supabase
-- OpenAI API
-- Google Places API
-- Google Direction API
-- Open-Meteo
-
----
-
-## ✨ 功能介紹
-
-- 💬 AI 旅遊行程產生（JSON 結構化）
-- 🗺 多日行程地圖顯示（Marker + 路線）
-- 🎨 每一天不同顏色標記與順序編號
-- 🔄 行程列表與地圖雙向互動
-- 🔍 Google Places 真實座標與照片
-- 🏠 首頁內容區塊（熱門目的地 / 旅遊指南 / 公開旅程）
-
----
-
-## 📂 專案結構
-
-```text
-travel-planner/
-├─ backend/
-│  ├─ server.js
-│  ├─ package.json
-│  └─ .env (ignored)
-├─ frontend/
-│  ├─ src/
-│  ├─ package.json
-│  └─ vite.config.js
-└─ README.md
-
-
-🚀 啟動方式
-Backend
-cd backend
-npm install
-npm run dev
-
-Frontend
-cd frontend
-npm install
-npm run dev
-
-後端目前使用 PostgreSQL。請將 backend/example.env 填完改成 backend/.env，寫入 Supabase 提供的 DATABASE_URL。
-如果 session pooler 在本機網路環境出現連線重置，可額外設定 DATABASE_URL_FALLBACK 指向 transaction pooler 的 6543 連線字串。
-
-## 🧱 首頁內容資料表初始化
-
-若要啟用首頁真實資料來源（非 fallback 內容），請先執行：
-
-```bash
-cd backend
-psql "$DATABASE_URL" -f home_content_setup.sql
-```
-
-<!-- 這會建立以下資料表並插入基本 seed：
-
-- `itineraries`
-- `itinerary_checklist_items` -->
-
-## 🔌 新增公開 API
-
-- `GET /api/home/content`
-- `GET /api/itineraries/public`
+*本專案為資工系實務專題研究計畫成果 (專題編號：114-2-CSIE-S023)*
